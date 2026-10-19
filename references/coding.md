@@ -17,7 +17,9 @@ read it and match its naming, structure and comment density.
 
 ## Functions
 
-- A function does one thing and fits on one screen, about 40 lines of logic.
+- A function does one thing. Length alone is not a reason to split: a long `switch` that maps
+  inputs to outputs is fine. A function that mixes steps, such as validating, computing and
+  storing, is split into one function per step.
 - Exported functions validate their parameters first and return an error for invalid input.
 - Every returned error is checked. Discarding one with `_` needs a comment above the line that
   says why it cannot fail or does not matter.
