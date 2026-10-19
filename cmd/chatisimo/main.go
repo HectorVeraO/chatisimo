@@ -1,4 +1,4 @@
-// Command chatisimo is the Chatisimo bot platform binary.
+// Command chatisimo is the Chatisimo binary.
 package main
 
 import (
@@ -11,8 +11,9 @@ import (
 var version = "dev"
 
 const (
-	exitOK    = 0
-	exitUsage = 2
+	exitOK      = 0
+	exitFailure = 1
+	exitUsage   = 2
 )
 
 func main() {
@@ -31,7 +32,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		_, err := fmt.Fprintln(stdout, version)
 		if err != nil {
-			return exitUsage
+			return exitFailure
 		}
 		return exitOK
 	default:
@@ -39,10 +40,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+// usage prints the command synopsis to stderr and returns the usage exit code.
 func usage(stderr io.Writer) int {
-	_, err := fmt.Fprintln(stderr, "usage: chatisimo <version>")
-	if err != nil {
-		return exitUsage
-	}
+	// The exit code already reports the failure, so a failed write to stderr changes nothing.
+	_, _ = fmt.Fprintln(stderr, "usage: chatisimo version")
 	return exitUsage
 }
