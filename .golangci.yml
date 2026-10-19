@@ -1,0 +1,74 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - depguard
+    - errcheck
+    - errorlint
+    - gocritic
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - staticcheck
+    - unused
+    - wrapcheck
+  settings:
+    depguard:
+      rules:
+        # Domain modules: no Discord or other client code.
+        domain-modules:
+          list-mode: lax
+          files:
+            - "**/internal/**/*.go"
+            - "!**/internal/discord/**"
+            - "!**/internal/platform/**"
+          deny:
+            - pkg: github.com/disgoorg
+              desc: domain modules must not depend on disgo; use internal/discord
+            - pkg: github.com/HectorVeraO/chatisimo/internal/discord
+              desc: domain modules must not import the Discord client adapter
+        # Platform: shared technical pieces, never modules or adapters.
+        platform:
+          list-mode: lax
+          files:
+            - "**/internal/platform/**/*.go"
+          deny:
+            - pkg: github.com/HectorVeraO/chatisimo/internal
+              desc: internal/platform must not import modules or client adapters
+          allow:
+            - github.com/HectorVeraO/chatisimo/internal/platform
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: error-return
+        - name: error-naming
+        - name: indent-error-flow
+        - name: unused-parameter
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/HectorVeraO/chatisimo
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: false
+  jobs:
+    - name: gitleaks
+      run: gitleaks git --pre-commit --staged --redact --verbose
+    - name: format
+      glob: "*.go"
+      run: golangci-lint fmt --diff {staged_files}
+    - name: golangci-lint
+      glob: "*.go"
+      run: golangci-lint run ./...

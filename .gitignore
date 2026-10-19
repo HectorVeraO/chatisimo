@@ -1,0 +1,22 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Agent scratchpad
+.me/
+
+# Build and test output
+bin/
+*.exe
+*.test
+*.out
+coverage.*
+coverage/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
