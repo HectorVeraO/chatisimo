@@ -9,7 +9,7 @@ Chatisimo is Chatolandia's platform, written in Go.
 
 | Tool | Version | Notes |
 |---|---|---|
-| [mise](https://mise.jdx.dev/) | Any recent release | Installs every tool below from `mise.toml` |
+| [mise](https://mise.jdx.dev/) | Any recent release | Installs the tools below from `mise.toml`, except Docker |
 | Go | 1.27.2 | |
 | golangci-lint | 2.15.0 | Lint and format |
 | gitleaks | 8.30.1 | Secret scanning |
@@ -31,13 +31,14 @@ pinned versions are used inside the repository.
    ```sh
    lefthook install
    ```
-3. Create your local environment file and replace every `change-me` value:
+3. Create your local environment file (Docker Compose reads `.env`) and replace every
+   `change-me` value:
    ```sh
-   cp .env.example .env
+   cp .example.env .env
    ```
-4. Start Postgres and check that it accepts connections:
+4. Start Postgres, wait for its healthcheck, and check that it accepts connections:
    ```sh
-   docker compose up -d
+   docker compose up -d --wait
    docker compose exec postgres pg_isready -U chatisimo
    ```
    Expected: `/var/run/postgresql:5432 - accepting connections`. Postgres is published on
@@ -88,6 +89,7 @@ can merge.
 ```text
 cmd/chatisimo/        binary entry point
 references/           architecture, coding and testing rules
+.claude/              Claude Code reviewer agents and the pl-review-branch skill
 .github/              CI workflow, Dependabot, issue and pull request templates
 compose.yaml          local Postgres
 mise.toml             pinned toolchain

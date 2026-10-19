@@ -17,9 +17,10 @@ committed here is visible to anyone.
 
 ## Rules
 
-**Secrets.** Never commit a credential, token, key or password, and that includes tests,
-fixtures and examples. Local values go in `.env`, which git ignores; `.env.example` holds only
-`change-me` placeholders. Run `lefthook install` once per clone so gitleaks checks every
+**Secrets.** Never commit a credential, token, key, password or connection string with a real
+password, and that includes tests, fixtures, docs and examples. Env files are named
+`.<name>.env` (`.local.env`) or `.env`, and git ignores them all except `.example.env`, which
+holds only `change-me` placeholders. Run `lefthook install` once per clone so gitleaks checks every
 commit; CI scans the full history again and GitHub push protection rejects known secret
 formats. Never add a gitleaks allowlist entry. If a secret is ever pushed, rotate it first,
 then clean the history and tell Héctor.
@@ -32,7 +33,8 @@ their own import rules. Details, diagram and import rules: `references/architect
 **Configuration.** Settings and app secrets live in the database, with secrets encrypted by
 keys derived from `MASTER_KEY`. The environment holds only `DATABASE_URL`, `MASTER_KEY` and
 `CHATISIMO_ENV` (`local` or `production`); adding another variable needs Héctor's approval.
-Secrets are entered through `chatisimo config set`, which reads them from stdin.
+Secrets are entered through `chatisimo config set`, which reads them from stdin; never pass a
+secret as a command-line argument or keep it in a file in the repo.
 
 **Code.** Read `references/coding.md` before writing Go code. It covers design, functions,
 errors, naming, comments and logging. Lint must report zero issues; fix the code, not the
@@ -52,8 +54,13 @@ Discord. Read `references/testing.md` before writing tests.
    [Chatisimo Project](https://github.com/users/HectorVeraO/projects/1).
 2. Create a branch named `<issue>-<slug>`, for example `4-agents-workflow`, and move the
    card to `In Progress`.
-3. Open a pull request to `main` from the template, with `Closes #<issue>` in the body.
-4. Merge once `gitleaks`, `lint`, `build` and `test` pass against the latest `main`. Merging
+3. Review the branch against the rules before the pull request: in Claude Code run
+   `/pl-review-branch`; elsewhere, check the change against each file in `references/` and the
+   rules above. The agent running the review decides which findings to apply, without asking
+   Héctor: it fixes every mandatory finding and applies a polish finding when it improves the
+   change. Every finding left unapplied goes in the pull request body with the reason.
+4. Open a pull request to `main` from the template, with `Closes #<issue>` in the body.
+5. Merge once `gitleaks`, `lint`, `build` and `test` pass against the latest `main`. Merging
    closes the issue; move its card to `Done`.
 
 `main` accepts changes only through pull requests: no direct pushes, no force-pushes. Agents
