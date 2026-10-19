@@ -1,30 +1,110 @@
 # Chatisimo
 
-Chatisimo is a Discord bot platform written in Go, built as a modular monolith. The first
-feature is a gift exchange: draw who gives a gift to whom, on any date. Music, a web app and
-a mobile app are planned later.
+[![CI](https://github.com/HectorVeraO/chatisimo/actions/workflows/ci.yml/badge.svg)](https://github.com/HectorVeraO/chatisimo/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Prerequisites
+Chatisimo is Chatolandia's platform, written in Go.
 
-- [mise](https://mise.jdx.dev/) (installs the pinned Go toolchain and dev tools)
-- Docker (for the local Postgres 18)
+## Requirements
 
-## Quick start
+| Tool | Version | Notes |
+|---|---|---|
+| [mise](https://mise.jdx.dev/) | Any recent release | Installs the tools below from `mise.toml`, except Docker |
+| Go | 1.27.2 | |
+| golangci-lint | 2.15.0 | Lint and format |
+| gitleaks | 8.30.1 | Secret scanning |
+| lefthook | 2.2.2 | Git hooks |
+| goose | 3.29.0 | Database migrations |
+| sqlc | 1.31.1 | Query code generation |
+| Docker | Compose v2 | Runs Postgres 18.6 locally |
 
-```sh
-mise install
-cp .env.example .env        # then replace every change-me value
-docker compose up -d
-go run ./cmd/chatisimo version
-```
+Activate mise in your shell ([instructions](https://mise.jdx.dev/getting-started.html)) so the
+pinned versions are used inside the repository.
 
-Install the git hooks once per clone (they run gitleaks and Go checks before each commit):
+## Getting started
 
-```sh
-lefthook install
+1. Install the toolchain:
+   ```sh
+   mise install
+   ```
+2. Install the git hooks, which run gitleaks, the formatter and the linter before every commit:
+   ```sh
+   lefthook install
+   ```
+3. Create your local environment file (Docker Compose reads `.env`) and replace every
+   `change-me` value:
+   ```sh
+   cp .example.env .env
+   ```
+4. Start Postgres, wait for its healthcheck, and check that it accepts connections:
+   ```sh
+   docker compose up -d --wait
+   docker compose exec postgres pg_isready -U chatisimo
+   ```
+   Expected: `/var/run/postgresql:5432 - accepting connections`. Postgres is published on
+   `localhost:10000`.
+5. Build and run the binary:
+   ```sh
+   go run ./cmd/chatisimo version
+   ```
+   Expected: `dev`.
+
+## Configuration
+
+The environment holds only startup values. Every other setting, and every app secret, is stored
+in the database.
+
+| Variable | Purpose | Example |
+|---|---|---|
+| `DATABASE_URL` | Postgres connection string | `postgres://chatisimo:change-me@localhost:10000/chatisimo?sslmode=disable` |
+| `MASTER_KEY` | Root key for encrypting app secrets in the database | `change-me` |
+| `CHATISIMO_ENV` | Environment name: `local` or `production` | `local` |
+
+## Development
+
+| Task | Command |
+|---|---|
+| Build | `go build ./...` |
+| Test | `go test ./...` |
+| Test with the race detector (needs cgo) | `go test -race ./...` |
+| Lint | `golangci-lint run ./...` |
+| Format | `golangci-lint fmt` |
+| Run the pre-commit checks without committing | `lefthook run pre-commit` |
+| Stop Postgres | `docker compose down` |
+
+## Continuous integration
+
+Every push and pull request to `main` runs four jobs. All four are required before a pull request
+can merge.
+
+| Job | What it checks |
+|---|---|
+| `gitleaks` | Secrets anywhere in the full git history |
+| `lint` | `golangci-lint`, including the import rules between packages |
+| `build` | `go build ./...` |
+| `test` | `go test -race ./...` |
+
+## Repository layout
+
+```text
+cmd/chatisimo/        binary entry point
+references/           architecture, coding and testing rules
+.claude/              Claude Code reviewer agents and the pl-review-branch skill
+.github/              CI workflow, Dependabot, issue and pull request templates
+compose.yaml          local Postgres
+mise.toml             pinned toolchain
+.golangci.yml         linters, formatters, import rules
+lefthook.yml          pre-commit hooks
+AGENTS.md             rules for contributors and agents
 ```
 
 ## Contributing
 
-Architecture, secret-handling and testing rules are in [AGENTS.md](AGENTS.md). They apply to
-every contributor, human or automated.
+Read [AGENTS.md](AGENTS.md) before opening a pull request: it covers the rules for secrets,
+modules, configuration and tests, and the issue-to-merge workflow. Details are in
+[references/architecture.md](references/architecture.md),
+[references/coding.md](references/coding.md) and [references/testing.md](references/testing.md).
+
+## License
+
+[MIT](LICENSE)

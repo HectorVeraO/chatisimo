@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -36,5 +37,22 @@ func TestRun(t *testing.T) {
 				t.Errorf("stderr usage present = %v, want %v (stderr=%q)", hasUsage, tc.wantStderr, stderr.String())
 			}
 		})
+	}
+}
+
+// failingWriter rejects every write, standing in for a closed or broken stdout.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+func TestRunVersionFailsWhenStdoutFails(t *testing.T) {
+	var stderr bytes.Buffer
+
+	code := run([]string{"version"}, failingWriter{}, &stderr)
+
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
 	}
 }

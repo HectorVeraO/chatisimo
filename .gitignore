@@ -1,7 +1,8 @@
 # Secrets and local environment
 .env
+*.env
 .env.*
-!.env.example
+!.example.env
 
 # Agent scratchpad
 .me/
