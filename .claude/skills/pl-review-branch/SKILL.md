@@ -1,11 +1,15 @@
 ---
 name: pl-review-branch
-description: Review the current branch's changes against main with the five Chatisimo reviewer agents before opening a pull request, then apply the findings. Runs without asking Héctor; unapplied findings go in the pull request body.
+description: Review the current branch's changes against main with the Chatisimo reviewer agents that match the change before opening a pull request, then apply the findings. Runs without asking Héctor; unapplied findings go in the pull request body.
 allowed-tools: Bash(git *), Bash(mkdir *), Read, Edit, Write, Agent
+argument-hint: "[design path or link]..."
 ---
 
 Review everything the current branch changes relative to `origin/main`: its commits plus
 uncommitted work. Héctor does not review the findings; you decide, apply and record them.
+
+The optional argument is one or more design references (paths or links). Goals and workflows
+pass it; Héctor passes it when invoking by hand.
 
 ## 1. Collect the change
 
@@ -25,9 +29,18 @@ to review" and stop.
 
 ## 2. Dispatch the reviewers
 
-Send all five in one message so they run in parallel: `architecture-reviewer`,
-`patterns-reviewer`, `test-reviewer`, `security-reviewer`, `logic-reviewer`. Give each the same
-prompt:
+Take the touched files from `git diff --name-only "$base"` plus the untracked list. Select
+the reviewers by what the change touches, and send all selected ones in one message so they
+run in parallel:
+
+- `secrets-reviewer`: always.
+- `patterns-reviewer`: a `.go` file that is not `_test.go` is touched.
+- `test-reviewer`: a `_test.go` file is touched.
+- `logic-reviewer`: a `.go` file that is not `_test.go` is touched.
+- `architecture-reviewer`: only when design references were passed.
+
+Give each the same prompt, and add the line `Design: <references>` to the
+`architecture-reviewer` prompt:
 
 ```text
 Diff: .me/review/branch.diff
@@ -53,7 +66,7 @@ Write "Nothing to report." under the heading when both lists are empty.
 
 ## 3. Decide
 
-Merge the five answers into one numbered list, dropping duplicates. Add no findings of your
+Merge the answers into one numbered list, dropping duplicates. Add no findings of your
 own. For each finding, verify the claim against the code before acting on it, then decide:
 
 - Mandatory: apply it, unless the claim is false. A false claim is recorded with the evidence.
@@ -63,9 +76,9 @@ own. For each finding, verify the claim against the code before acting on it, th
 ## 4. Apply and re-check
 
 Apply the chosen fixes, then run `go test ./...` and `golangci-lint run ./...`. Regenerate the
-diff and dispatch all five reviewers again on it. Repeat steps 3 and 4 until no mandatory
-finding remains, at most three rounds; if mandatory findings remain after the third, stop and
-report them to Héctor.
+diff and dispatch again only the reviewers that had mandatory findings in the previous round.
+Repeat steps 3 and 4 until no mandatory finding remains, at most three rounds; if mandatory
+findings remain after the third, stop and report them to Héctor.
 
 ## 5. Record
 
