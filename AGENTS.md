@@ -52,8 +52,9 @@ Discord. Read `references/testing.md` before writing tests.
 1. Open an issue from the `task` or `bug` template, give it a milestone (`1 Domain`,
    `2 Discord bot`, `3 Publish`) and add it to the
    [Chatisimo Project](https://github.com/users/HectorVeraO/projects/1).
-2. Create a branch named `<issue>-<slug>`, for example `4-agents-workflow`, and move the
-   card to `In Progress`.
+2. Create a branch named `feature/<task>` for a `task` issue or `bugfix/<task>` for a `bug`
+   issue, where `<task>` is a short slug of the issue title, for example
+   `feature/branch-naming`, and move the card to `In Progress`.
 3. Review the branch against the rules before the pull request: in Claude Code run
    `/pl-review-branch`; elsewhere, check the change against each file in `references/` and the
    rules above. The agent running the review decides which findings to apply, without asking
