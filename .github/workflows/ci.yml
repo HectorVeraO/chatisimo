@@ -36,6 +36,34 @@ jobs:
       - name: Scan full history
         run: gitleaks git --redact --verbose --exit-code 1 .
 
+  identity:
+    name: identity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check commit emails
+        env:
+          # A pull request checks out a synthetic merge commit; scan from the branch head instead.
+          TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          offenders=""
+          while IFS=$'\t' read -r sha author committer; do
+            for email in "${author}" "${committer}"; do
+              case "${email}" in
+                *@users.noreply.github.com | noreply@github.com) ;;
+                *) offenders="${offenders} ${sha}"; break ;;
+              esac
+            done
+          done < <(git log --format='%h%x09%ae%x09%ce' "${TARGET_SHA}")
+          if [ -n "${offenders}" ]; then
+            echo "Commits whose author or committer email is not a GitHub noreply address:${offenders}"
+            exit 1
+          fi
+
   lint:
     name: lint
     runs-on: ubuntu-latest

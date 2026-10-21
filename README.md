@@ -27,8 +27,10 @@ pinned versions are used inside the repository.
    ```sh
    mise install
    ```
-2. Install the git hooks, which run gitleaks, the formatter and the linter before every commit:
+2. Set your commit email to your GitHub noreply address, then install the git hooks, which check
+   that email and run gitleaks, the formatter and the linter before every commit:
    ```sh
+   git config user.email <id>+<login>@users.noreply.github.com
    lefthook install
    ```
 3. Create your local environment file (Docker Compose reads `.env`) and replace every
@@ -74,12 +76,13 @@ in the database.
 
 ## Continuous integration
 
-Every push and pull request to `master` runs four jobs. All four are required before a pull request
+Every push and pull request to `master` runs five jobs. All five are required before a pull request
 can merge.
 
 | Job | What it checks |
 |---|---|
-| `gitleaks` | Secrets anywhere in the full git history |
+| `gitleaks` | Secrets and email addresses anywhere in the full git history |
+| `identity` | Every commit author and committer email is a GitHub noreply address |
 | `lint` | `golangci-lint`, including the import rules between packages |
 | `build` | `go build ./...` |
 | `test` | `go test -race ./...` |
@@ -95,6 +98,7 @@ compose.yaml          local Postgres
 mise.toml             pinned toolchain
 .golangci.yml         linters, formatters, import rules
 lefthook.yml          pre-commit hooks
+.gitleaks.toml        gitleaks rules, including the email rule
 AGENTS.md             rules for contributors and agents
 ```
 
