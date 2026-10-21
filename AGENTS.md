@@ -60,10 +60,10 @@ Discord. Read `references/testing.md` before writing tests.
    rules above. The agent running the review decides which findings to apply, without asking
    Héctor: it fixes every mandatory finding and applies a polish finding when it improves the
    change. Every finding left unapplied goes in the pull request body with the reason.
-4. Open a pull request to `main` from the template, with `Closes #<issue>` in the body.
-5. Merge once `gitleaks`, `lint`, `build` and `test` pass against the latest `main`. Merging
+4. Open a pull request to `master` from the template, with `Closes #<issue>` in the body.
+5. Merge once `gitleaks`, `lint`, `build` and `test` pass against the latest `master`. Merging
    closes the issue; move its card to `Done`.
 
-`main` accepts changes only through pull requests: no direct pushes, no force-pushes. Agents
+`master` accepts changes only through pull requests: no direct pushes, no force-pushes. Agents
 commit, push and merge only with Héctor's explicit approval for that action. Design notes,
 research and decisions stay out of this repository.

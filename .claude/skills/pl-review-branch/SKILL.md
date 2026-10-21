@@ -1,11 +1,11 @@
 ---
 name: pl-review-branch
-description: Review the current branch's changes against main with the Chatisimo reviewer agents that match the change before opening a pull request, then apply the findings. Runs without asking Héctor; unapplied findings go in the pull request body.
+description: Review the current branch's changes against master with the Chatisimo reviewer agents that match the change before opening a pull request, then apply the findings. Runs without asking Héctor; unapplied findings go in the pull request body.
 allowed-tools: Bash(git *), Bash(mkdir *), Read, Edit, Write, Agent
 argument-hint: "[design path or link]..."
 ---
 
-Review everything the current branch changes relative to `origin/main`: its commits plus
+Review everything the current branch changes relative to `origin/master`: its commits plus
 uncommitted work. Héctor does not review the findings; you decide, apply and record them.
 
 The optional argument is one or more design references (paths or links). Goals and workflows
@@ -16,14 +16,14 @@ pass it; Héctor passes it when invoking by hand.
 Run each command and stop at the first failure, reporting the command and its error:
 
 ```sh
-git fetch -q origin main
-base="$(git merge-base origin/main HEAD)"
+git fetch -q origin master
+base="$(git merge-base origin/master HEAD)"
 mkdir -p .me/review
 git diff "$base" > .me/review/branch.diff
 git ls-files --others --exclude-standard
 ```
 
-If `base` is empty, stop: the branch has no common ancestor with `origin/main`. Only after all
+If `base` is empty, stop: the branch has no common ancestor with `origin/master`. Only after all
 commands succeed: if the diff file is empty and there are no untracked files, report "Nothing
 to review" and stop.
 
