@@ -1,6 +1,8 @@
 pre-commit:
   parallel: false
   jobs:
+    - name: identity
+      run: git config user.email | grep -q '@users\.noreply\.github\.com$' || { echo 'Commit email must be your GitHub noreply address, set it with git config user.email <id>+<login>@users.noreply.github.com' >&2; exit 1; }
     - name: gitleaks
       run: gitleaks git --pre-commit --staged --redact --verbose
     - name: format

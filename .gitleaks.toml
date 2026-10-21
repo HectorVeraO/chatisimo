@@ -1,0 +1,20 @@
+title = "chatisimo"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "email-address"
+description = "Email address. Personal data must not reach git; use an example or noreply address."
+regex = '''[a-zA-Z0-9._%+-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}'''
+keywords = ["@"]
+
+# The only allowlist in this repository. Never add an entry to silence a finding.
+[[rules.allowlists]]
+description = "RFC 2606 example domains and non-personal noreply addresses"
+regexTarget = "match"
+regexes = [
+  '''@(?:[a-zA-Z0-9-]+\.)*example\.(?:com|org|net)$''',
+  '''@users\.noreply\.github\.com$''',
+  '''^noreply@github\.com$''',
+]
