@@ -74,7 +74,7 @@ in the database.
 
 ## Continuous integration
 
-Every push and pull request to `main` runs four jobs. All four are required before a pull request
+Every push and pull request to `master` runs four jobs. All four are required before a pull request
 can merge.
 
 | Job | What it checks |
