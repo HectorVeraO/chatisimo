@@ -109,7 +109,7 @@ type world struct {
 	users    map[string]fakediscord.User
 }
 
-func newWorld(t *testing.T) *world {
+func newWorld(t testing.TB) *world {
 	t.Helper()
 
 	fake, err := fakediscord.New(fakediscord.Options{})

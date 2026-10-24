@@ -341,6 +341,39 @@ func TestNotifyRejectsAnIdentityThatIsNotASnowflake(t *testing.T) {
 	}
 }
 
+func FuzzNotifyIdentitySubject(f *testing.F) {
+	seeds := []string{
+		"",
+		userB,
+		"not-a-snowflake",
+		"-1",
+		"0",
+		"18446744073709551616",
+		strings.Repeat("9", 4096),
+		"\u202eRTL\u200b",
+		"e\u0301\u0301\u0301",
+		"<@123456789012345678>",
+		"@everyone",
+		"🎁",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	w := newWorld(f)
+
+	f.Fuzz(func(t *testing.T, subject string) {
+		notice := cancelledNotice(subject)
+
+		err := w.notifier.Notify(t.Context(), notice)
+
+		isInvalidSubject := errors.Is(err, giftexchange.ErrUndeliverable)
+		if isInvalidSubject && strings.Contains(err.Error(), subject) && len(subject) > 8 {
+			t.Errorf("error %q repeats the identity subject", err)
+		}
+	})
+}
+
 func TestNotifyRejectsAZeroNotificationID(t *testing.T) {
 	w := newWorld(t)
 	notice := cancelledNotice(userB)
