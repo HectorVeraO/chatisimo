@@ -324,7 +324,7 @@ Format: see `.claude/references/code-path-parity-format.md`. Root keeps a one-li
 <!-- Add parity rows below this line. The skill never edits below. -->
 
 - **Go and Postgres versions**: `go.mod`, `mise.toml`, `.deploy/local/Dockerfile` (`golang:` tag), `.deploy/local/docker-compose.yaml` and `ci.yml` (`postgres:` tag) name the same versions. Full row: `.claude/references/code-path-parity.md`.
-- **Texts the browser specs assert**: `internal/discord/internal/giftexchangecmd/texts.go` (and the few texts the specs also read from `list.go`, `rules.go` and `internal/giftexchange/rules.go`) and `playwright/fixtures/texts.ts` carry the same strings. Full row: `.claude/references/code-path-parity.md`.
+- **Texts the browser specs assert**: `internal/discord/internal/giftexchangecmd/texts.go` (and the few texts the specs also read from `list.go`, `rules.go`, `internal/giftexchange/rules.go`, `internal/giftexchange/parse.go` and `internal/fakediscord/web/slash.js`) and `playwright/fixtures/texts.ts` carry the same strings. Full row: `.claude/references/code-path-parity.md`.
 - **Node version**: `mise.toml` (`node`) and `.github/workflows/ci.yml` (`NODE_VERSION`) name the same version. Full row: `.claude/references/code-path-parity.md`.
 
 ## Anti-degradation governance
