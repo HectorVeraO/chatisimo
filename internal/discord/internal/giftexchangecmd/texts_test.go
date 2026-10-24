@@ -75,6 +75,7 @@ func allTexts() map[string]string {
 		"textCancelledPublic":          textCancelledPublic,
 		"textNothingChanged":           textNothingChanged,
 		"textAsked":                    textAsked,
+		"textAskedUnnamed":             textAskedUnnamed,
 		"textYourAnswer":               textYourAnswer,
 		"textNotSaved":                 textNotSaved,
 		"textNotSavedLine":             textNotSavedLine,
