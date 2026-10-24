@@ -143,12 +143,8 @@ func TestDrawWithTheMaximumOf100ParticipantsSucceeds(t *testing.T) {
 	}
 }
 
-func TestDrawMovesTheExchangeToDrawnInRoundOne(t *testing.T) {
+func TestDrawMovesTheExchangeToDrawnAtTheModuleClockWithTheParticipantCount(t *testing.T) {
 	s := newDrawScene(t, 3)
-	_, ruleErr := s.set(t, s.organizer, giftexchange.RuleDrawAt, s.h.futureText(24*time.Hour))
-	if ruleErr != nil {
-		t.Fatalf("SetRule: %v", ruleErr)
-	}
 
 	s.mustDraw(t)
 
@@ -162,13 +158,39 @@ func TestDrawMovesTheExchangeToDrawnInRoundOne(t *testing.T) {
 	if view.DrawnAt == nil || !view.DrawnAt.Equal(s.h.clock.Now()) {
 		t.Errorf("drawn_at = %v, want the module clock %v", view.DrawnAt, s.h.clock.Now())
 	}
-	if view.DrawAt != nil {
-		t.Errorf("draw_at = %v, want it cleared by the draw", view.DrawAt)
-	}
 	if view.ParticipantCount != 3 {
 		t.Errorf("participant count = %d, want 3", view.ParticipantCount)
 	}
-	for _, row := range notificationRows(t, s.exchange) {
+}
+
+func TestDrawClearsTheScheduledDrawTime(t *testing.T) {
+	s := newDrawScene(t, 3)
+	_, ruleErr := s.set(t, s.organizer, giftexchange.RuleDrawAt, s.h.futureText(24*time.Hour))
+	if ruleErr != nil {
+		t.Fatalf("SetRule: %v", ruleErr)
+	}
+
+	s.mustDraw(t)
+
+	view, err := s.h.svc.Exchange(t.Context(), s.organizer.actor, s.group, s.exchange)
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	if view.DrawAt != nil {
+		t.Errorf("draw_at = %v, want it cleared by the draw", view.DrawAt)
+	}
+}
+
+func TestDrawQueuesItsNoticesInRoundOne(t *testing.T) {
+	s := newDrawScene(t, 3)
+
+	s.mustDraw(t)
+
+	rows := notificationRows(t, s.exchange)
+	if len(rows) == 0 {
+		t.Fatal("no notifications queued")
+	}
+	for _, row := range rows {
 		if row.round != 1 {
 			t.Errorf("notification round = %d, want 1", row.round)
 		}

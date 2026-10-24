@@ -341,8 +341,11 @@ func TestUnrelatedCallerCannotTellAnUnknownExchangeFromARealOne(t *testing.T) {
 	_, realErr := s.h.svc.MyAssignment(t.Context(), s.stranger.actor, s.exchange)
 	_, unknownErr := s.h.svc.MyAssignment(t.Context(), s.stranger.actor, unknownExchange(t))
 
-	if realErr == nil || unknownErr == nil || realErr.Error() != unknownErr.Error() {
-		t.Errorf("errors are %v and %v, want the same ErrNotFound text", realErr, unknownErr)
+	if !errors.Is(realErr, giftexchange.ErrNotFound) || !errors.Is(unknownErr, giftexchange.ErrNotFound) {
+		t.Fatalf("errors are %v and %v, want both ErrNotFound", realErr, unknownErr)
+	}
+	if realErr.Error() != unknownErr.Error() {
+		t.Errorf("errors are %q and %q, want the same text", realErr, unknownErr)
 	}
 }
 
