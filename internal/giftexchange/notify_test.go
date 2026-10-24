@@ -150,7 +150,8 @@ func TestRegisterJobsTwiceOnOneRegistryFails(t *testing.T) {
 	}
 }
 
-func TestCancelledNoticeIsDeliveredOnceAndRecorded(t *testing.T) {
+func deliverCancelledNotice(t *testing.T) (cancelledScene, []giftexchange.Notification) {
+	t.Helper()
 	s := newCancelledScene(t, newSubject())
 	s.h.startRunner(t)
 
@@ -158,7 +159,24 @@ func TestCancelledNoticeIsDeliveredOnceAndRecorded(t *testing.T) {
 		return noticeOf(t, s.noticeID).hasOutcome("delivered")
 	})
 
-	received := s.h.notifier.Received()
+	return s, s.h.notifier.Received()
+}
+
+func TestCancelledNoticeIsDeliveredOnceAndRecorded(t *testing.T) {
+	s, received := deliverCancelledNotice(t)
+
+	if len(received) != 1 {
+		t.Fatalf("notifier received %d notifications, want 1", len(received))
+	}
+	notice := noticeOf(t, s.noticeID)
+	if notice.finishedAt == nil || !notice.finishedAt.Equal(s.h.clock.Now()) {
+		t.Errorf("finished_at = %v, want the module clock %v", notice.finishedAt, s.h.clock.Now())
+	}
+}
+
+func TestCancelledNoticeCarriesTheAddresseeAndTheExchange(t *testing.T) {
+	s, received := deliverCancelledNotice(t)
+
 	if len(received) != 1 {
 		t.Fatalf("notifier received %d notifications, want 1", len(received))
 	}
@@ -186,11 +204,10 @@ func TestCancelledNoticeIsDeliveredOnceAndRecorded(t *testing.T) {
 	if got.Counterpart != nil || got.Question != nil || got.Reason != "" {
 		t.Error("cancelled notice carries a counterpart, question or reason")
 	}
+}
 
-	notice := noticeOf(t, s.noticeID)
-	if notice.finishedAt == nil || !notice.finishedAt.Equal(s.h.clock.Now()) {
-		t.Errorf("finished_at = %v, want the module clock %v", notice.finishedAt, s.h.clock.Now())
-	}
+func TestCancelledNoticeDeliveryLeaksNothingToLogsOrErrors(t *testing.T) {
+	s, _ := deliverCancelledNotice(t)
 
 	secrets := []string{
 		s.participant.id.String(), s.participant.subject,
