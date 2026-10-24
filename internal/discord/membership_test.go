@@ -264,8 +264,12 @@ func TestMembershipCreatePostsThePublicCardAndAnswersTheOrganizerAlone(t *testin
 		wantRevealField string
 		wantRevealAfter time.Duration
 	}{
-		"without times":    {options: map[string]any{"name": membershipName}, wantRevealField: "not set (organizer runs it)"},
-		"with a draw time": {options: map[string]any{"name": membershipName, "draw-at": "in 3d"}, wantDrawOffset: 72 * time.Hour},
+		"without times": {options: map[string]any{"name": membershipName}, wantRevealField: "not set (organizer runs it)"},
+		"with a draw time": {
+			options:         map[string]any{"name": membershipName, "draw-at": "in 3d"},
+			wantDrawOffset:  72 * time.Hour,
+			wantRevealField: "not set (organizer runs it)",
+		},
 		"with a draw and a reveal time": {
 			options:         map[string]any{"name": membershipName, "draw-at": "in 3d", "reveal-at": "in 5d"},
 			wantDrawOffset:  72 * time.Hour,
@@ -596,18 +600,21 @@ func TestMembershipRemoveAfterTheDrawAsksFirstAndReportsEachOutcome(t *testing.T
 		joiners   int
 		want      string
 		wantState giftexchange.State
+		wantDM    string
 	}{
-		"five to four patches":  {5, membershipPatched, giftexchange.StateDrawn},
-		"four to three redraws": {4, membershipRedrawn, giftexchange.StateDrawn},
-		"three to two reopens":  {3, membershipReopened, giftexchange.StateOpen},
+		"five to four patches":  {5, membershipPatched, giftexchange.StateDrawn, "Your recipient changed."},
+		"four to three redraws": {4, membershipRedrawn, giftexchange.StateDrawn, "the draw was redone."},
+		"three to two reopens":  {3, membershipReopened, giftexchange.StateOpen, ""},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			s := newScene(t)
+			s.startRunner(t, s.world)
 			pool := []string{s.b, s.c, s.d, membershipExtraUser(t, s), membershipExtraUser(t, s)}
 			joiners := pool[:tc.joiners]
 			id := membershipDrawn(t, s, joiners...)
 			target := membershipPatchableTarget(t, s, joiners)
+			recipientsBefore := membershipRecipients(t, s, id, joiners)
 
 			asked := slashOrFail(t, s.harness, s.a, s.ge("remove", true, membershipOnly(id, map[string]any{"participant": target})))
 
@@ -632,6 +639,7 @@ func TestMembershipRemoveAfterTheDrawAsksFirstAndReportsEachOutcome(t *testing.T
 				t.Errorf("state %s with %d participants, want %s with %d",
 					summary.State, summary.ParticipantCount, tc.wantState, tc.joiners-1)
 			}
+			membershipCheckRemoval(t, s, id, joiners, target, recipientsBefore, tc.wantDM)
 			s.waitInteractionLogs(t, 1)
 			logs := s.logs.String()
 			for _, user := range append([]string{s.a}, joiners...) {
@@ -1028,4 +1036,82 @@ func membershipPatchableTarget(t *testing.T, s *scene, joiners []string) string 
 	t.Fatal("every participant is in a pair of two")
 
 	return ""
+}
+
+// membershipRecipients maps each giver to the recipient they currently hold; a giver without an
+// assignment is absent from the map.
+func membershipRecipients(t *testing.T, s *scene, id giftexchange.ExchangeID, givers []string) map[string]string {
+	t.Helper()
+
+	recipients := map[string]string{}
+	for _, giver := range givers {
+		assignment, err := s.svc.MyAssignment(t.Context(), s.people[giver].actor, id)
+		if err != nil {
+			continue
+		}
+		recipients[giver] = assignment.Recipient.Identities[0].Subject
+	}
+
+	return recipients
+}
+
+// membershipCheckRemoval asserts what a removal after the draw leaves behind: a valid
+// assignment for every remaining giver (none when the draw was undone), unchanged recipients for
+// the givers a patch did not touch, and the DM that announces the change.
+func membershipCheckRemoval(
+	t *testing.T, s *scene, id giftexchange.ExchangeID, joiners []string, target string,
+	before map[string]string, wantDM string,
+) {
+	t.Helper()
+
+	var remaining []string
+	for _, user := range joiners {
+		if user != target {
+			remaining = append(remaining, user)
+		}
+	}
+	after := membershipRecipients(t, s, id, remaining)
+	if wantDM == "" {
+		if len(after) != 0 {
+			t.Errorf("assignments after the draw was undone = %v, want none", after)
+		}
+
+		return
+	}
+
+	isRemaining := map[string]bool{}
+	for _, user := range remaining {
+		isRemaining[user] = true
+	}
+	taken := map[string]bool{}
+	var changed []string
+	for _, giver := range remaining {
+		recipient, ok := after[giver]
+		if !ok || !isRemaining[recipient] || recipient == giver || taken[recipient] {
+			t.Errorf("a remaining giver has recipient %q (assigned %v), want another remaining participant nobody else has", recipient, ok)
+		}
+		taken[recipient] = true
+		if recipient != before[giver] {
+			changed = append(changed, giver)
+		}
+	}
+
+	wantRecipients := remaining
+	isPatch := wantDM == "Your recipient changed."
+	if isPatch {
+		if len(changed) != 1 || before[changed[0]] != target {
+			t.Errorf("%d givers changed recipient, want only the one who had the removed participant", len(changed))
+		}
+		wantRecipients = changed
+	}
+	for _, giver := range wantRecipients {
+		waitCtx, cancel := context.WithTimeout(t.Context(), deliveryDeadline)
+		_, err := s.fake.WaitDM(waitCtx, s.users[giver], func(m fakediscord.Message) bool {
+			return strings.Contains(m.Content, wantDM)
+		})
+		cancel()
+		if err != nil {
+			t.Errorf("a remaining giver got no %q DM: %v", wantDM, err)
+		}
+	}
 }
