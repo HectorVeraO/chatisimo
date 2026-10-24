@@ -182,8 +182,8 @@ func TestWaitReadyFailsOnAClosedServer(t *testing.T) {
 
 	err := srv.WaitReady(testContext(t, time.Second))
 
-	if err == nil {
-		t.Error("WaitReady returned nil on a closed server")
+	if !errors.Is(err, fakediscord.ErrClosed) {
+		t.Errorf("WaitReady error = %v, want ErrClosed", err)
 	}
 }
 
@@ -283,7 +283,10 @@ func TestTokenNeverReachesRecordsOrLogs(t *testing.T) {
 	h.registerGlobalCommands(t)
 	h.open(t)
 	waitChan(t, h.guilds, gatewayTimeout, "GuildReady")
-	postChannelMessage(t, srv, guild.ChannelID, "hello "+"<@"+aliceID+">", "", "")
+	posted := postChannelMessage(t, srv, guild.ChannelID, "hello "+"<@"+aliceID+">", "", "")
+	if posted.status != http.StatusOK {
+		t.Fatalf("post status = %d, body %s", posted.status, posted.body)
+	}
 	openedDM := openDM(t, srv, aliceID)
 	call(t, srv, http.MethodPost, "/api/v10/channels/"+openedDM+"/messages", botAuth(srv), `{"content":"dm"}`)
 	call(t, srv, http.MethodPost, "/api/v10/channels/"+openedDM+"/messages", "Bot "+srv.Token()+"x", `{"content":"dm"}`)
@@ -295,6 +298,9 @@ func TestTokenNeverReachesRecordsOrLogs(t *testing.T) {
 	outbound, err := json.Marshal(srv.Outbound())
 	if err != nil {
 		t.Fatalf("marshal outbound: %v", err)
+	}
+	if len(srv.Outbound()) < 2 {
+		t.Fatalf("outbound holds %d records, want the channel and DM posts", len(srv.Outbound()))
 	}
 	segments := strings.Split(srv.Token(), ".")
 	secrets := map[string]string{"token": srv.Token(), "second segment": segments[1], "third segment": segments[2]}
@@ -367,8 +373,8 @@ func TestContextEndStopsTheServer(t *testing.T) {
 	cancel()
 
 	waitErr := srv.WaitReady(testContext(t, gatewayTimeout))
-	if waitErr == nil {
-		t.Error("WaitReady returned nil after the Start context ended")
+	if !errors.Is(waitErr, fakediscord.ErrClosed) {
+		t.Errorf("WaitReady error = %v, want ErrClosed", waitErr)
 	}
 }
 

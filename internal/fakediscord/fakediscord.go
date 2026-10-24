@@ -290,13 +290,17 @@ func (s *Server) AddGuild(g Guild, members ...User) Guild {
 	return stored
 }
 
-// AddMember adds u to the guild, registering u when unknown. It returns an error when the
-// guild is not one of the fake's.
-func (s *Server) AddMember(g Guild, u User) error {
+// AddMember adds u to the guild, registering u when unknown. It panics when the guild is not
+// one of the fake's, like the other setup helpers: a test arranging a world that does not
+// exist is a bug in the test.
+func (s *Server) AddMember(g Guild, u User) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.w.addMember(g.ID, u, s.ids)
+	err := s.w.addMember(g.ID, u, s.ids)
+	if err != nil {
+		panic("fakediscord: " + err.Error())
+	}
 }
 
 // Visible returns the messages of a channel that as can see: public ones, and ephemeral ones

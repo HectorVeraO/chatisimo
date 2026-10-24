@@ -74,10 +74,7 @@ func TestGuildMessageVisibilityIsFixedWhenItIsSent(t *testing.T) {
 	w := newVisibilityWorld(t)
 	postChannelMessage(t, w.srv, w.guild.ChannelID, "before carol", "", "")
 
-	err := w.srv.AddMember(w.guild, w.carol)
-	if err != nil {
-		t.Fatalf("AddMember: %v", err)
-	}
+	w.srv.AddMember(w.guild, w.carol)
 	postChannelMessage(t, w.srv, w.guild.ChannelID, "after carol", "", "")
 
 	records := w.srv.Outbound()
@@ -156,9 +153,10 @@ func TestRegisteringAKnownUserWithoutANameKeepsTheName(t *testing.T) {
 func TestAddMemberRejectsAnUnknownGuild(t *testing.T) {
 	w := newVisibilityWorld(t)
 
-	err := w.srv.AddMember(fakediscord.Guild{ID: missingID}, w.alice)
-
-	if err == nil {
-		t.Error("AddMember returned nil for an unknown guild")
-	}
+	defer func() {
+		if recover() == nil {
+			t.Error("AddMember did not panic for an unknown guild")
+		}
+	}()
+	w.srv.AddMember(fakediscord.Guild{ID: missingID}, w.alice)
 }
