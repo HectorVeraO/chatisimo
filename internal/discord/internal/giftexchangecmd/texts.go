@@ -37,7 +37,6 @@ const (
 	textCancelledPublic    = "%s was cancelled by the organizer."
 	textNothingChanged     = "Nothing changed."
 	textAsked              = "Your question was sent anonymously to your recipient in %s."
-	textAskedUnnamed       = "Your question was sent anonymously to your recipient."
 	textYourAnswer         = "Your answer:"
 	textNotSaved           = "Not saved:"
 	textNotSavedLine       = "- %s"

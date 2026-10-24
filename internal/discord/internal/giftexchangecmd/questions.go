@@ -2,7 +2,6 @@ package giftexchangecmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -28,8 +27,6 @@ const (
 	// questionFieldRunes is below Discord's limit of 1024 characters on an embed field.
 	questionFieldRunes = 1000
 )
-
-var errQuestionExchangeMissing = errors.New("giftexchangecmd: asked exchange missing from the caller's list")
 
 func (h *Handlers) registerQuestions(r *router.Router) {
 	h.verb(r, "ask", h.askCommand, h.autocompleteFor("ask"))
@@ -63,18 +60,19 @@ func (h *Handlers) askCommand(data discord.SlashCommandInteractionData, e *handl
 	}
 	req.SetExchange(id)
 
+	// The name is read before the question is committed, so a failed lookup cannot
+	// turn the reply into an error after the question is queued.
+	name, nameErr := h.questionExchangeName(e.Ctx, req, id, candidates)
+	if nameErr != nil {
+		return nameErr
+	}
+
 	_, askErr := h.svc.Ask(e.Ctx, req.Actor, id, text)
 	if askErr != nil {
 		return fmt.Errorf("ask question: %w", askErr)
 	}
 
-	// The question is committed and queued by now: a failed name lookup must not
-	// turn the reply into an error that invites a second, rate-limited ask.
-	reply := textAskedUnnamed
-	name, nameErr := h.questionExchangeName(e.Ctx, req, id, candidates)
-	if nameErr == nil {
-		reply = fmt.Sprintf(textAsked, render.Bold(name))
-	}
+	reply := fmt.Sprintf(textAsked, render.Bold(name))
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &reply})
 	if editErr != nil {
 		return editErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -104,7 +102,7 @@ func (h *Handlers) questionExchangeName(
 		}
 	}
 
-	return "", errQuestionExchangeMissing
+	return "", fmt.Errorf("exchange not listed for the caller: %w", giftexchange.ErrNotFound)
 }
 
 // answerButton handles the Answer button of a question DM. It opens the answer modal as the
@@ -209,8 +207,8 @@ func (h *Handlers) questionsCommand(data discord.SlashCommandInteractionData, e 
 	}
 
 	embed := render.Embed(questionListTitle, "")
-	embed = render.WithField(embed, textQuestionsAskedField, questionField(askedEntries(asked)))
-	embed = render.WithField(embed, textQuestionsReceivedField, questionField(receivedEntries(received)))
+	embed = render.WithField(embed, textQuestionsAskedField, questionField(questionAskedEntries(asked)))
+	embed = render.WithField(embed, textQuestionsReceivedField, questionField(questionReceivedEntries(received)))
 
 	embeds := []discord.Embed{embed}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
@@ -221,7 +219,7 @@ func (h *Handlers) questionsCommand(data discord.SlashCommandInteractionData, e 
 	return nil
 }
 
-func askedEntries(asked []giftexchange.AskedQuestion) []string {
+func questionAskedEntries(asked []giftexchange.AskedQuestion) []string {
 	entries := make([]string, 0, len(asked))
 	for _, question := range asked {
 		entries = append(entries, questionEntry(question.Text, question.Answer, question.ClosedAt != nil))
@@ -230,7 +228,7 @@ func askedEntries(asked []giftexchange.AskedQuestion) []string {
 	return entries
 }
 
-func receivedEntries(received []giftexchange.ReceivedQuestion) []string {
+func questionReceivedEntries(received []giftexchange.ReceivedQuestion) []string {
 	entries := make([]string, 0, len(received))
 	for _, question := range received {
 		entries = append(entries, questionEntry(question.Text, question.Answer, question.ClosedAt != nil))

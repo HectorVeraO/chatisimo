@@ -28,14 +28,13 @@ const (
 	questionCallbackUp = 6
 	questionCallbackMo = 9
 
-	questionTextAsked        = "Your question was sent anonymously to your recipient in **Winter**."
-	questionTextAskedUnnamed = "Your question was sent anonymously to your recipient."
-	questionTextOff          = "The organizer turned off questions for this exchange."
-	questionTextLimit        = "You reached the limit of 20 questions per day for this exchange."
-	questionTextClosed       = "This question is closed and can no longer be answered."
-	questionTextAnswered     = "You already answered this question."
-	questionTextNotSaved     = "Not saved:"
-	questionTextNoExchange   = "You have no exchange where you can do this."
+	questionTextAsked      = "Your question was sent anonymously to your recipient in **Winter**."
+	questionTextOff        = "The organizer turned off questions for this exchange."
+	questionTextLimit      = "You reached the limit of 20 questions per day for this exchange."
+	questionTextClosed     = "This question is closed and can no longer be answered."
+	questionTextAnswered   = "You already answered this question."
+	questionTextNotSaved   = "Not saved:"
+	questionTextNoExchange = "You have no exchange where you can do this."
 )
 
 var questionIDPattern = regexp.MustCompile(`/gx/answer/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`)
@@ -630,26 +629,6 @@ func TestQuestionAskNamesAnExchangeOfAnotherGuildOnlyForItsParticipants(t *testi
 	}
 }
 
-func TestQuestionAskStaysSuccessfulWhenTheExchangeNameCannotBeLooked(t *testing.T) {
-	q := newQuestionScene(t)
-	other := q.otherGuildWith(t, q.a, q.d)
-	recipient := q.recipientOf(t, q.a)
-	in := fakediscord.Slash{
-		Path: "/ge/ask", Guild: &other,
-		Options: map[string]any{"question": questionTea, "exchange": q.exchange.String()},
-	}
-	in.BypassValidation = true
-	// The first unscoped listing builds the candidates; the second looks the name up.
-	q.failUnscopedListingAt.Store(2)
-
-	got := replyTo(t, q.harness, slashOrFail(t, q.harness, q.a, in))
-
-	if got.content != questionTextAskedUnnamed || got.ephemeralTo != q.a {
-		t.Errorf("reply = %+v, want the unnamed Asked text visible only to the asker", got)
-	}
-	q.questionDM(t, recipient, questionTea)
-}
-
 func TestQuestionForgedAnswersToAnotherPersonsQuestionChangeNothing(t *testing.T) {
 	q := newQuestionScene(t)
 	recipient := q.recipientOf(t, q.a)
@@ -805,7 +784,8 @@ func TestQuestionAnswersOfEveryShapeAreCheckedAndShownLiterally(t *testing.T) {
 	q.outcome(t, result)
 
 	text := questionTextOf(q.dmByID(t, recipient, dm.ID))
-	if !strings.Contains(text, `\\@everyone`) && !strings.Contains(text, `\@everyone`) {
+	// The embed is read as JSON, so each backslash of the escaped text shows doubled and "<" as \u003c.
+	if !strings.Contains(text, `\\@everyone \\\u003c\\@100000000000000001\\\u003e \\*\\*b\\*\\*`) {
 		t.Errorf("edited DM = %q, want escaped mentions", text)
 	}
 	assertNoPings(t, q.fake)

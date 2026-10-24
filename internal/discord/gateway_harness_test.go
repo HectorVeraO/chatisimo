@@ -12,7 +12,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	appdiscord "github.com/HectorVeraO/chatisimo/internal/discord"
@@ -26,27 +25,9 @@ type harness struct {
 	*world
 	*service
 	adapter *appdiscord.Adapter
-	// failUnscopedListingAt makes the Nth unscoped ExchangesFor call fail once armed with N.
-	failUnscopedListingAt atomic.Int64
-	drawn                 []giftexchange.ExchangeID
+	drawn   []giftexchange.ExchangeID
 	// secrets are texts a test typed that must never reach the logs.
 	secrets []string
-}
-
-// flakyService is the module with an unscoped exchange listing whose Nth call can be made to fail.
-type flakyService struct {
-	*giftexchange.Service
-	failAt *atomic.Int64
-}
-
-func (f flakyService) ExchangesFor(
-	ctx context.Context, a giftexchange.Actor, g *giftexchange.GroupID,
-) ([]giftexchange.ExchangeSummary, error) {
-	if g == nil && f.failAt.Load() > 0 && f.failAt.Add(-1) == 0 {
-		return nil, errors.New("listing unavailable")
-	}
-
-	return f.Service.ExchangesFor(ctx, a, g) //nolint:wrapcheck // test double passes the module's result through
 }
 
 // newHarness wires the module, the notifier and the adapter against the fake, opens the
@@ -57,12 +38,10 @@ func newHarness(t *testing.T) *harness {
 
 	w := newWorld(t)
 	s := newService(t, w)
-	h := &harness{world: w, service: s}
-	adapter, err := appdiscord.New(w.notifier, flakyService{Service: s.svc, failAt: &h.failUnscopedListingAt}, w.logger)
+	adapter, err := appdiscord.New(w.notifier, s.svc, w.logger)
 	if err != nil {
 		t.Fatalf("discord.New: %v", err)
 	}
-	h.adapter = adapter
 
 	openCtx, cancel := context.WithTimeout(t.Context(), deliveryDeadline)
 	defer cancel()
@@ -84,6 +63,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("WaitReady: %v", readyErr)
 	}
 
+	h := &harness{world: w, service: s, adapter: adapter}
 	t.Cleanup(func() { h.checkConfidentiality(t) })
 
 	return h
