@@ -59,7 +59,9 @@ type sentDispatch struct {
 // session is one bot Gateway session. It outlives the connection that created it, so a
 // client that drops can resume on a new connection.
 type session struct {
-	id      string
+	id string
+	// order numbers sessions by when they identified.
+	order   int
 	seq     int
 	history []sentDispatch
 	conn    *wsConn
@@ -302,6 +304,12 @@ func (s *Server) handleIdentify(c *wsConn, data json.RawMessage) {
 		c.closeWith(closeDecodeError, "invalid identify")
 		return
 	}
+	injected, isInjected := s.takeFault(routeGatewayIdentify)
+	if isInjected {
+		s.logger.Info("fault injected", "route", routeGatewayIdentify, "code", injected.code)
+		c.closeWith(injected.code, injectedFaultMessage)
+		return
+	}
 	if !tokensEqual(identify.Token, s.token) {
 		s.logger.Info("gateway identify", "accepted", false)
 		c.closeWith(closeAuthFailed, "Authentication failed.")
@@ -316,7 +324,8 @@ func (s *Server) handleIdentify(c *wsConn, data json.RawMessage) {
 		return
 	}
 
-	sess := &session{id: newSessionID(), conn: c}
+	s.sessionSeq++
+	sess := &session{id: newSessionID(), order: s.sessionSeq, conn: c}
 	s.sessions[sess.id] = sess
 	c.session = sess
 	s.w.intents = identify.Intents

@@ -1,0 +1,16 @@
+{
+  "op": 0,
+  "s": {{json .Seq}},
+  "t": "READY",
+  "d": {
+    "v": 10,
+    "user": {{json .Bot}},
+    "guilds": {{json .UnavailableGuilds}},
+    "session_id": {{json .SessionID}},
+    "resume_gateway_url": {{json .ResumeURL}},
+    "application": {
+      "id": {{json .AppID}},
+      "flags": 0
+    }
+  }
+}

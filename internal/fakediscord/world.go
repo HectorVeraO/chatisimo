@@ -32,6 +32,19 @@ type Message struct {
 	// EphemeralFor is the only user who can see the message, or empty for a public one.
 	EphemeralFor string
 	CreatedAt    time.Time
+	// EditedAt is zero until the message is edited.
+	EditedAt time.Time
+	// InteractionID is the interaction the message answers, or empty for a message the bot
+	// sent straight to a channel.
+	InteractionID string
+}
+
+// Modal is a modal the bot opened for a user in answer to an interaction.
+type Modal struct {
+	UserID     string
+	CustomID   string
+	Title      string
+	Components []json.RawMessage
 }
 
 // Command is an application command the bot registered.
@@ -58,6 +71,22 @@ type channelState struct {
 	recipientID string
 }
 
+// pendingModal is a modal waiting for its user to submit it.
+type pendingModal struct {
+	Modal
+	// channelID is the channel the modal was opened in.
+	channelID string
+	// sourceMessageID is the message whose component opened the modal, or empty when a
+	// slash command did.
+	sourceMessageID string
+}
+
+// nonceEntry remembers the message a nonce created.
+type nonceEntry struct {
+	messageID string
+	at        time.Time
+}
+
 // world is the fake's state. Callers hold Server.mu.
 type world struct {
 	users      map[string]User
@@ -65,9 +94,14 @@ type world struct {
 	guildOrder []string
 	channels   map[string]*channelState
 	dmByUser   map[string]string
-	messages   []Message
-	records    []Record
-	commands   []Command
+	// dmsClosed holds the users whose DMs the bot cannot write to. Users default to open.
+	dmsClosed    map[string]bool
+	messages     []Message
+	records      []Record
+	commands     []Command
+	modals       map[string]*pendingModal
+	interactions map[string]*interaction
+	nonces       map[string]nonceEntry
 	// globalSet is true once the bot has registered a global command set.
 	globalSet  bool
 	intents    int
@@ -76,11 +110,26 @@ type world struct {
 
 func newWorld() *world {
 	return &world{
-		users:    map[string]User{},
-		guilds:   map[string]*guildState{},
-		channels: map[string]*channelState{},
-		dmByUser: map[string]string{},
+		users:        map[string]User{},
+		guilds:       map[string]*guildState{},
+		channels:     map[string]*channelState{},
+		dmByUser:     map[string]string{},
+		dmsClosed:    map[string]bool{},
+		modals:       map[string]*pendingModal{},
+		interactions: map[string]*interaction{},
+		nonces:       map[string]nonceEntry{},
 	}
+}
+
+// reset clears everything a test arranged or the bot produced, and keeps what belongs to
+// the bot's session: its registered commands and the Identify data.
+func (w *world) reset() {
+	fresh := newWorld()
+	fresh.commands = w.commands
+	fresh.globalSet = w.globalSet
+	fresh.intents = w.intents
+	fresh.intentsSet = w.intentsSet
+	*w = *fresh
 }
 
 // upsertUser stores u, generating an ID when it has none, and returns the stored user.
@@ -169,23 +218,48 @@ func (w *world) canSee(userID string, channel *channelState) bool {
 	return slices.Contains(w.guilds[channel.guildID].members, userID)
 }
 
-// visibleMessages returns the messages of a channel that the user can see.
-func (w *world) visibleMessages(userID, channelID string) []Message {
-	channel, found := w.channels[channelID]
+// isMessageVisible reports whether the user can see the message right now.
+func (w *world) isMessageVisible(userID string, m Message) bool {
+	channel, found := w.channels[m.ChannelID]
 	if !found || !w.canSee(userID, channel) {
-		return nil
+		return false
 	}
 
+	return m.EphemeralFor == "" || m.EphemeralFor == userID
+}
+
+// visibleMessages returns the messages of a channel that the user can see.
+func (w *world) visibleMessages(userID, channelID string) []Message {
 	var visible []Message
 	for _, msg := range w.messages {
 		isInChannel := msg.ChannelID == channelID
-		isForUser := msg.EphemeralFor == "" || msg.EphemeralFor == userID
-		if isInChannel && isForUser {
+		if isInChannel && w.isMessageVisible(userID, msg) {
 			visible = append(visible, cloneMessage(msg))
 		}
 	}
 
 	return visible
+}
+
+// visibleTo lists who can see the message right now: its one user when ephemeral, else
+// the whole channel.
+func (w *world) visibleTo(m Message) []string {
+	if m.EphemeralFor != "" {
+		return []string{m.EphemeralFor}
+	}
+	channel, found := w.channels[m.ChannelID]
+	if !found {
+		return []string{}
+	}
+
+	return w.audience(channel)
+}
+
+// messageIndex returns the position of the message in the world, or -1.
+func (w *world) messageIndex(id string) int {
+	return slices.IndexFunc(w.messages, func(m Message) bool {
+		return m.ID == id
+	})
 }
 
 func cloneMessage(m Message) Message {

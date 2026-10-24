@@ -1,0 +1,5 @@
+{
+  "id": {{json .ChannelID}},
+  "type": 1,
+  "recipients": [{{json .User}}]
+}
