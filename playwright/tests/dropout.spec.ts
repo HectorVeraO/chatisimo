@@ -91,6 +91,7 @@ test.describe("four participants", () => {
       );
     }
 
+    await world.letLateDmsArrive();
     await world.asUser("Alice");
     await world.openDirectMessages();
     await expect(world.messageWithEmbed(texts.titleNewRecipient)).toHaveCount(0);
@@ -144,6 +145,7 @@ test.describe("three participants", () => {
       await expect(world.messageWithContentContaining(voided)).toBeVisible({ timeout: DM_BUDGET_MS });
     }
 
+    await world.letLateDmsArrive();
     await world.asUser("Alice");
     await world.openDirectMessages();
     await expect(world.messageWithContentContaining(voided)).toHaveCount(0);
