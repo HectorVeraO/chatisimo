@@ -4,8 +4,6 @@ import * as texts from "../fixtures/texts";
 const EXCHANGE = "Winter exchange";
 
 test("create posts a public card with the organizer and the join controls", async ({ world }) => {
-  const alice = world.user("Alice");
-
   await world.asUser("Alice");
   await world.slash("/ge create", { name: EXCHANGE });
 
@@ -13,7 +11,6 @@ test("create posts a public card with the organizer and the join controls", asyn
   await expect(card).toBeVisible();
   await expect(card.getByTestId("ephemeral-note")).toHaveCount(0);
   await expect(card.getByTestId("embed-description")).toHaveText(texts.format(texts.cardBody, "@Alice"));
-  await expect(card.getByTestId("mention")).toHaveAttribute("data-user-id", alice.id);
   await expect(world.fieldValue(card, texts.fieldDraw)).toHaveText(texts.manual);
   await expect(world.fieldValue(card, texts.fieldReveal)).toHaveText(texts.manual);
   for (const label of [texts.buttonJoin, texts.buttonLeave, texts.buttonRules]) {

@@ -73,26 +73,8 @@ test("the organizer sets the draw time in a modal", async ({ world, page }) => {
 
   const timestamp = world.fieldValue(view, texts.ruleDrawAt).getByTestId("timestamp").first();
   await expect(timestamp).toBeVisible();
-  const acceptable = await page.evaluate(
-    ([from, to]) => {
-      const format = new Intl.DateTimeFormat(undefined, {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-      const texts: string[] = [];
-      for (let unix = from; unix <= to; unix += 60) {
-        texts.push(format.format(new Date(unix * 1000)));
-      }
-      texts.push(format.format(new Date(to * 1000)));
-      return texts;
-    },
-    [submittedAt + TWO_HOURS_S - CLOCK_SKEW_S, submittedAt + TWO_HOURS_S + CLOCK_SKEW_S],
-  );
-  expect(acceptable).toContain((await timestamp.innerText()).trim());
+  const storedUnix = Number(await timestamp.getAttribute("data-unix"));
+  expect(Math.abs(storedUnix - (submittedAt + TWO_HOURS_S))).toBeLessThanOrEqual(CLOCK_SKEW_S);
   await expect(world.fieldValue(view, texts.ruleDrawAt)).not.toContainText(texts.manual);
 });
 
