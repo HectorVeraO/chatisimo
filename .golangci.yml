@@ -2,6 +2,8 @@ version: "2"
 
 run:
   timeout: 5m
+  build-tags:
+    - e2e
 
 linters:
   default: none
@@ -31,12 +33,13 @@ linters:
             - "**/internal/**/*.go"
             - "!**/internal/discord/**"
             - "!**/internal/platform/**"
+            - "!**/internal/fakediscord/**"
           deny:
             - pkg: github.com/disgoorg
               desc: domain modules must not depend on disgo; use internal/discord
             - pkg: github.com/HectorVeraO/chatisimo/internal/discord
               desc: domain modules must not import the Discord client adapter
-        # Platform: shared technical pieces, never modules or adapters.
+        # Platform: shared technical pieces, never modules, adapters or client code.
         platform:
           list-mode: lax
           files:
@@ -44,8 +47,58 @@ linters:
           deny:
             - pkg: github.com/HectorVeraO/chatisimo/internal
               desc: internal/platform must not import modules or client adapters
+            - pkg: github.com/disgoorg
+              desc: internal/platform holds no Discord client code
           allow:
             - github.com/HectorVeraO/chatisimo/internal/platform
+        # Migrations and the River client are built only in platform.
+        infra-in-platform:
+          list-mode: lax
+          files:
+            - "**/*.go"
+            - "!**/internal/platform/**"
+          deny:
+            - pkg: github.com/riverqueue/river/rivermigrate
+              desc: only internal/platform/jobs runs River migrations
+            - pkg: github.com/riverqueue/river/riverdriver
+              desc: only internal/platform/jobs builds River clients
+            - pkg: github.com/pressly/goose
+              desc: only internal/platform/db runs goose
+            - pkg: github.com/jackc/pgx/v5/stdlib
+              desc: only internal/platform/db opens database/sql over pgx
+        # The Postgres test helper never ships.
+        pgtest-only-in-tests:
+          list-mode: lax
+          files:
+            - "$all"
+            - "!$test"
+          deny:
+            - pkg: github.com/HectorVeraO/chatisimo/internal/platform/pgtest
+              desc: pgtest is test infrastructure; import it from _test.go files only
+        # Who may import the fake: test files, cmd/fakediscord and the fake itself.
+        fakediscord-importers:
+          list-mode: lax
+          files:
+            - "$all"
+            - "!$test"
+            - "!**/cmd/fakediscord/**"
+            - "!**/internal/fakediscord/**"
+          deny:
+            - pkg: github.com/HectorVeraO/chatisimo/internal/fakediscord
+              desc: the fake Discord is test infrastructure; only tests, cmd/fakediscord and e2e import it
+        # The fake depends on nothing it fakes for; disgo only in its tests.
+        fakediscord:
+          list-mode: lax
+          files:
+            - "**/internal/fakediscord/**/*.go"
+            - "!$test"
+          deny:
+            - pkg: github.com/HectorVeraO/chatisimo
+              desc: internal/fakediscord must not import other packages of this repository
+            - pkg: github.com/disgoorg
+              desc: the fake's production code uses the standard library and gorilla/websocket only
+          allow:
+            - github.com/HectorVeraO/chatisimo/internal/fakediscord
     revive:
       rules:
         - name: exported
