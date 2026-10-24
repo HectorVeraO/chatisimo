@@ -122,10 +122,8 @@ func TestRulesAndExclusionsDenyTheZeroActor(t *testing.T) {
 	assertUnchanged(t, before, takeSnapshot(t, s.h, s.exchange))
 }
 
-func TestSetRuleRejectsAbusiveRawValuesAndStoresNothing(t *testing.T) {
-	s := newScene(t)
-	before := takeSnapshot(t, s.h, s.exchange)
-	abusive := map[string]string{
+func abusiveRawValues() map[string]string {
+	return map[string]string{
 		"10000 characters":       strings.Repeat("a", 10_000),
 		"bidi override":          "on\u202eno",
 		"bidi isolate":           "\u2066on",
@@ -144,6 +142,12 @@ func TestSetRuleRejectsAbusiveRawValuesAndStoresNothing(t *testing.T) {
 		"leading space":          " zzq",
 		"surrounding whitespace": "\t3d ",
 	}
+}
+
+func TestSetRuleRejectsAbusiveRawValuesAndStoresNothing(t *testing.T) {
+	s := newScene(t)
+	before := takeSnapshot(t, s.h, s.exchange)
+	abusive := abusiveRawValues()
 
 	rules := []giftexchange.RuleName{
 		giftexchange.RuleDrawAt, giftexchange.RuleRevealAt, giftexchange.RuleReminderLead,
@@ -165,6 +169,40 @@ func TestSetRuleRejectsAbusiveRawValuesAndStoresNothing(t *testing.T) {
 		}
 	}
 	assertUnchanged(t, before, takeSnapshot(t, s.h, s.exchange))
+}
+
+func TestCreateExchangeRejectsAbusiveRuleValuesAndStoresNothing(t *testing.T) {
+	h := newService(t)
+	group := h.newGroup(t)
+	organizer := h.newPerson(t)
+
+	rules := []giftexchange.RuleName{
+		giftexchange.RuleDrawAt, giftexchange.RuleRevealAt, giftexchange.RuleReminderLead,
+		giftexchange.RuleDropoutPolicy, giftexchange.RuleAvoidLastRound, giftexchange.RuleQuestionsEnabled,
+	}
+	for name, raw := range abusiveRawValues() {
+		for _, rule := range rules {
+			_, err := h.svc.CreateExchange(t.Context(), organizer.actor, giftexchange.CreateExchangeRequest{
+				Group: group,
+				Name:  "Winter exchange",
+				Rules: []giftexchange.RuleChange{{Name: rule, Raw: raw}},
+			})
+			if !errors.Is(err, giftexchange.ErrInvalidInput) {
+				t.Errorf("%s for %s: err = %v, want ErrInvalidInput", name, rule, err)
+				continue
+			}
+			if !slicesEqualOne(inputFields(err), string(rule)) {
+				t.Errorf("%s for %s: fields = %v", name, rule, inputFields(err))
+			}
+			if strings.Contains(err.Error(), raw) {
+				t.Errorf("%s for %s: error echoes the raw value", name, rule)
+			}
+		}
+	}
+	listed, listErr := h.svc.ExchangesFor(t.Context(), organizer.actor, &group)
+	if listErr != nil || len(listed) != 0 {
+		t.Errorf("exchanges after refused creates = %d, %v; want none", len(listed), listErr)
+	}
 }
 
 func slicesEqualOne(got []string, want string) bool {
