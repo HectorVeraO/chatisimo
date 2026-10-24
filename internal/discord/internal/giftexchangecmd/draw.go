@@ -188,12 +188,15 @@ func (h *Handlers) drawConfirm(e *handler.ComponentEvent, step drawStep) error {
 		return fmt.Errorf("%s exchange: %w", step.verb, runErr)
 	}
 
-	return drawAnnounce(e.Ctx, req, step, view.Name)
+	h.drawAnnounce(e.Ctx, req, step, view.Name)
+
+	return nil
 }
 
-// drawAnnounce edits the prompt into the done text and posts the public followup. Both are
-// tried, because the change already happened.
-func drawAnnounce(ctx context.Context, req *router.Request, step drawStep, name string) error {
+// drawAnnounce edits the prompt into the done text and posts the public followup. The change
+// already happened, so a failure of either call is logged and never reported as a failed
+// confirm: the organizer would retry against an exchange that is already drawn.
+func (h *Handlers) drawAnnounce(ctx context.Context, req *router.Request, step drawStep, name string) {
 	bold := render.Bold(name)
 	done := fmt.Sprintf(step.doneText, bold)
 	embeds := []discord.Embed{}
@@ -202,6 +205,8 @@ func drawAnnounce(ctx context.Context, req *router.Request, step drawStep, name 
 	editErr := req.EditOriginal(ctx, discord.MessageUpdate{Content: &done, Embeds: &embeds, Components: &components})
 	followupErr := req.FollowupPublic(ctx, discord.MessageCreate{Content: fmt.Sprintf(step.publicText, bold)})
 
-	joined := errors.Join(editErr, followupErr)
-	return joined //nolint:wrapcheck // the router reduces REST errors to status and code
+	failed := errors.Join(editErr, followupErr)
+	if failed != nil {
+		h.logger.WarnContext(ctx, "announce after "+step.verb+" failed", "error", failed)
+	}
 }

@@ -518,6 +518,7 @@ func TestDrawRecipientAndGiverAnswerOnlyTheCaller(t *testing.T) {
 				t.Fatalf("MyGiver: %v", err)
 			}
 			wantRecipient := drawMention(t, assignment.Recipient)
+			drawAssertPairConsistent(t, h, subject, id, assignment.Recipient, giver.Giver)
 			wantGiver := drawMention(t, giver.Giver)
 
 			for verb, want := range map[string][2]string{
@@ -744,6 +745,58 @@ func TestDrawKeepsPairsOutOfPublicAndOrganizerReplies(t *testing.T) {
 		hasSnowflake := snowflakePattern.MatchString(record.Content) && record.Source != "dm" && record.Source != "callback"
 		if isPublic && hasSnowflake {
 			t.Errorf("public record %d holds a snowflake: %q", record.Seq, record.Content)
+		}
+	}
+}
+
+// drawAssertPairConsistent checks the pair the module reports, so the reply test does not
+// only echo it: nobody gives to themselves, and the giver of the caller gives to the caller.
+func drawAssertPairConsistent(
+	t *testing.T, h *harness, subject string, id giftexchange.ExchangeID, recipient, giver giftexchange.PersonRef,
+) {
+	t.Helper()
+
+	recipientMention := drawMention(t, recipient)
+	giverMention := drawMention(t, giver)
+	own := drawExpectedMentions[subject]
+	if recipientMention == own || giverMention == own {
+		t.Errorf("%s is paired with themselves: recipient %s, giver %s", subject, recipientMention, giverMention)
+	}
+
+	giverSubject := giver.Identities[0].Subject
+	theirs, err := h.svc.MyAssignment(t.Context(), h.people[giverSubject].actor, id)
+	if err != nil {
+		t.Fatalf("MyAssignment of the giver: %v", err)
+	}
+	if got := drawMention(t, theirs.Recipient); got != own {
+		t.Errorf("the giver of %s gives to %s, want %s", subject, got, own)
+	}
+}
+
+func TestDrawConfirmStaysDoneWhenTheEditOfThePromptFails(t *testing.T) {
+	h := newHarness(t)
+	h.startRunner(t, h.world)
+	organizer := drawNewMember(t, h, h.guild)
+	id := drawOpenExchange(t, h, organizer)
+	h.markDrawn(id)
+	prompt := drawPrompt(t, h, organizer.user.ID, "draw", id)
+
+	failErr := h.fake.FailNext("PATCH /webhooks/{app}/{token}/messages/@original", 500, 0)
+	if failErr != nil {
+		t.Fatalf("FailNext: %v", failErr)
+	}
+	result := drawClick(t, h, organizer.user.ID, prompt, "/gx/draw-confirm/"+id.String())
+
+	followup := drawWait(t, h, result, "followup")
+	if followup.Content != drawTextDrawnPublic || followup.Ephemeral {
+		t.Errorf("followup = %+v, want the public text", followup)
+	}
+	if state := drawState(t, h, organizer, id); state != giftexchange.StateDrawn {
+		t.Errorf("state = %q, want drawn", state)
+	}
+	for _, record := range drawRecordsOf(h, result, "followup") {
+		if record.Ephemeral {
+			t.Errorf("an ephemeral error followup was sent: %+v", record)
 		}
 	}
 }

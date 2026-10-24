@@ -1,6 +1,7 @@
 package giftexchangecmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/disgoorg/disgo/discord"
@@ -44,7 +45,7 @@ func (h *Handlers) recipientCommand(data discord.SlashCommandInteractionData, e 
 		return fmt.Errorf("render own recipient: %w", err)
 	}
 
-	return drawShowPair(e, req, textTitleRecipient, mention)
+	return drawShowPair(e.Ctx, req, textTitleRecipient, mention)
 }
 
 // giverCommand handles /ge giver: it shows the caller their own giver, ephemeral, after the
@@ -76,14 +77,14 @@ func (h *Handlers) giverCommand(data discord.SlashCommandInteractionData, e *han
 		return fmt.Errorf("render own giver: %w", err)
 	}
 
-	return drawShowPair(e, req, textTitleGiver, mention)
+	return drawShowPair(e.Ctx, req, textTitleGiver, mention)
 }
 
 // drawShowPair edits the deferred reply into an embed that holds the counterpart's mention.
-func drawShowPair(e *handler.CommandEvent, req *router.Request, title, mention string) error {
+func drawShowPair(ctx context.Context, req *router.Request, title, mention string) error {
 	embeds := []discord.Embed{render.Embed(title, mention)}
 
-	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
+	editErr := req.EditOriginal(ctx, discord.MessageUpdate{Embeds: &embeds})
 	if editErr != nil {
 		return editErr //nolint:wrapcheck // the router reduces REST errors to status and code
 	}
