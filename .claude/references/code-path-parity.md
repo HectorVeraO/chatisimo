@@ -14,3 +14,12 @@ Format and examples: `.claude/references/code-path-parity-format.md`.
 ---
 
 <!-- Add parity rows below this line. The skill never edits below. -->
+
+### Go and Postgres versions
+
+| Field | Value |
+|---|---|
+| Files | `go.mod`, `mise.toml` (`go`), `.deploy/local/Dockerfile` (`golang:` tag); `.deploy/local/docker-compose.yaml`, `.github/workflows/ci.yml` (`postgres:` tag) |
+| What duplicates | The Go version and the Postgres version are written in several files, each by hand. |
+| Check | `go.mod` `go`, `mise.toml` `go` and the `golang:<version>-alpine` tag in `.deploy/local/Dockerfile` name the same Go version; the `postgres:<version>-alpine` tag is identical in `docker-compose.yaml` (the `postgres` and `e2e-db` services) and `ci.yml`. |
+| What breaks silently | The E2E images or CI test a Go or Postgres version that production code is not built against; a feature works locally and fails in CI, or the reverse. |

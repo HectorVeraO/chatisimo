@@ -29,6 +29,7 @@ Chatisimo is Chatolandia's platform: a modular monolith in Go, one binary (`cmd/
 | Start / stop local Postgres | `docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d` / `... down` |
 | Build | `go build ./...` |
 | Test | `go test ./...` |
+| Start / stop the E2E stack | `docker compose --env-file .env -f .deploy/local/docker-compose.yaml --profile e2e up -d --build --wait` / `... --profile e2e down` |
 | Lint | `golangci-lint run ./...` |
 | Vulnerability scan | `govulncheck ./...` |
 | Format | `golangci-lint fmt` |
@@ -245,8 +246,8 @@ findings (see "Workflow") apply on top of this format.
 - **Source of Truth**: `.deploy/local/docker-compose.yaml` (project `chatisimo`) is the local compose project; ports and commands in `.deploy/local/README.md`.
 - **The Split**:
   - **Infra** (databases): `postgres` -> Always in Docker.
-  - **Sourced components**: none yet (the `e2e` profile adds them in milestone 2); the `chatisimo` binary runs on the host (`go run ./cmd/chatisimo`) and reaches Postgres at `localhost:10000`.
-- **Booting**: `docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d` (always detached). Output directed to `.me/<slug>/logs/`.
+  - **Sourced components**: `fakediscord` and a `-cover` build of `chatisimo`, both in profile `e2e`. Day to day the binary runs on the host (`go run ./cmd/chatisimo`) and reaches Postgres at `localhost:10000`.
+- **Booting**: `docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d` (add `--profile e2e` for the E2E services; always detached). Output directed to `.me/<slug>/logs/`.
 - **Resets**: `docker compose --env-file .env -f .deploy/local/docker-compose.yaml down -v` is authorized for routine local recovery. Applies to local disposable volumes only; never target shared or staging stacks. It also deletes the development database.
 - Full addressing rules, port allocation, verification layout and cleanup: see `.claude/references/local-env.md`.
 <!-- AGENTIC-SETUP:AUTOGEN:local-environment END -->
@@ -319,6 +320,8 @@ Format: see `.claude/references/code-path-parity-format.md`. Root keeps a one-li
 <!-- AGENTIC-SETUP:AUTOGEN:code-path-parity-header END -->
 
 <!-- Add parity rows below this line. The skill never edits below. -->
+
+- **Go and Postgres versions**: `go.mod`, `mise.toml`, `.deploy/local/Dockerfile` (`golang:` tag), `.deploy/local/docker-compose.yaml` and `ci.yml` (`postgres:` tag) name the same versions. Full row: `.claude/references/code-path-parity.md`.
 
 ## Anti-degradation governance
 

@@ -1,5 +1,16 @@
 name: chatisimo
 
+x-chatisimo: &chatisimo
+  build:
+    context: ../..
+    dockerfile: .deploy/local/Dockerfile
+    target: chatisimo-cover
+  image: chatisimo-cover:local
+  environment: &chatisimo-env
+    DATABASE_URL: postgres://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/chatisimo_e2e?sslmode=disable
+    MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY in .env (go run ./cmd/chatisimo keygen)}
+    CHATISIMO_ENV: local
+
 services:
   postgres:
     image: postgres:18.6-alpine
@@ -16,6 +27,76 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Recreates the E2E database on every e2e boot; the development database is never touched.
+  e2e-db:
+    profiles: [e2e]
+    image: postgres:18.6-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      PGDATABASE: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        psql -v ON_ERROR_STOP=1 -c 'DROP DATABASE IF EXISTS chatisimo_e2e WITH (FORCE)'
+        psql -v ON_ERROR_STOP=1 -c 'CREATE DATABASE chatisimo_e2e'
+    restart: "no"
+
+  fakediscord:
+    profiles: [e2e]
+    build:
+      context: ../..
+      dockerfile: .deploy/local/Dockerfile
+      target: fakediscord
+    image: chatisimo-fakediscord:local
+    ports:
+      - "127.0.0.1:10010:10010"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:10010/_control/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  # Token handoff: the fake generates the synthetic token at runtime; it goes from the fake to
+  # chatisimo's stdin through a pipe and is never written to a file.
+  chatisimo-setup:
+    <<: *chatisimo
+    profiles: [e2e]
+    depends_on:
+      e2e-db:
+        condition: service_completed_successfully
+      fakediscord:
+        condition: service_healthy
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        wget -qO- http://fakediscord:10010/_control/token | chatisimo config set discord.token
+        printf '%s' 'http://fakediscord:10010/api/v10' | chatisimo config set discord.api_base_url
+    restart: "no"
+
+  chatisimo:
+    <<: *chatisimo
+    profiles: [e2e]
+    depends_on:
+      chatisimo-setup:
+        condition: service_completed_successfully
+    environment:
+      <<: *chatisimo-env
+      GOCOVERDIR: /cover
+    command: ["run"]
+    volumes:
+      - ../../.cover/playwright:/cover
+    stop_grace_period: 40s
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://fakediscord:10010/_control/healthz?bot=1"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
 
 volumes:
   postgres-data:
