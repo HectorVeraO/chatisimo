@@ -537,6 +537,44 @@ func TestNewRunnerRejectsInvalidArguments(t *testing.T) {
 	}
 }
 
+func TestRunnerLifecycleRejectsInvalidArguments(t *testing.T) {
+	env := newRig(t, nil, nil)
+
+	runner, err := jobs.NewRunner(shared.Pool(), env.registry, jobs.RunnerOptions{})
+	if err != nil {
+		t.Fatalf("new runner: %v", err)
+	}
+
+	var nilRunner *jobs.Runner
+
+	var nilContext context.Context
+
+	calls := []struct {
+		name string
+		call func(*jobs.Runner, context.Context) error
+	}{
+		{name: "start", call: (*jobs.Runner).Start},
+		{name: "stop", call: (*jobs.Runner).Stop},
+		{name: "stop and cancel", call: (*jobs.Runner).StopAndCancel},
+	}
+
+	for _, test := range calls {
+		t.Run(test.name+" nil runner", func(t *testing.T) {
+			err := test.call(nilRunner, context.Background())
+			if err == nil {
+				t.Fatalf("%s on a nil runner succeeded", test.name)
+			}
+		})
+
+		t.Run(test.name+" nil context", func(t *testing.T) {
+			err := test.call(runner, nilContext)
+			if err == nil {
+				t.Fatalf("%s with a nil context succeeded", test.name)
+			}
+		})
+	}
+}
+
 func TestZeroValueOptionsWorkTheDefaultQueue(t *testing.T) {
 	token := newToken(t)
 	env := newRig(t, nil, nil)
