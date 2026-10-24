@@ -442,7 +442,7 @@ func TestMigrateReportsFailingMigrationAndReleasesTheLock(t *testing.T) {
 
 	fixedSchema := uniqueSchema(t, "dbtest_b")
 
-	err = db.Migrate(ctx, shared.Pool(), newSource(t, fixedSchema, migrations(fixedSchema, "alpha")))
+	err = db.Migrate(ctx, pool, newSource(t, fixedSchema, migrations(fixedSchema, "alpha")))
 	if err != nil {
 		t.Fatalf("migrate after a failure: %v", err)
 	}
