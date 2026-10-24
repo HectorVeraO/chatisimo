@@ -7,7 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -112,6 +115,39 @@ func openPool(t *testing.T, url string) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	return pool
+}
+
+// isolatedPool returns a pool on a database of its own, so advisory-lock assertions are not
+// disturbed by the Migrate calls of parallel tests.
+func isolatedPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+
+	database, err := pgtest.New(t.Context(), pgtest.Options{})
+	if err != nil {
+		t.Fatalf("isolated database: %v", err)
+	}
+
+	t.Cleanup(func() {
+		closeErr := database.Close(context.WithoutCancel(t.Context()))
+		if closeErr != nil {
+			t.Errorf("close isolated database: %v", closeErr)
+		}
+	})
+
+	return database.Pool()
+}
+
+// migrateLockHolders counts the sessions holding the migration lock in the pool's database.
+func migrateLockHolders(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+
+	return count(t, pool, `
+		SELECT count(*)
+		FROM pg_locks l
+		WHERE l.locktype = 'advisory'
+		  AND l.granted
+		  AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+		  AND ((l.classid::bigint << 32) | l.objid::bigint) = $1`, db.MigrateLockKey)
 }
 
 func count(t *testing.T, pool *pgxpool.Pool, query string, args ...any) int {
@@ -382,14 +418,19 @@ func TestMigrateRefusesSingleConnectionPool(t *testing.T) {
 func TestMigrateReportsFailingMigrationAndReleasesTheLock(t *testing.T) {
 	t.Parallel()
 
+	pool := isolatedPool(t)
 	schema := uniqueSchema(t, "dbtest_a")
 	broken := fstest.MapFS{
 		"00001_broken.sql": &fstest.MapFile{Data: []byte("-- +goose Up\nCREATE TABLE nope.missing (id bigint);\n")},
 	}
 
-	err := db.Migrate(t.Context(), shared.Pool(), newSource(t, schema, broken))
+	err := db.Migrate(t.Context(), pool, newSource(t, schema, broken))
 	if err == nil {
 		t.Fatal("Migrate hid a failing migration")
+	}
+
+	if holders := migrateLockHolders(t, pool); holders != 0 {
+		t.Fatalf("%d sessions still hold the migration lock after a failed Migrate", holders)
 	}
 
 	if !strings.Contains(err.Error(), schema) {
@@ -404,6 +445,26 @@ func TestMigrateReportsFailingMigrationAndReleasesTheLock(t *testing.T) {
 	err = db.Migrate(ctx, shared.Pool(), newSource(t, fixedSchema, migrations(fixedSchema, "alpha")))
 	if err != nil {
 		t.Fatalf("migrate after a failure: %v", err)
+	}
+}
+
+func TestMigrateHoldsTheLockWhileRunningAndReleasesItAfterwards(t *testing.T) {
+	t.Parallel()
+
+	pool := isolatedPool(t)
+	probe := &lockProbeSource{schema: uniqueSchema(t, "dbtest_a"), pool: pool, t: t}
+
+	err := db.Migrate(t.Context(), pool, probe)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	if probe.holdersDuringUp != 1 {
+		t.Errorf("sessions holding the migration lock during Up = %d, want 1", probe.holdersDuringUp)
+	}
+
+	if holders := migrateLockHolders(t, pool); holders != 0 {
+		t.Errorf("%d sessions still hold the migration lock after Migrate", holders)
 	}
 }
 
@@ -456,7 +517,7 @@ func TestMigrateFailsAndFreesTheLockWhenItCannotBeReleased(t *testing.T) {
 	t.Parallel()
 
 	schema := uniqueSchema(t, "dbtest_a")
-	pool := shared.Pool()
+	pool := isolatedPool(t)
 
 	err := db.Migrate(t.Context(), pool, lockKillerSource{schema: schema})
 	if err == nil {
@@ -465,6 +526,10 @@ func TestMigrateFailsAndFreesTheLockWhenItCannotBeReleased(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "release advisory lock") {
 		t.Fatalf("error = %q, want the lock release failure", err)
+	}
+
+	if holders := migrateLockHolders(t, pool); holders != 0 {
+		t.Fatalf("%d sessions still hold the migration lock after the failed release", holders)
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -622,6 +687,146 @@ func TestOpenUnreachableNeverLeaksURLOrPassword(t *testing.T) {
 	}
 }
 
+// delayedProxy forwards TCP connections to target, but only starts listening after delay.
+type delayedProxy struct {
+	address string
+	wg      sync.WaitGroup
+	mu      sync.Mutex
+	conns   []net.Conn
+	closed  bool
+	lis     net.Listener
+}
+
+func startDelayedProxy(t *testing.T, target string, delay time.Duration) *delayedProxy {
+	t.Helper()
+
+	var listenConfig net.ListenConfig
+
+	reserve, err := listenConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve a port: %v", err)
+	}
+
+	proxy := &delayedProxy{address: reserve.Addr().String()}
+
+	err = reserve.Close()
+	if err != nil {
+		t.Fatalf("release the reserved port: %v", err)
+	}
+
+	proxy.wg.Add(1)
+
+	go proxy.serve(t.Context(), target, delay)
+
+	t.Cleanup(proxy.stop)
+
+	return proxy
+}
+
+func (p *delayedProxy) serve(ctx context.Context, target string, delay time.Duration) {
+	defer p.wg.Done()
+
+	time.Sleep(delay)
+
+	var listenConfig net.ListenConfig
+
+	lis, err := listenConfig.Listen(ctx, "tcp", p.address)
+	if err != nil {
+		return
+	}
+
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		_ = lis.Close()
+
+		return
+	}
+
+	p.lis = lis
+	p.mu.Unlock()
+
+	var dialer net.Dialer
+
+	for {
+		client, acceptErr := lis.Accept()
+		if acceptErr != nil {
+			return
+		}
+
+		server, dialErr := dialer.DialContext(ctx, "tcp", target)
+		if dialErr != nil {
+			_ = client.Close()
+
+			continue
+		}
+
+		p.mu.Lock()
+		p.conns = append(p.conns, client, server)
+		p.mu.Unlock()
+
+		p.wg.Add(2)
+
+		go p.pipe(client, server)
+		go p.pipe(server, client)
+	}
+}
+
+func (p *delayedProxy) pipe(dst, src net.Conn) {
+	defer p.wg.Done()
+
+	_, _ = io.Copy(dst, src)
+	_ = dst.Close()
+	_ = src.Close()
+}
+
+func (p *delayedProxy) stop() {
+	p.mu.Lock()
+	p.closed = true
+
+	if p.lis != nil {
+		_ = p.lis.Close()
+	}
+
+	for _, conn := range p.conns {
+		_ = conn.Close()
+	}
+	p.mu.Unlock()
+
+	p.wg.Wait()
+}
+
+func TestOpenSucceedsOncePostgresBecomesReachable(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := url.Parse(shared.URL())
+	if err != nil {
+		t.Fatalf("parse the shared URL: %v", err)
+	}
+
+	proxy := startDelayedProxy(t, parsed.Host, 400*time.Millisecond)
+	parsed.Host = proxy.address
+
+	var logs bytes.Buffer
+
+	recorder := &attemptRecorder{Handler: slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})}
+
+	pool, err := db.Open(t.Context(), parsed.String(), slog.New(recorder))
+	if err != nil {
+		t.Fatalf("Open did not recover once the server became reachable: %v", err)
+	}
+
+	defer pool.Close()
+
+	if !recorder.sawAttempt(1) {
+		t.Error("the first attempt did not fail, so no retry was exercised")
+	}
+
+	if count(t, pool, "SELECT 1") != 1 {
+		t.Error("the pool opened after retrying does not answer queries")
+	}
+}
+
 func TestOpenReachableServerReturnsWorkingPool(t *testing.T) {
 	t.Parallel()
 
@@ -709,6 +914,24 @@ func (s lockKillerSource) Up(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("terminate lock holder: %w", err)
 	}
+
+	return nil
+}
+
+// lockProbeSource records how many sessions hold the migration lock while Up runs.
+type lockProbeSource struct {
+	schema          string
+	pool            *pgxpool.Pool
+	t               *testing.T
+	holdersDuringUp int
+}
+
+func (s *lockProbeSource) Schema() string { return s.schema }
+
+func (s *lockProbeSource) Fingerprint() ([]byte, error) { return nil, nil }
+
+func (s *lockProbeSource) Up(context.Context, *pgxpool.Pool) error {
+	s.holdersDuringUp = migrateLockHolders(s.t, s.pool)
 
 	return nil
 }

@@ -87,12 +87,9 @@ func newDemo(t *testing.T, table string) *pgtest.Database {
 func newDemoAt(t *testing.T, table string, at time.Time) *pgtest.Database {
 	t.Helper()
 
-	options := pgtest.Options{
-		Sources: []db.Source{demoSource(t, table)},
-		Now:     func() time.Time { return at },
-	}
+	options := pgtest.Options{Sources: []db.Source{demoSource(t, table)}}
 
-	database, err := pgtest.New(t.Context(), options)
+	database, err := pgtest.NewAt(t.Context(), options, at)
 	if err != nil {
 		t.Fatalf("pgtest.New: %v", err)
 	}
@@ -402,10 +399,19 @@ func TestSweepDropsAbandonedBuildDatabase(t *testing.T) {
 func TestSweepDropsStaleCloneButKeepsFreshOne(t *testing.T) {
 	admin := adminConn(t)
 
-	stale := newDemoAt(t, "items", time.Now().Add(-7*time.Hour))
-	staleName := currentDatabase(t, stale)
+	// A clone left by a run killed seven hours ago, created directly so that no concurrent
+	// sweep can drop it between its creation and the assertions.
+	staleName := fmt.Sprintf("chatisimo_t_%d_%016x", time.Now().Add(-7*time.Hour).Unix(), time.Now().UnixNano())
 
-	// Creating a clone on the real clock sweeps the stale one.
+	_, err := admin.Exec(t.Context(), "CREATE DATABASE "+staleName)
+	if err != nil {
+		t.Fatalf("create stale clone: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.WithoutCancel(t.Context()), "DROP DATABASE IF EXISTS "+staleName)
+	})
+
 	fresh := newDemo(t, "items")
 	freshName := currentDatabase(t, fresh)
 

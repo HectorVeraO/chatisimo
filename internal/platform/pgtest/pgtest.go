@@ -54,16 +54,6 @@ var errMissingURL = errors.New("pgtest: DATABASE_URL is not set: copy .example.e
 // database (the E2E binary migrates it itself).
 type Options struct {
 	Sources []db.Source
-	// Now is the clock that stamps the clone, the template and the sweep. Nil means time.Now.
-	Now func() time.Time
-}
-
-func (o Options) now() time.Time {
-	if o.Now == nil {
-		return time.Now()
-	}
-
-	return o.Now()
 }
 
 // Database is one test package's database.
@@ -77,6 +67,15 @@ type Database struct {
 // New connects with DATABASE_URL as the admin URL, ensures the template for opts exists, clones it
 // and returns the clone. A missing DATABASE_URL is an error naming the fix: tests fail, never skip.
 func New(ctx context.Context, opts Options) (*Database, error) {
+	return newAt(ctx, opts, time.Now())
+}
+
+// newAt is New with the instant that stamps the clone and the template and ages the sweep.
+func newAt(ctx context.Context, opts Options, now time.Time) (*Database, error) {
+	if ctx == nil {
+		return nil, errors.New("pgtest: nil context")
+	}
+
 	adminURL := os.Getenv("DATABASE_URL")
 	if adminURL == "" {
 		return nil, errMissingURL
@@ -87,7 +86,7 @@ func New(ctx context.Context, opts Options) (*Database, error) {
 		return nil, err
 	}
 
-	cloneName, err := newCloneName(opts.now())
+	cloneName, err := newCloneName(now)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +96,7 @@ func New(ctx context.Context, opts Options) (*Database, error) {
 		return nil, err
 	}
 
-	err = cloneFromTemplate(ctx, adminURL, templateName, cloneName, opts)
+	err = cloneFromTemplate(ctx, adminURL, templateName, cloneName, opts, now)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +147,9 @@ func (d *Database) drop(ctx context.Context) error {
 
 // cloneFromTemplate holds the maintenance lock while it builds the template if missing, clones it
 // and sweeps stale databases.
-func cloneFromTemplate(ctx context.Context, adminURL, templateName, cloneName string, opts Options) error {
+func cloneFromTemplate(
+	ctx context.Context, adminURL, templateName, cloneName string, opts Options, now time.Time,
+) error {
 	conn, err := pgx.Connect(ctx, adminURL)
 	if err != nil {
 		return fmt.Errorf("pgtest: connect to the maintenance database: %w", err)
@@ -170,7 +171,7 @@ func cloneFromTemplate(ctx context.Context, adminURL, templateName, cloneName st
 	}
 
 	if !exists {
-		err = buildTemplate(ctx, conn, adminURL, templateName, opts)
+		err = buildTemplate(ctx, conn, adminURL, templateName, opts, now)
 		if err != nil {
 			return err
 		}
@@ -181,7 +182,7 @@ func cloneFromTemplate(ctx context.Context, adminURL, templateName, cloneName st
 		return fmt.Errorf("pgtest: clone %s: %w", cloneName, err)
 	}
 
-	sweepErr := sweep(ctx, conn, templateName, opts.now())
+	sweepErr := sweep(ctx, conn, templateName, now)
 	if sweepErr != nil {
 		dropErr := dropDatabase(context.WithoutCancel(ctx), conn, cloneName)
 
@@ -206,7 +207,9 @@ func templateExists(ctx context.Context, conn *pgx.Conn, name string) (bool, err
 
 // buildTemplate migrates a scratch database and renames it into place only once it is complete,
 // so a crash never leaves a half-built template under the final name.
-func buildTemplate(ctx context.Context, conn *pgx.Conn, adminURL, templateName string, opts Options) error {
+func buildTemplate(
+	ctx context.Context, conn *pgx.Conn, adminURL, templateName string, opts Options, now time.Time,
+) error {
 	suffix := make([]byte, 8)
 
 	_, err := rand.Read(suffix)
@@ -228,7 +231,7 @@ func buildTemplate(ctx context.Context, conn *pgx.Conn, adminURL, templateName s
 		return fmt.Errorf("pgtest: build template %s: %w", templateName, errors.Join(migrateErr, dropErr))
 	}
 
-	return promote(ctx, conn, buildName, templateName, opts.now())
+	return promote(ctx, conn, buildName, templateName, now)
 }
 
 func migrateBuild(ctx context.Context, adminURL, buildName string, opts Options) error {
