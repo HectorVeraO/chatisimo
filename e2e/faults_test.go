@@ -36,6 +36,11 @@ func TestGatewayResume(t *testing.T) {
 		return err == nil && result.Status != fakediscord.StatusTimeout
 	})
 
+	// A fresh identify would also leave the bot answering; only an accepted resume proves the session survived.
+	waitFor(t, "the fake to accept a Gateway resume", func() bool {
+		return strings.Contains(shared.fakeLog.String(), `msg="gateway resume" accepted=true`)
+	})
+
 	name := s.exchangeName("Winter exchange")
 	exchange, _ := s.createExchange(t, s.members[0], name)
 	got := s.join(t, s.members[1], exchange.id)
