@@ -16,7 +16,7 @@ const (
 	validURL  = "postgres://app:" + urlMarker + "@localhost:10000/app"
 )
 
-func newKeyText(t *testing.T) string {
+func newKeyText(t testing.TB) string {
 	t.Helper()
 
 	text, err := crypto.GenerateMasterKey(rand.Reader)
@@ -81,6 +81,37 @@ func TestLoadEnvAcceptsValidValues(t *testing.T) {
 	if err != nil {
 		t.Errorf("master key is not usable: %v", err)
 	}
+}
+
+func FuzzLoadEnvDatabaseURL(f *testing.F) {
+	seeds := []string{
+		"", validURL, "postgres://", "postgres://app:" + urlMarker + "@localhost:notaport/app",
+		"postgresql://u@h/db?sslmode=bogus", "host=localhost port=10000 user=app", "\x00", "\xff\xfe",
+		"postgres://[::1", "%", "postgres://app:%zz@localhost/app",
+	}
+
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	masterKey := newKeyText(f)
+
+	f.Fuzz(func(t *testing.T, databaseURL string) {
+		_, err := config.LoadEnv(lookupFrom(map[string]string{
+			"DATABASE_URL":  databaseURL,
+			"MASTER_KEY":    masterKey,
+			"CHATISIMO_ENV": "local",
+		}))
+		if err == nil {
+			return
+		}
+
+		// Short inputs can match the fixed error wording by chance.
+		const minLeakLength = 8
+		if len(databaseURL) >= minLeakLength && strings.Contains(err.Error(), databaseURL) {
+			t.Fatalf("error repeats the DATABASE_URL input: %v", err)
+		}
+	})
 }
 
 func TestLoadEnvReportsEachBadVariable(t *testing.T) {

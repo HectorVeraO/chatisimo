@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/goleak"
 
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
@@ -497,19 +498,32 @@ func TestNewStoreJoinsKeyProblems(t *testing.T) {
 func TestNewStoreRejectsBadArguments(t *testing.T) {
 	t.Parallel()
 
-	_, err := config.NewStore(t.Context(), nil, sharedKey, config.EnvLocal, nil)
-	if err == nil {
-		t.Fatal("NewStore accepted a nil pool")
+	cases := []struct {
+		name   string
+		ctx    context.Context
+		pool   *pgxpool.Pool
+		master crypto.MasterKey
+		env    config.Environment
+		reason string
+	}{
+		{"nil pool", t.Context(), nil, sharedKey, config.EnvLocal, "nil pool"},
+		{"unknown environment", t.Context(), shared.Pool(), sharedKey, config.Environment("staging"), "environment must be local or production"},
+		{"zero master key", t.Context(), shared.Pool(), crypto.MasterKey{}, config.EnvLocal, "master key is not set"},
 	}
 
-	_, err = config.NewStore(t.Context(), shared.Pool(), sharedKey, config.Environment("staging"), nil)
-	if err == nil {
-		t.Fatal("NewStore accepted an unknown environment")
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err = config.NewStore(t.Context(), shared.Pool(), crypto.MasterKey{}, config.EnvLocal, nil)
-	if err == nil {
-		t.Fatal("NewStore accepted a zero master key")
+			_, err := config.NewStore(tc.ctx, tc.pool, tc.master, tc.env, nil)
+			if err == nil {
+				t.Fatal("NewStore accepted bad arguments")
+			}
+
+			if !strings.Contains(err.Error(), tc.reason) {
+				t.Errorf("error = %v, want it to contain %q", err, tc.reason)
+			}
+		})
 	}
 }
 

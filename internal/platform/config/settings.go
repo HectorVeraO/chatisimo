@@ -314,22 +314,9 @@ func (s *Store) setSecret(ctx context.Context, name, value string, now time.Time
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 	}()
 
-	_, err = tx.Exec(ctx, `
-		INSERT INTO platform.key_check (sealed, created_at) VALUES ($1, $2)
-		ON CONFLICT (id) DO NOTHING`, check, now)
-	if err != nil {
-		return fmt.Errorf("setting %s: write key check: %w", name, err)
-	}
-
-	// A concurrent first writer with another master key may have won the insert above.
-	existing, _, err := readKeyCheck(ctx, tx)
+	err = s.ensureKeyCheck(ctx, tx, check, now)
 	if err != nil {
 		return fmt.Errorf("setting %s: %w", name, err)
-	}
-
-	err = s.verifyKeyCheck(existing)
-	if err != nil {
-		return err
 	}
 
 	_, err = tx.Exec(ctx, `
@@ -347,6 +334,25 @@ func (s *Store) setSecret(ctx context.Context, name, value string, now time.Time
 	}
 
 	return nil
+}
+
+// ensureKeyCheck records check when no key check exists yet, then verifies that the stored one
+// was sealed by this store's master key. A mismatch is returned as ErrMasterKeyMismatch.
+func (s *Store) ensureKeyCheck(ctx context.Context, tx pgx.Tx, check []byte, now time.Time) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO platform.key_check (sealed, created_at) VALUES ($1, $2)
+		ON CONFLICT (id) DO NOTHING`, check, now)
+	if err != nil {
+		return fmt.Errorf("write key check: %w", err)
+	}
+
+	// A concurrent first writer with another master key may have won the insert above.
+	existing, _, err := readKeyCheck(ctx, tx)
+	if err != nil {
+		return err
+	}
+
+	return s.verifyKeyCheck(existing)
 }
 
 // readRow returns the stored forms of name. found is false when no row exists.
