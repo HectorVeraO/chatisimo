@@ -137,6 +137,10 @@ func TestFailNextAnswersOneRateLimit(t *testing.T) {
 	w := newVisibilityWorld(t)
 	mustFailNext(t, w.srv, "POST /channels/{id}/messages", 429, 0)
 	path := "/api/v10/channels/" + w.guild.ChannelID + "/messages"
+	before, err := w.srv.PendingFaults("POST /channels/{id}/messages")
+	if err != nil || before != 1 {
+		t.Fatalf("pending faults before = %d, %v, want 1", before, err)
+	}
 
 	limited := call(t, w.srv, http.MethodPost, path, botAuth(w.srv), `{"content":"hi"}`)
 	retried := call(t, w.srv, http.MethodPost, path, botAuth(w.srv), `{"content":"hi"}`)
@@ -153,6 +157,10 @@ func TestFailNextAnswersOneRateLimit(t *testing.T) {
 	}
 	if retried.status != http.StatusOK {
 		t.Errorf("the request after the fault = %d, want 200", retried.status)
+	}
+	after, err := w.srv.PendingFaults("POST /channels/{id}/messages")
+	if err != nil || after != 0 {
+		t.Errorf("pending faults after = %d, %v, want 0", after, err)
 	}
 	if got := w.srv.Visible(w.alice, w.guild.ChannelID); len(got) != 1 {
 		t.Errorf("Alice sees %d messages, want 1: the limited request stored nothing", len(got))

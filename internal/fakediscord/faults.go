@@ -178,3 +178,17 @@ func writeFault(w http.ResponseWriter, f fault) {
 
 	writeError(w, f.status, f.code, injectedFaultMessage)
 }
+
+// PendingFaults returns how many faults queued by FailNext still wait on route. A fault
+// that was served leaves the count; route is validated the way FailNext validates it.
+func (s *Server) PendingFaults(route string) (int, error) {
+	canonical, err := validateFault(route, http.StatusInternalServerError, 0)
+	if err != nil {
+		return 0, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return len(s.faults[canonical]), nil
+}
