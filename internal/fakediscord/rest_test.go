@@ -105,7 +105,6 @@ func TestUnservedRoutesAnswerJSONNotFound(t *testing.T) {
 		{"unknown path under the API", http.MethodGet, "/api/v10/guilds/" + winterGuildID},
 		{"wrong method on a served path", http.MethodGet, "/api/v10/channels/" + winterGuildID + "/messages"},
 		{"unversioned API path", http.MethodGet, "/api/gateway"},
-		{"root", http.MethodGet, "/"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

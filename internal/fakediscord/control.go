@@ -419,10 +419,40 @@ func modalToJSON(m Modal) modalControlJSON {
 	return modalControlJSON{UserID: m.UserID, CustomID: m.CustomID, Title: m.Title, Components: nonNilRaw(m.Components)}
 }
 
-func messagesToJSON(messages []Message, author userJSON) []messageJSON {
-	list := make([]messageJSON, 0, len(messages))
+// controlMessageJSON is a message as the control API shows it: the REST message plus what a
+// viewer needs to tell who was pinged and which interaction produced it.
+type controlMessageJSON struct {
+	messageJSON
+	InteractionID string   `json:"interaction_id"`
+	Pings         []string `json:"pings"`
+}
+
+// controlMessageLocked builds the control API view of a message. Its pings are those of the
+// newest outbound record about it that was not a deduplicated replay, because an edit can change who is pinged. Callers hold
+// s.mu.
+func (s *Server) controlMessageLocked(m Message) controlMessageJSON {
+	pings := []string{}
+	for _, record := range slices.Backward(s.w.records) {
+		isCurrent := record.MessageID == m.ID && record.Status == http.StatusOK && !record.Deduplicated
+		if isCurrent {
+			pings = slices.Clone(record.Pings)
+			break
+		}
+	}
+
+	view := controlMessageJSON{
+		messageJSON:   messageToJSON(m, s.botUser()),
+		InteractionID: m.InteractionID,
+		Pings:         pings,
+	}
+
+	return view
+}
+
+func (s *Server) controlMessagesLocked(messages []Message) []controlMessageJSON {
+	list := make([]controlMessageJSON, 0, len(messages))
 	for _, message := range messages {
-		list = append(list, messageToJSON(message, author))
+		list = append(list, s.controlMessageLocked(message))
 	}
 
 	return list
@@ -438,7 +468,7 @@ func (s *Server) handleControlChannelMessages(w http.ResponseWriter, r *http.Req
 	s.mu.Lock()
 	_, hasChannel := s.w.channels[r.PathValue("id")]
 	_, hasUser := s.w.users[as]
-	messages := s.w.visibleMessages(as, r.PathValue("id"))
+	list := s.controlMessagesLocked(s.w.visibleMessages(as, r.PathValue("id")))
 	s.mu.Unlock()
 
 	switch {
@@ -447,21 +477,21 @@ func (s *Server) handleControlChannelMessages(w http.ResponseWriter, r *http.Req
 	case !hasUser:
 		unknownEntity("user").write(w)
 	default:
-		writeJSON(w, http.StatusOK, messagesToJSON(messages, s.botUser()))
+		writeJSON(w, http.StatusOK, list)
 	}
 }
 
 func (s *Server) handleControlDMs(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	_, hasUser := s.w.users[r.PathValue("user")]
-	messages := s.dmMessagesLocked(r.PathValue("user"))
+	list := s.controlMessagesLocked(s.dmMessagesLocked(r.PathValue("user")))
 	s.mu.Unlock()
 
 	if !hasUser {
 		unknownEntity("user").write(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, messagesToJSON(messages, s.botUser()))
+	writeJSON(w, http.StatusOK, list)
 }
 
 func (s *Server) handleControlModal(w http.ResponseWriter, r *http.Request) {
