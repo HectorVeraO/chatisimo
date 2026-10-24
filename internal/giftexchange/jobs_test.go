@@ -132,13 +132,21 @@ func TestSetRuleSchedulesTheRevealAndItsReminder(t *testing.T) {
 	s := newScene(t)
 	s.mustSet(t, giftexchange.RuleReminderLead, "5m")
 
-	s.mustSet(t, giftexchange.RuleRevealAt, s.h.futureText(2*time.Hour))
+	revealAt := s.h.futureText(2 * time.Hour)
 
-	if got := jobCount(t, s.h, revealJobKind, ""); got != 1 {
-		t.Errorf("reveal jobs = %d, want 1", got)
+	s.mustSet(t, giftexchange.RuleRevealAt, revealAt)
+
+	want, parseErr := time.Parse(time.RFC3339, revealAt)
+	if parseErr != nil {
+		t.Fatalf("parse %q: %v", revealAt, parseErr)
 	}
-	if got := jobCount(t, s.h, reminderKind, ""); got != 1 {
-		t.Errorf("reminder jobs = %d, want 1", got)
+	reveals := scheduledAts(t, s.h, revealJobKind)
+	if len(reveals) != 1 || !reveals[0].Equal(want) {
+		t.Errorf("reveal jobs at %v, want one at %v", reveals, want)
+	}
+	reminders := scheduledAts(t, s.h, reminderKind)
+	if len(reminders) != 1 || !reminders[0].Equal(want.Add(-5*time.Minute)) {
+		t.Errorf("reminder jobs at %v, want one at %v", reminders, want.Add(-5*time.Minute))
 	}
 }
 
@@ -195,15 +203,38 @@ func TestSetRuleToTheCurrentValueSchedulesNothing(t *testing.T) {
 
 func TestSettingReminderLeadSchedulesTheRemindersItMakesDue(t *testing.T) {
 	s := newScene(t)
-	s.mustSet(t, giftexchange.RuleDrawAt, s.h.futureText(2*time.Hour))
-	s.mustSet(t, giftexchange.RuleRevealAt, s.h.futureText(4*time.Hour))
+	drawText := s.h.futureText(2 * time.Hour)
+	revealText := s.h.futureText(4 * time.Hour)
+	s.mustSet(t, giftexchange.RuleDrawAt, drawText)
+	s.mustSet(t, giftexchange.RuleRevealAt, revealText)
 	before := jobCount(t, s.h, reminderKind, "")
 
 	s.mustSet(t, giftexchange.RuleReminderLead, "30m")
 
-	if got := jobCount(t, s.h, reminderKind, "") - before; got != 2 {
+	drawAt, drawErr := time.Parse(time.RFC3339, drawText)
+	revealAt, revealErr := time.Parse(time.RFC3339, revealText)
+	if drawErr != nil || revealErr != nil {
+		t.Fatalf("parse instants: %v, %v", drawErr, revealErr)
+	}
+	reminders := scheduledAts(t, s.h, reminderKind)
+	wantDraw := drawAt.Add(-30 * time.Minute)
+	wantReveal := revealAt.Add(-30 * time.Minute)
+	if got := len(reminders) - before; got != 2 {
 		t.Errorf("reminders added = %d, want one for the draw and one for the reveal", got)
 	}
+	if !containsInstant(reminders, wantDraw) || !containsInstant(reminders, wantReveal) {
+		t.Errorf("reminder jobs at %v, want ones at %v and %v", reminders, wantDraw, wantReveal)
+	}
+}
+
+func containsInstant(instants []time.Time, want time.Time) bool {
+	for _, instant := range instants {
+		if instant.Equal(want) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestSettingReminderLeadInDrawnStateRemindsTheRevealOnly(t *testing.T) {
