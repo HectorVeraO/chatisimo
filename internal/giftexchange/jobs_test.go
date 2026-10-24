@@ -673,6 +673,32 @@ func TestSoonNoticesOfAChangedExchangeAreStaleAndNotDelivered(t *testing.T) {
 	}
 }
 
+func TestDrawSoonNoticeForAMovedDrawAtIsStaleWhileOpen(t *testing.T) {
+	s := newDrawScene(t, 3)
+	s.mustSet(t, giftexchange.RuleDrawAt, s.h.futureText(time.Hour))
+	oldDrawAt, parseErr := time.Parse(time.RFC3339, s.h.futureText(time.Hour))
+	if parseErr != nil {
+		t.Fatalf("parse draw_at: %v", parseErr)
+	}
+	_, markErr := shared.Pool().Exec(t.Context(),
+		"UPDATE giftexchange.exchanges SET draw_reminder_sent_for = $1 WHERE id = $2",
+		oldDrawAt, s.exchange.String())
+	if markErr != nil {
+		t.Fatalf("mark the reminder as sent: %v", markErr)
+	}
+	s.mustSet(t, giftexchange.RuleDrawAt, s.h.futureText(3*time.Hour))
+	drawSoon := insertNotice(t, s.scene, "draw_soon", s.people[0], 0, "")
+	s.h.startRunner(t)
+
+	waitFor(t, deliveryDeadline, "the notice to finish", func() bool {
+		return noticeOf(t, drawSoon).hasOutcome("stale")
+	})
+
+	if got := len(receivedOfKind(s.h.notifier.Received(), giftexchange.KindDrawSoon)); got != 0 {
+		t.Errorf("draw_soon notices delivered = %d, want 0", got)
+	}
+}
+
 func TestDrawFailedNoticeIsAlwaysDelivered(t *testing.T) {
 	s := newDrawScene(t, 3)
 	s.mustDraw(t)
