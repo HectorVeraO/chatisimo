@@ -1,0 +1,12 @@
+{
+  "name": "chatisimo-playwright",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report playwright-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0"
+  }
+}
