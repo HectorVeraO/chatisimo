@@ -91,8 +91,8 @@ can merge.
 
 ```text
 cmd/chatisimo/        binary entry point
-references/           architecture, coding and testing rules
-.claude/              Claude Code reviewer agents and the pl-review-branch skill
+cookbooks/            architecture, coding and testing rules
+.claude/              Claude Code agents, skills, hooks and settings
 .github/              CI workflow, Dependabot, issue and pull request templates
 compose.yaml          local Postgres
 mise.toml             pinned toolchain
@@ -100,14 +100,15 @@ mise.toml             pinned toolchain
 lefthook.yml          pre-commit hooks
 .gitleaks.toml        gitleaks rules, including the email rule
 AGENTS.md             rules for contributors and agents
+ONBOARDING.md         first-day setup for the agent tooling
 ```
 
 ## Contributing
 
 Read [AGENTS.md](AGENTS.md) before opening a pull request: it covers the rules for secrets,
 modules, configuration and tests, and the issue-to-merge workflow. Details are in
-[references/architecture.md](references/architecture.md),
-[references/coding.md](references/coding.md) and [references/testing.md](references/testing.md).
+[cookbooks/architecture.md](cookbooks/architecture.md),
+[cookbooks/coding.md](cookbooks/coding.md) and [cookbooks/testing.md](cookbooks/testing.md).
 
 ## License
 
