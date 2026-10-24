@@ -2,13 +2,17 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 	"uuid"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
@@ -150,8 +154,8 @@ func TestGetPersonByIdentityOfUnknownIdentityFails(t *testing.T) {
 
 	_, err := q.GetPersonByIdentity(t.Context(),
 		db.GetPersonByIdentityParams{Provider: providerKey, Subject: "999999999999999999"})
-	if err == nil {
-		t.Error("GetPersonByIdentity of an unknown identity succeeded, want an error")
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("GetPersonByIdentity of an unknown identity error = %v, want pgx.ErrNoRows", err)
 	}
 }
 
@@ -214,7 +218,23 @@ func constraintCases() []constraintCase {
 		{name: "accepts a subject of one character", provider: providerKey, subject: "a"},
 		{name: "accepts a subject of 128 characters", provider: providerKey, subject: strings.Repeat("b", 128)},
 		{name: "rejects a subject of 129 characters", provider: providerKey, subject: strings.Repeat("c", 129), wantErr: true},
+		{name: "accepts a multibyte subject of 128 characters", provider: providerKey, subject: strings.Repeat("ñ", 128)},
+		{name: "accepts a four-byte subject of 128 characters", provider: providerKey, subject: strings.Repeat("\U0001F600", 128)},
+		{name: "rejects a multibyte subject of 129 characters", provider: providerKey, subject: strings.Repeat("ñ", 129), wantErr: true},
 	}
+}
+
+// matchesConstraintOutcome reports whether err is a CHECK violation
+// (SQLSTATE 23514) when wantViolation is set, and nil otherwise.
+func matchesConstraintOutcome(err error, wantViolation bool) bool {
+	if !wantViolation {
+		return err == nil
+	}
+
+	var pgErr *pgconn.PgError
+	isPgError := errors.As(err, &pgErr)
+
+	return isPgError && pgErr.Code == "23514"
 }
 
 func TestInsertIdentityEnforcesProviderAndSubjectBounds(t *testing.T) {
@@ -227,9 +247,9 @@ func TestInsertIdentityEnforcesProviderAndSubjectBounds(t *testing.T) {
 			err := q.InsertIdentity(t.Context(), db.InsertIdentityParams{
 				Provider: tc.provider, Subject: tc.subject, PersonID: person, CreatedAt: now(),
 			})
-			if (err != nil) != tc.wantErr {
-				t.Errorf("InsertIdentity(%q, len %d) error = %v, want error: %t",
-					tc.provider, len(tc.subject), err, tc.wantErr)
+			if !matchesConstraintOutcome(err, tc.wantErr) {
+				t.Errorf("InsertIdentity(%q, %d characters) error = %v, want check violation: %t",
+					tc.provider, utf8.RuneCountInString(tc.subject), err, tc.wantErr)
 			}
 			if err != nil || tc.wantErr {
 				return
@@ -258,9 +278,9 @@ func TestUpsertGroupEnforcesProviderAndSubjectBounds(t *testing.T) {
 			got, err := q.UpsertGroup(t.Context(), db.UpsertGroupParams{
 				ID: id, Provider: tc.provider, Subject: tc.subject, CreatedAt: now(),
 			})
-			if (err != nil) != tc.wantErr {
-				t.Errorf("UpsertGroup(%q, len %d) error = %v, want error: %t",
-					tc.provider, len(tc.subject), err, tc.wantErr)
+			if !matchesConstraintOutcome(err, tc.wantErr) {
+				t.Errorf("UpsertGroup(%q, %d characters) error = %v, want check violation: %t",
+					tc.provider, utf8.RuneCountInString(tc.subject), err, tc.wantErr)
 			}
 
 			if err == nil && got != id {
