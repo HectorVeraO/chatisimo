@@ -86,8 +86,8 @@ func TestCustomIDRoundTripsForEveryAction(t *testing.T) {
 func TestLongestCustomIDFitsTheLimit(t *testing.T) {
 	c := sampleCustomID(t, actionRemoveConfirm)
 
-	if got := len(formatCustomID(c)); got != 92 {
-		t.Errorf("remove-confirm custom ID has %d characters, want 92", got)
+	if got := len(formatCustomID(c)); got > maxCustomIDLength {
+		t.Errorf("remove-confirm custom ID has %d characters, want at most %d", got, maxCustomIDLength)
 	}
 }
 

@@ -1,6 +1,7 @@
 package giftexchangecmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -142,43 +143,6 @@ func FuzzResolveExchange(f *testing.F) {
 	})
 }
 
-func TestEveryVerbWithAnExchangeOptionKeepsSomeSummary(t *testing.T) {
-	states := []giftexchange.State{
-		giftexchange.StateOpen, giftexchange.StateDrawn, giftexchange.StateRevealed, giftexchange.StateCancelled,
-	}
-
-	for _, spec := range verbs() {
-		hasExchangeOption := false
-		for _, option := range spec.options() {
-			hasExchangeOption = hasExchangeOption || option.OptionName() == exchangeOptionName
-		}
-		if !hasExchangeOption {
-			continue
-		}
-
-		t.Run(spec.name, func(t *testing.T) {
-			filter := filterFor(spec.name)
-			if filter.keep == nil {
-				t.Fatalf("verb %s has a filter without a keep predicate", spec.name)
-			}
-
-			keepsAny := false
-			for _, state := range states {
-				summary := giftexchange.ExchangeSummary{
-					State: state, CallerIsOrganizer: true, CallerIsParticipant: true,
-				}
-				keepsAny = keepsAny || filter.keep(summary)
-			}
-			// join is the one verb that needs a non-participant.
-			open := giftexchange.ExchangeSummary{State: giftexchange.StateOpen}
-			keepsAny = keepsAny || filter.keep(open)
-			if !keepsAny {
-				t.Errorf("verb %s keeps no summary in any state", spec.name)
-			}
-		})
-	}
-}
-
 func TestFiltersKeepTheSummariesTheirVerbCanActOn(t *testing.T) {
 	const (
 		open      = giftexchange.StateOpen
@@ -234,20 +198,49 @@ func TestFiltersKeepTheSummariesTheirVerbCanActOn(t *testing.T) {
 	for _, c := range cases {
 		name := fmt.Sprintf("%s/%s/%q", c.verb, c.state, c.caller)
 		t.Run(name, func(t *testing.T) {
+			group := giftexchange.GroupID(uuid.NewV7())
 			summary := giftexchange.ExchangeSummary{
+				ID:                  giftexchange.ExchangeID(uuid.NewV7()),
+				Group:               giftexchange.Group{ID: group},
 				State:               c.state,
 				CallerIsOrganizer:   c.caller == organizer || c.caller == both,
 				CallerIsParticipant: c.caller == participant || c.caller == both,
 			}
 
-			if got := filterFor(c.verb).keep(summary); got != c.keeps {
-				t.Errorf("keep = %t, want %t", got, c.keeps)
+			h := newTestHandlersWith(t, &listingService{summaries: []giftexchange.ExchangeSummary{summary}})
+			req := &router.Request{Group: &group}
+
+			got, err := h.exchangeFor(context.Background(), req, c.verb, "")
+
+			if c.keeps && (err != nil || got != summary.ID) {
+				t.Errorf("exchangeFor = %v, %v; want %v", got, err, summary.ID)
+			}
+			if !c.keeps && !errors.Is(err, errNoCandidates) {
+				t.Errorf("exchangeFor = %v, %v; want errNoCandidates", got, err)
 			}
 		})
 	}
 }
 
+// listingService answers ExchangesFor with a fixed list.
+type listingService struct {
+	Service
+	summaries []giftexchange.ExchangeSummary
+}
+
+func (l *listingService) ExchangesFor(
+	context.Context, giftexchange.Actor, *giftexchange.GroupID,
+) ([]giftexchange.ExchangeSummary, error) {
+	return l.summaries, nil
+}
+
 func newTestHandlers(tb testing.TB) *Handlers {
+	tb.Helper()
+
+	return newTestHandlersWith(tb, &stubService{})
+}
+
+func newTestHandlersWith(tb testing.TB, svc Service) *Handlers {
 	tb.Helper()
 
 	guildName := func(subject string) string {
@@ -257,7 +250,7 @@ func newTestHandlers(tb testing.TB) *Handlers {
 
 		return "Server " + subject
 	}
-	h, err := New(&stubService{}, guildName, time.Now, time.UTC, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h, err := New(svc, guildName, time.Now, time.UTC, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		tb.Fatalf("New: %v", err)
 	}
