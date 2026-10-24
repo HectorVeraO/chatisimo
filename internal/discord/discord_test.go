@@ -314,3 +314,19 @@ func TestADrawnExchangeLeaksNoPairThroughRepliesOrLogs(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAdapterWhoseGatewayIsClosedRefusesToOpenAgain(t *testing.T) {
+	h := newHarness(t)
+
+	openCtx, cancel := context.WithTimeout(t.Context(), closeDeadline)
+	defer cancel()
+
+	if err := h.adapter.Open(openCtx); err == nil {
+		t.Error("Open on an open adapter succeeded, want an error")
+	}
+
+	h.adapter.CloseGateway(openCtx)
+	if err := h.adapter.Open(openCtx); err == nil {
+		t.Error("Open after CloseGateway succeeded, want an error")
+	}
+}

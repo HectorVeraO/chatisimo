@@ -56,7 +56,10 @@ type Adapter struct {
 	router   *router.Router
 	commands []discord.ApplicationCommandCreate
 
+	// mu guards the fields below and is never held across a network call, so CloseGateway
+	// stays bounded by its ctx while Open is in flight.
 	mu            sync.Mutex
+	opening       bool
 	client        *bot.Client
 	gatewayClosed bool
 }
@@ -105,13 +108,55 @@ func New(n *Notifier, gx GiftExchange, logger *slog.Logger) (*Adapter, error) {
 // Open bulk-overwrites the global commands, then opens the Gateway. Building the Gateway
 // client asks Discord for the Gateway URL, so the client is built here and not in New.
 func (a *Adapter) Open(ctx context.Context) error {
+	err := a.beginOpen()
+	if err != nil {
+		return err
+	}
+
+	client, err := a.openClient(ctx)
+	return a.finishOpen(ctx, client, err)
+}
+
+// beginOpen marks an Open in flight, refusing a second Open and an Open after the Gateway
+// was closed.
+func (a *Adapter) beginOpen() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.client != nil {
+	if a.client != nil || a.opening {
 		return errors.New("discord adapter: already open")
 	}
+	if a.gatewayClosed {
+		return errors.New("discord adapter: gateway closed")
+	}
 
+	a.opening = true
+	return nil
+}
+
+// finishOpen keeps the client only once the Gateway is open, so a failed Open can be retried.
+// A CloseGateway that arrived during Open closes the new Gateway instead.
+func (a *Adapter) finishOpen(ctx context.Context, client *bot.Client, openErr error) error {
+	a.mu.Lock()
+	a.opening = false
+	closedMeanwhile := a.gatewayClosed
+	if openErr == nil && !closedMeanwhile {
+		a.client = client
+	}
+	a.mu.Unlock()
+
+	if openErr != nil {
+		return openErr
+	}
+	if closedMeanwhile {
+		client.Gateway.Close(ctx)
+		return errors.New("discord adapter: gateway closed while opening")
+	}
+	return nil
+}
+
+// openClient builds the client, registers the commands and opens the Gateway.
+func (a *Adapter) openClient(ctx context.Context) (*bot.Client, error) {
 	// disgo logs request and response bodies, which hold message text and snowflakes, so its
 	// own logger is silenced.
 	silent := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -127,37 +172,38 @@ func (a *Adapter) Open(ctx context.Context) error {
 		bot.WithEventListeners(a.router.Listener()),
 	)
 	if err != nil {
-		return fmt.Errorf("discord adapter: %w", reduceRESTError(opCreateClient, err))
+		return nil, fmt.Errorf("discord adapter: %w", reduceRESTError(opCreateClient, err))
 	}
 
 	_, err = client.Rest.SetGlobalCommands(client.ApplicationID, a.commands, rest.WithCtx(ctx))
 	if err != nil {
-		return fmt.Errorf("discord adapter: %w", reduceRESTError(opRegisterCommands, err))
+		return nil, fmt.Errorf("discord adapter: %w", reduceRESTError(opRegisterCommands, err))
 	}
 
 	err = client.OpenGateway(ctx)
 	if err != nil {
 		client.Gateway.Close(ctx)
-		return fmt.Errorf("discord adapter: open gateway: %w", err)
+		return nil, fmt.Errorf("discord adapter: open gateway: %w", err)
 	}
 
-	// The client is kept only once the Gateway is open, so a failed Open can be retried.
-	a.client = client
-	return nil
+	return client, nil
 }
 
 // CloseGateway stops taking interactions. REST stays usable, so notifications in flight still
 // go out.
 func (a *Adapter) CloseGateway(ctx context.Context) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if a.client == nil || a.gatewayClosed {
+	if a.gatewayClosed {
+		a.mu.Unlock()
 		return
 	}
-
 	a.gatewayClosed = true
-	a.client.Gateway.Close(ctx)
+	client := a.client
+	a.mu.Unlock()
+
+	if client != nil {
+		client.Gateway.Close(ctx)
+	}
 }
 
 // Close stops the Gateway if it is still open, cancels the handlers in flight and releases the
