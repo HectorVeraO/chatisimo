@@ -43,8 +43,8 @@ that applies to it.
 - Replace only the boundaries: the clock, the source of randomness, Discord, and other
   external services. Never replace the code under test or its collaborators inside the module.
 - Doubles are small hand-written fakes that satisfy the module's own interfaces.
-- Code that talks to Postgres is tested against the real database from `compose.yaml`, not a
-  fake.
+- Code that talks to Postgres is tested against the real database of the local stack
+  (`.deploy/local/docker-compose.yaml`), or the Postgres service container in CI, not a fake.
 
 ## Shape
 

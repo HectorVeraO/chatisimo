@@ -26,7 +26,7 @@ Chatisimo is Chatolandia's platform: a modular monolith in Go, one binary (`cmd/
 |---|---|
 | Install the toolchain | `mise install` |
 | Install the git hooks | `lefthook install` |
-| Start / stop local Postgres | `docker compose up -d` / `docker compose down` |
+| Start / stop local Postgres | `docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d` / `... down` |
 | Build | `go build ./...` |
 | Test | `go test ./...` |
 | Lint | `golangci-lint run ./...` |
@@ -66,7 +66,7 @@ survive a rewrite of its internals, and replace only the boundaries: clock, rand
 Discord. Read `cookbooks/testing.md` before writing tests.
 
 **Local environment.** Tool versions come from `mise.toml`. Host ports come from the range
-10000-10099; Postgres listens on 10000.
+10000-10099: Postgres on 10000, 10010 reserved for the fake Discord (`.deploy/local/README.md`).
 
 ## Secrets and personal data
 
@@ -242,12 +242,12 @@ findings (see "Workflow") apply on top of this format.
 ## Local environment
 
 <!-- AGENTIC-SETUP:AUTOGEN:local-environment START -->
-- **Source of Truth**: `compose.yaml` is the local compose project.
+- **Source of Truth**: `.deploy/local/docker-compose.yaml` (project `chatisimo`) is the local compose project; ports and commands in `.deploy/local/README.md`.
 - **The Split**:
   - **Infra** (databases): `postgres` -> Always in Docker.
-  - **Sourced components**: none in `compose.yaml`; the `chatisimo` binary runs on the host (`go run ./cmd/chatisimo`) and reaches Postgres at `localhost:10000`.
-- **Booting**: `docker compose -f compose.yaml up -d` (always detached). Output directed to `.me/<slug>/logs/`.
-- **Resets**: `docker compose -f compose.yaml down -v` is authorized for routine local recovery. Applies to local disposable volumes only; never target shared or staging stacks.
+  - **Sourced components**: none yet (the `e2e` profile adds them in milestone 2); the `chatisimo` binary runs on the host (`go run ./cmd/chatisimo`) and reaches Postgres at `localhost:10000`.
+- **Booting**: `docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d` (always detached). Output directed to `.me/<slug>/logs/`.
+- **Resets**: `docker compose --env-file .env -f .deploy/local/docker-compose.yaml down -v` is authorized for routine local recovery. Applies to local disposable volumes only; never target shared or staging stacks. It also deletes the development database.
 - Full addressing rules, port allocation, verification layout and cleanup: see `.claude/references/local-env.md`.
 <!-- AGENTIC-SETUP:AUTOGEN:local-environment END -->
 
