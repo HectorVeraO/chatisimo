@@ -586,7 +586,8 @@ func notificationRows(t *testing.T, x giftexchange.ExchangeID) []notificationRow
 		if scanErr := rows.Scan(&row.id, &row.kind, &row.person, &row.round, &row.question, &row.reason); scanErr != nil {
 			t.Fatalf("scan notification: %v", scanErr)
 		}
-		if row.question != nil || row.reason != nil {
+		hasForeignReason := row.reason != nil && row.kind != "round_voided"
+		if row.question != nil || hasForeignReason {
 			t.Errorf("notification %s holds a question or reason, want IDs and kind only", row.id)
 		}
 		found = append(found, row)

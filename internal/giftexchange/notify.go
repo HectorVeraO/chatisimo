@@ -142,14 +142,14 @@ func (s *Service) assessNotification(
 	facts := noticeFacts{exchange: exchange}
 
 	switch NotificationKind(row.Kind) {
-	case KindDrawn:
+	case KindDrawn, KindRedrawn, KindAssignmentChanged:
 		return s.assessDrawn(ctx, q, row, facts)
 	default:
 		return facts, false, nil
 	}
 }
 
-// assessDrawn: stale unless the exchange is Drawn in the notice's round and the addressee still
+// assessDrawn, the rule of every pair kind: stale unless the exchange is Drawn in the notice's round and the addressee still
 // gives to someone.
 func (s *Service) assessDrawn(
 	ctx context.Context,
@@ -189,7 +189,7 @@ func (s *Service) buildNotification(
 	kind := NotificationKind(row.Kind)
 
 	switch kind {
-	case KindCancelled, KindDrawn:
+	case KindCancelled, KindDrawn, KindRedrawn, KindAssignmentChanged, KindRoundVoided:
 		return s.buildNotice(ctx, q, row, facts)
 	default:
 		panic("giftexchange: notify: no delivery rule for kind " + row.Kind)
@@ -197,7 +197,8 @@ func (s *Service) buildNotification(
 }
 
 // buildNotice builds a notice from the addressee, the exchange and, when the kind has one, the
-// counterpart: the addressee's own recipient (drawn). It carries no question or reason.
+// counterpart: the addressee's own recipient (drawn, redrawn, assignment_changed). A voided
+// round carries its reason. It carries no question.
 func (s *Service) buildNotice(
 	ctx context.Context,
 	q *db.Queries,
@@ -220,6 +221,9 @@ func (s *Service) buildNotice(
 		Kind:     NotificationKind(row.Kind),
 		To:       PersonRef{ID: addressee, Identities: identities[row.PersonID]},
 		Exchange: summaryOf(facts.exchange, addressee),
+	}
+	if row.Reason != nil {
+		notification.Reason = Reason(*row.Reason)
 	}
 	if facts.counterpart != nil {
 		counterpart := PersonRef{ID: PersonID(*facts.counterpart), Identities: identities[*facts.counterpart]}

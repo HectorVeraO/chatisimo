@@ -364,7 +364,7 @@ func TestKindWithoutADeliveryRuleFailsTheJobNamingOnlyTheKind(t *testing.T) {
 	}
 	stored := jobStates(t, s.h)[0].errors
 	assertNoSecrets(t, "job errors", stored, []string{participant.id.String(), participant.subject})
-	if !strings.Contains(stored, "giftexchange: notify: no delivery rule for kind redrawn") {
+	if !strings.Contains(stored, "giftexchange: notify: no delivery rule for kind draw_soon") {
 		t.Errorf("job errors %q do not name the missing delivery rule", stored)
 	}
 }
@@ -406,7 +406,7 @@ func insertUnruledNotice(t *testing.T, s scene, addressee person) string {
 	noticeID := "00000000-0000-7000-8000-000000000001"
 	_, err := shared.Pool().Exec(t.Context(),
 		"INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, created_at) "+
-			"VALUES ($1, 'redrawn', $2, $3, 0, $4)",
+			"VALUES ($1, 'draw_soon', $2, $3, 0, $4)",
 		noticeID, s.exchange.String(), addressee.id.String(), s.h.clock.Now())
 	if err != nil {
 		t.Fatalf("insert notification: %v", err)

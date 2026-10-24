@@ -11,6 +11,21 @@ import (
 	"uuid"
 )
 
+const deleteAssignmentOfGiver = `-- name: DeleteAssignmentOfGiver :exec
+DELETE FROM giftexchange.assignments
+WHERE exchange_id = $1 AND giver_id = $2
+`
+
+type DeleteAssignmentOfGiverParams struct {
+	ExchangeID uuid.UUID
+	GiverID    uuid.UUID
+}
+
+func (q *Queries) DeleteAssignmentOfGiver(ctx context.Context, arg DeleteAssignmentOfGiverParams) error {
+	_, err := q.db.Exec(ctx, deleteAssignmentOfGiver, arg.ExchangeID, arg.GiverID)
+	return err
+}
+
 const getAssignmentOfGiver = `-- name: GetAssignmentOfGiver :one
 SELECT recipient_id
 FROM giftexchange.assignments
@@ -29,9 +44,46 @@ func (q *Queries) GetAssignmentOfGiver(ctx context.Context, arg GetAssignmentOfG
 	return recipient_id, err
 }
 
+const getAssignmentOfRecipient = `-- name: GetAssignmentOfRecipient :one
+SELECT giver_id
+FROM giftexchange.assignments
+WHERE exchange_id = $1 AND recipient_id = $2
+`
+
+type GetAssignmentOfRecipientParams struct {
+	ExchangeID  uuid.UUID
+	RecipientID uuid.UUID
+}
+
+func (q *Queries) GetAssignmentOfRecipient(ctx context.Context, arg GetAssignmentOfRecipientParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getAssignmentOfRecipient, arg.ExchangeID, arg.RecipientID)
+	var giver_id uuid.UUID
+	err := row.Scan(&giver_id)
+	return giver_id, err
+}
+
 type InsertAssignmentsParams struct {
 	ExchangeID  uuid.UUID
 	GiverID     uuid.UUID
 	RecipientID uuid.UUID
 	Round       int32
+}
+
+const updateAssignmentRecipient = `-- name: UpdateAssignmentRecipient :exec
+UPDATE giftexchange.assignments
+SET recipient_id = $1
+WHERE exchange_id = $2 AND giver_id = $3
+`
+
+type UpdateAssignmentRecipientParams struct {
+	RecipientID uuid.UUID
+	ExchangeID  uuid.UUID
+	GiverID     uuid.UUID
+}
+
+// A patch frees the dropout's recipient with DeleteAssignmentOfGiver first, because
+// assignments_recipient_unique is not deferrable.
+func (q *Queries) UpdateAssignmentRecipient(ctx context.Context, arg UpdateAssignmentRecipientParams) error {
+	_, err := q.db.Exec(ctx, updateAssignmentRecipient, arg.RecipientID, arg.ExchangeID, arg.GiverID)
+	return err
 }

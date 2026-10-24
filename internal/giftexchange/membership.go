@@ -87,8 +87,9 @@ func (s *Service) addParticipant(
 	return nil
 }
 
-// Leave removes the caller and deletes their exclusions. Only an Open exchange accepts a leave:
-// it returns OutcomeRemoved. In any other state it returns a StateError.
+// Leave removes the caller and deletes their exclusions. In Open it returns OutcomeRemoved; in
+// Drawn it repairs the assignments (patch, full redraw, or void back to Open) and returns that
+// outcome, never a pair. In any other state it returns a StateError.
 func (s *Service) Leave(ctx context.Context, a Actor, g GroupID, id ExchangeID) (DropoutOutcome, error) {
 	validationErr := validateScope(a, g, id)
 	if validationErr != nil {
@@ -96,7 +97,7 @@ func (s *Service) Leave(ctx context.Context, a Actor, g GroupID, id ExchangeID) 
 	}
 
 	var outcome DropoutOutcome
-	txErr := s.inTx(ctx, func(q *db.Queries, _ pgx.Tx) error {
+	txErr := s.inTx(ctx, func(q *db.Queries, tx pgx.Tx) error {
 		exchange, err := lockExchange(ctx, q, g, id)
 		if err != nil {
 			return err
@@ -111,7 +112,7 @@ func (s *Service) Leave(ctx context.Context, a Actor, g GroupID, id ExchangeID) 
 		}
 
 		var removeErr error
-		outcome, removeErr = s.removeLocked(ctx, q, "leave", exchange, a.person)
+		outcome, removeErr = s.removeLocked(ctx, q, tx, "leave", exchange, a.person)
 		return removeErr
 	})
 	if txErr != nil {
@@ -122,7 +123,8 @@ func (s *Service) Leave(ctx context.Context, a Actor, g GroupID, id ExchangeID) 
 }
 
 // RemoveParticipant removes person p on the organizer's behalf, like Leave for p, exclusions
-// included. Only an Open exchange accepts the removal.
+// included. Open and Drawn accept it, with the outcomes of Leave. In Drawn an organizer who is
+// also a participant cannot remove their own current recipient (ErrForbidden, nothing changes).
 func (s *Service) RemoveParticipant(
 	ctx context.Context,
 	a Actor,
@@ -143,7 +145,7 @@ func (s *Service) RemoveParticipant(
 	}
 
 	var outcome DropoutOutcome
-	txErr := s.inTx(ctx, func(q *db.Queries, _ pgx.Tx) error {
+	txErr := s.inTx(ctx, func(q *db.Queries, tx pgx.Tx) error {
 		exchange, err := lockExchange(ctx, q, g, id)
 		if err != nil {
 			return err
@@ -154,7 +156,7 @@ func (s *Service) RemoveParticipant(
 			return guardErr
 		}
 
-		stateErr := requireOpenForDropout("remove_participant", exchange)
+		stateErr := requireDropoutState("remove_participant", exchange)
 		if stateErr != nil {
 			return stateErr
 		}
@@ -167,8 +169,13 @@ func (s *Service) RemoveParticipant(
 			return ErrNotParticipant
 		}
 
+		ownErr := requireNotOwnRecipient(ctx, q, exchange, a.person, p)
+		if ownErr != nil {
+			return ownErr
+		}
+
 		var removeErr error
-		outcome, removeErr = s.removeLocked(ctx, q, "remove_participant", exchange, p)
+		outcome, removeErr = s.removeLocked(ctx, q, tx, "remove_participant", exchange, p)
 		return removeErr
 	})
 	if txErr != nil {
@@ -197,25 +204,27 @@ func isActiveParticipant(
 	return !row.LeftAt.Valid, nil
 }
 
-// requireOpenForDropout allows dropouts only in Open: Drawn dropouts arrive with their own
-// slice, and every other state is final.
-func requireOpenForDropout(op string, exchange db.GiftexchangeExchange) error {
+// requireDropoutState allows dropouts in Open and Drawn; Revealed and Cancelled are final.
+func requireDropoutState(op string, exchange db.GiftexchangeExchange) error {
 	isOpen := exchange.State == string(StateOpen)
-	if !isOpen {
+	isDrawn := exchange.State == string(StateDrawn)
+	if !isOpen && !isDrawn {
 		return &StateError{Op: op, State: State(exchange.State)}
 	}
 	return nil
 }
 
-// removeLocked marks person as left in an Open exchange whose row the caller holds locked.
+// removeLocked marks person as left in an Open or Drawn exchange whose row the caller holds
+// locked and deletes their exclusions. In Drawn it then repairs the assignments.
 func (s *Service) removeLocked(
 	ctx context.Context,
 	q *db.Queries,
+	tx pgx.Tx,
 	op string,
 	exchange db.GiftexchangeExchange,
 	person PersonID,
 ) (DropoutOutcome, error) {
-	stateErr := requireOpenForDropout(op, exchange)
+	stateErr := requireDropoutState(op, exchange)
 	if stateErr != nil {
 		return "", stateErr
 	}
@@ -236,5 +245,10 @@ func (s *Service) removeLocked(
 	if leftErr != nil {
 		return "", fmt.Errorf("remove participant of %s: %w", exchange.ID, leftErr)
 	}
-	return OutcomeRemoved, nil
+
+	isOpen := exchange.State == string(StateOpen)
+	if isOpen {
+		return OutcomeRemoved, nil
+	}
+	return s.repairDrawn(ctx, q, tx, exchange, uuid.UUID(person))
 }
