@@ -441,19 +441,6 @@ func TestSetRuleReminderLeadBoundaries(t *testing.T) {
 	}
 }
 
-func TestSetRuleDoesNotScheduleJobs(t *testing.T) {
-	s := newScene(t)
-	before := countJobs(t, s.h)
-
-	if _, err := s.set(t, s.organizer, giftexchange.RuleDrawAt, s.h.futureText(48*time.Hour)); err != nil {
-		t.Fatalf("SetRule: %v", err)
-	}
-
-	if after := countJobs(t, s.h); after != before {
-		t.Errorf("jobs = %d, want %d: scheduling belongs to the timed-jobs slice", after, before)
-	}
-}
-
 func TestCreateExchangeAppliesRulesInOrder(t *testing.T) {
 	h := newService(t)
 	group := h.newGroup(t)
@@ -486,9 +473,6 @@ func TestCreateExchangeAppliesRulesInOrder(t *testing.T) {
 	}
 	if view.DrawAt == nil || view.RevealAt == nil {
 		t.Errorf("summary times = %v/%v, want both set", view.DrawAt, view.RevealAt)
-	}
-	if got := countJobs(t, h); got != 0 {
-		t.Errorf("jobs = %d, want 0: scheduling belongs to the timed-jobs slice", got)
 	}
 }
 

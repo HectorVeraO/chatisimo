@@ -34,9 +34,9 @@ func (s *Service) CreateExchange(ctx context.Context, a Actor, req CreateExchang
 	}
 
 	var view ExchangeView
-	txErr := s.inTx(ctx, func(q *db.Queries, _ pgx.Tx) error {
+	txErr := s.inTx(ctx, func(q *db.Queries, tx pgx.Tx) error {
 		var createErr error
-		view, createErr = s.createExchange(ctx, q, a, req.Group, name, settings)
+		view, createErr = s.createExchange(ctx, q, tx, a, req.Group, name, settings)
 		return createErr
 	})
 	if txErr != nil {
@@ -87,6 +87,7 @@ func validateCreate(req CreateExchangeRequest, now time.Time) (string, ruleSetti
 func (s *Service) createExchange(
 	ctx context.Context,
 	q *db.Queries,
+	tx pgx.Tx,
 	a Actor,
 	group GroupID,
 	name string,
@@ -116,6 +117,11 @@ func (s *Service) createExchange(
 	})
 	if insertErr != nil {
 		return ExchangeView{}, fmt.Errorf("insert exchange %s: %w", id, insertErr)
+	}
+
+	scheduleErr := s.scheduleInitialJobs(ctx, tx, id, settings)
+	if scheduleErr != nil {
+		return ExchangeView{}, scheduleErr
 	}
 
 	row, err := readRow(ctx, q, a.person, id)
