@@ -462,6 +462,25 @@ func TestRulesDurationRuleChangesThroughTheModal(t *testing.T) {
 	if got := rulesViewOf(t, s, s.a, id)["reminder_lead"].Value; got != "0s" {
 		t.Errorf("reminder_lead = %q, want 0s", got)
 	}
+
+	rulesSubmit(t, s, id, "reminder_lead", "14d")
+	if got := rulesViewOf(t, s, s.a, id)["reminder_lead"].Value; got != "14d" {
+		t.Errorf("reminder_lead = %q, want 14d", got)
+	}
+}
+
+func TestRulesDrawTimeAcceptsTheMaximumHorizon(t *testing.T) {
+	s := newScene(t)
+	id := rulesOpenExchange(t, s, "Winter")
+
+	reply, _ := rulesSubmit(t, s, id, "draw_at", "in 730d")
+
+	if strings.HasPrefix(reply.content, rulesTextNotSaved) {
+		t.Errorf("content = %q, want the 730-day draw time accepted", reply.content)
+	}
+	if got := rulesViewOf(t, s, s.a, id)["draw_at"].Value; got == "unset" || got == "" {
+		t.Errorf("draw_at = %q, want a time", got)
+	}
 }
 
 func TestRulesInvalidModalInputKeepsTheViewAndListsTheProblemUnderNotSaved(t *testing.T) {

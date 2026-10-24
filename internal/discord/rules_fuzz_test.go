@@ -1,3 +1,8 @@
+//go:build !race
+
+// These tests open a real disgo Gateway client; see gateway_harness_test.go for why they are
+// left out of the race run.
+
 package discord_test
 
 import (
@@ -7,6 +12,40 @@ import (
 )
 
 const rulesEmbedFieldMaxRunes = 1024
+
+func FuzzRulesPickValue(f *testing.F) {
+	seeds := []string{
+		"", "   ", "draw_at", "reminder_lead", "exclusions", "min_participants", "no_such_rule",
+		"DRAW_AT", "draw_at\x00", "\u202edraw_at", "draw\u200b_at", "<@100000000000000001>",
+		"@everyone", "**draw_at**", strings.Repeat("a", 4096), "ÿþ", "🎁", "../draw_at",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, value string) {
+		s := newScene(t)
+		id := rulesOpenExchange(t, s, "Winter")
+		view := rulesShow(t, s, s.a, id)
+
+		result, err := s.fake.SelectForged(t.Context(), s.users[s.a], view.message, "/gx/rule-pick/"+id.String(), value)
+		if err != nil {
+			t.Fatalf("SelectForged(%q): %v", value, err)
+		}
+
+		if result.Modal != nil {
+			return
+		}
+
+		got := rulesReplyOf(t, s, result)
+		if len(got.visibleTo) != 1 || got.visibleTo[0] != s.a {
+			t.Fatalf("%q: reply visible to %v, want only the caller", value, got.visibleTo)
+		}
+		if strings.Contains(got.content, "@everyone") {
+			t.Fatalf("%q: the reply echoes a mention: %q", value, got.content)
+		}
+	})
+}
 
 func FuzzRulesModalInput(f *testing.F) {
 	seeds := []string{
