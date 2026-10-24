@@ -65,6 +65,9 @@ func MapError(requestID string, err error) router.Rejection {
 		return rejected("forbidden", textOwnRecipient)
 	case errors.Is(err, giftexchange.ErrForbidden):
 		return rejected("forbidden", textForbidden)
+	// ParseRuleName joins ErrUnknownRule with ErrInvalidInput, so this case must come first.
+	case errors.Is(err, giftexchange.ErrUnknownRule):
+		return rejected("rule", textUnknownRule)
 	case errors.Is(err, giftexchange.ErrInvalidInput):
 		return rejected("invalid_input", invalidInputText(err))
 	case errors.Is(err, giftexchange.ErrAlreadyParticipant):
@@ -77,8 +80,6 @@ func MapError(requestID string, err error) router.Rejection {
 		return rejected("too_few", fmt.Sprintf(textTooFew, giftexchange.MinParticipants))
 	case errors.As(err, &infeasible):
 		return rejected("infeasible", fmt.Sprintf(textInfeasible, infeasible.Stranded))
-	case errors.Is(err, giftexchange.ErrUnknownRule):
-		return rejected("rule", textUnknownRule)
 	case errors.Is(err, giftexchange.ErrRuleFixed):
 		return rejected("rule", textRuleFixed)
 	case errors.As(err, &locked):

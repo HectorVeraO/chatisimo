@@ -30,6 +30,7 @@ func TestMapErrorShowsTheTextAndOutcomeOfEveryModuleError(t *testing.T) {
 		{"too few", giftexchange.ErrTooFewParticipants, "rejected:too_few", strconv.Itoa(giftexchange.MinParticipants)},
 		{"infeasible", &giftexchange.InfeasibleError{Stranded: 2}, "rejected:infeasible", "2"},
 		{"unknown rule", giftexchange.ErrUnknownRule, "rejected:rule", "Unknown rule."},
+		{"unknown rule from the parser", unknownRuleFromParser(), "rejected:rule", "Unknown rule."},
 		{"fixed rule", giftexchange.ErrRuleFixed, "rejected:rule", "This rule can't be changed."},
 		{
 			"locked rule",
@@ -141,4 +142,9 @@ func TestNewReportsEveryMissingDependency(t *testing.T) {
 			t.Errorf("error %q does not mention %s", err, want)
 		}
 	}
+}
+
+func unknownRuleFromParser() error {
+	_, err := giftexchange.ParseRuleName("no-such-rule")
+	return fmt.Errorf("parse rule: %w", err)
 }
