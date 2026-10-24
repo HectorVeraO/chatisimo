@@ -168,6 +168,16 @@ func TestConfigSetBaseURLValidation(t *testing.T) {
 				t.Errorf("got %+v, want accepted", got)
 			}
 
+			if tc.wantAccept && got.code == 0 {
+				stored := invoke(t, env, strings.NewReader(""), "config", "get", "discord.api_base_url")
+
+				want := tc.value + "\n"
+
+				if stored.code != 0 || stored.stdout != want {
+					t.Errorf("stored = %+v, want %q", stored, want)
+				}
+			}
+
 			if !tc.wantAccept && (got.code != 1 || got.stdout != "") {
 				t.Errorf("got %+v, want rejected with exit 1", got)
 			}

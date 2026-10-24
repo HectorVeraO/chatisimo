@@ -197,6 +197,7 @@ func TestUsageErrorsExitTwoWithoutTouchingTheEnvironment(t *testing.T) {
 		{name: "set without key", args: []string{"config", "set"}},
 		{name: "get without key", args: []string{"config", "get"}},
 		{name: "extra argument", args: []string{"config", "get", "discord.token", "extra"}},
+		{name: "secret as set argument", args: []string{"config", "set", "discord.token", "synthetic-secret-value"}},
 		{name: "unknown key on set", args: []string{"config", "set", "no.such_key"}},
 		{name: "unknown key on get", args: []string{"config", "get", "no.such_key"}},
 		{name: "unusual unicode key", args: []string{"config", "get", "k" + string(rune(0x301)) + string(rune(0x202E)) + string(rune(0x200B)) + string(rune(0x1F600))}},
