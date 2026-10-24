@@ -3,6 +3,12 @@
 *.env
 .env.*
 !.example.env
+!.*.example.env
+
+# Claude Code per-developer files
+.claude/settings.local.json
+.claude/*.proposed
+.claude/scheduled_tasks.lock
 
 # Agent scratchpad
 .me/
