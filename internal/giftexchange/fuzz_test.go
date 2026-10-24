@@ -191,3 +191,34 @@ func FuzzParseRuleValue(f *testing.F) {
 		}
 	})
 }
+
+func FuzzResolveIdentityReference(f *testing.F) {
+	h := newService(f)
+	seeds := []string{
+		"", "7", fakeUserA, strings.Repeat("2", 128), strings.Repeat("1", 129), strings.Repeat("é", 65),
+		"10\x0000", "10\xff00", "<@" + fakeUserA + ">", "@everyone", " " + fakeUserA + " ",
+		"Win" + string(rune(0x202E)) + "ter", string(rune(0x0301)) + string(rune(0x0301)), "\U0001F381",
+	}
+	for _, s := range seeds {
+		f.Add(string(giftexchange.ProviderDiscord), s)
+	}
+	f.Add("slack", fakeUserA)
+	f.Add("", fakeUserA)
+	f.Add("DISCORD", fakeUserA)
+
+	f.Fuzz(func(t *testing.T, provider, subject string) {
+		ref := giftexchange.IdentityRef{Provider: giftexchange.Provider(provider), Subject: subject}
+		first, err := h.svc.ResolvePerson(t.Context(), ref)
+		if err != nil {
+			checkInvalid(t, err)
+			return
+		}
+		if first.IsZero() {
+			t.Fatalf("accepted %q resolved to the zero person", subject)
+		}
+		second, err := h.svc.ResolvePerson(t.Context(), ref)
+		if err != nil || second != first {
+			t.Fatalf("accepted %q resolved again to %v, %v; want %v", subject, second, err, first)
+		}
+	})
+}

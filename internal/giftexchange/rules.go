@@ -114,29 +114,57 @@ type ruleDescriptor struct {
 	kind         RuleKind
 	options      []string
 	configurable bool
+	// defaultValue is the canonical text a new exchange starts with; for a fixed rule it is the
+	// value.
+	defaultValue string
+	// editableIn lists the states in which the organizer may change a configurable rule.
+	editableIn []State
 }
+
+// defaultReminderLead is the reminder_lead of a new exchange.
+const defaultReminderLead = 24 * time.Hour
 
 // ruleDescriptors returns the registry in the order of the rule table.
 func ruleDescriptors() []ruleDescriptor {
+	openOnly := []State{StateOpen}
+	openOrDrawn := []State{StateOpen, StateDrawn}
+
 	return []ruleDescriptor{
-		{name: RuleDrawAt, kind: RuleKindTime, configurable: true},
-		{name: RuleRevealAt, kind: RuleKindTime, configurable: true},
-		{name: RuleReminderLead, kind: RuleKindDuration, configurable: true},
+		{name: RuleDrawAt, kind: RuleKindTime, configurable: true, defaultValue: unsetText, editableIn: openOnly},
+		{
+			name: RuleRevealAt, kind: RuleKindTime, configurable: true,
+			defaultValue: unsetText, editableIn: openOrDrawn,
+		},
+		{
+			name: RuleReminderLead, kind: RuleKindDuration, configurable: true,
+			defaultValue: formatLead(defaultReminderLead), editableIn: openOrDrawn,
+		},
 		{
 			name:         RuleDropoutPolicy,
 			kind:         RuleKindEnum,
 			options:      []string{string(DropoutPatch), string(DropoutRedraw)},
 			configurable: true,
+			defaultValue: string(DropoutPatch),
+			editableIn:   openOrDrawn,
 		},
-		{name: RuleAvoidLastRound, kind: RuleKindBool, configurable: true},
-		{name: RuleExclusions, kind: RuleKindExclusions, configurable: true},
-		{name: RuleQuestionsEnabled, kind: RuleKindBool, configurable: true},
-		{name: RuleMinParticipants, kind: RuleKindInt},
-		{name: RuleMaxParticipants, kind: RuleKindInt},
-		{name: RuleNoSelfAssignment, kind: RuleKindBool},
-		{name: RuleRedrawBelow, kind: RuleKindInt},
-		{name: RuleQuestionMaxLength, kind: RuleKindInt},
-		{name: RuleQuestionsPerDay, kind: RuleKindInt},
+		{
+			name: RuleAvoidLastRound, kind: RuleKindBool, configurable: true,
+			defaultValue: "off", editableIn: openOnly,
+		},
+		{
+			name: RuleExclusions, kind: RuleKindExclusions, configurable: true,
+			defaultValue: "0", editableIn: openOnly,
+		},
+		{
+			name: RuleQuestionsEnabled, kind: RuleKindBool, configurable: true,
+			defaultValue: "on", editableIn: openOrDrawn,
+		},
+		{name: RuleMinParticipants, kind: RuleKindInt, defaultValue: strconv.Itoa(MinParticipants)},
+		{name: RuleMaxParticipants, kind: RuleKindInt, defaultValue: strconv.Itoa(MaxParticipants)},
+		{name: RuleNoSelfAssignment, kind: RuleKindBool, defaultValue: "on"},
+		{name: RuleRedrawBelow, kind: RuleKindInt, defaultValue: strconv.Itoa(RedrawBelow)},
+		{name: RuleQuestionMaxLength, kind: RuleKindInt, defaultValue: strconv.Itoa(MaxQuestionRunes)},
+		{name: RuleQuestionsPerDay, kind: RuleKindInt, defaultValue: strconv.Itoa(QuestionsPerDay)},
 	}
 }
 
