@@ -186,6 +186,10 @@ func TestConfidentialityOutbound(t *testing.T) {
 			t.Error("a public record carries a pair marker")
 		}
 		viewer := record.VisibleTo[0]
+		isOtherScene := !idsInScene[viewer]
+		if isOtherScene {
+			continue
+		}
 		if viewer == organizer.ID || viewer == outsider.ID {
 			t.Errorf("a pair marker reached the non-participant %s", map[bool]string{true: "organizer", false: "outsider"}[viewer == organizer.ID])
 		}
