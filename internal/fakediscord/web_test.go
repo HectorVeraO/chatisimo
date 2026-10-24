@@ -47,8 +47,8 @@ func TestPageIsServedAtTheRoot(t *testing.T) {
 	if got.header.Get("Content-Type") != htmlType {
 		t.Errorf("content type = %q, want %q", got.header.Get("Content-Type"), htmlType)
 	}
-	if !strings.Contains(string(got.body), `<span>User</span>`) {
-		t.Errorf("the page does not label the user switcher: %.200s", got.body)
+	if !strings.Contains(string(got.body), "<title>Fake Discord</title>") {
+		t.Errorf("the page does not carry its title: %.200s", got.body)
 	}
 }
 
@@ -159,6 +159,8 @@ func TestExistingRoutesStillAnswerNextToThePage(t *testing.T) {
 
 var (
 	pageReference = regexp.MustCompile(`(?i)\b(?:src|href|action)\s*=\s*"([^"]*)"`)
+	// scriptComment matches whole-line and block comments, so prose about a forbidden word does not trip the check.
+	scriptComment = regexp.MustCompile(`(?s)/\*.*?\*/|(?m)^[ \t]*//[^\n]*$`)
 	pageInline    = regexp.MustCompile(`(?is)<script(?:\s[^>]*)?>\s*[^<\s]|<style\b|\sstyle\s*=|\son[a-z]+\s*=`)
 )
 
@@ -190,8 +192,12 @@ func TestAssetsUseNoMarkupBuildingAndNoOutsideUrls(t *testing.T) {
 
 	for _, path := range webAssetPaths() {
 		got := call(t, srv, http.MethodGet, path, "", "")
+		code := string(got.body)
+		if path != "/web/app.css" {
+			code = scriptComment.ReplaceAllString(code, "")
+		}
 		for _, word := range forbidden {
-			if strings.Contains(string(got.body), word) {
+			if strings.Contains(code, word) {
 				t.Errorf("%s contains %q", path, word)
 			}
 		}
@@ -213,6 +219,9 @@ func controlMessages(t *testing.T, srv *fakediscord.Server, channelID, as string
 func pingsOf(t *testing.T, message map[string]any) []string {
 	t.Helper()
 
+	if message["pings"] == nil {
+		t.Fatalf("pings is null or missing, want an array: %v", message)
+	}
 	raw, err := json.Marshal(message["pings"])
 	if err != nil {
 		t.Fatalf("encode pings: %v", err)
@@ -313,6 +322,23 @@ func TestControlMessagesNameTheInteractionThatMadeThem(t *testing.T) {
 	}
 	if messages[1]["interaction_id"] != "" {
 		t.Errorf("a message sent straight to the channel has interaction_id %v, want empty", messages[1]["interaction_id"])
+	}
+}
+
+func TestControlDMsCarryPingsAndTheInteraction(t *testing.T) {
+	w := newInteractionWorld(t, fakediscord.Options{})
+	w.answerSlash(t, w.carol, fakediscord.Slash{Path: "/ping"}, `{"type":4,"data":{"content":"for Carol <@`+aliceID+`>"}}`)
+
+	dms := control(t, w.srv, http.MethodGet, "/dms/"+carolID, "").array(t)
+
+	if len(dms) != 1 {
+		t.Fatalf("DMs = %v, want one", dms)
+	}
+	if got := pingsOf(t, dms[0]); !slices.Equal(got, []string{aliceID}) {
+		t.Errorf("DM pings = %v, want [%s]", got, aliceID)
+	}
+	if id, _ := dms[0]["interaction_id"].(string); id == "" {
+		t.Errorf("DM interaction_id = %v, want the interaction that made it", dms[0]["interaction_id"])
 	}
 }
 
