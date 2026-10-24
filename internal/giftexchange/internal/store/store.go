@@ -1,6 +1,6 @@
 // Package store holds the schema, the migrations and the sqlc queries of the giftexchange module.
-// Generated row types stay in package db, inside this package; this package maps them to domain
-// types.
+// The generated queries and row types live in package db, inside this package; the module's root
+// package calls them and maps the rows to domain types.
 package store
 
 import (
