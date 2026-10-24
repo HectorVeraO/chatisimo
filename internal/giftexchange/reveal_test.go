@@ -474,14 +474,18 @@ func TestFailedDeliveryOfRevealedNoticesStoresNoPersonIDOrSubject(t *testing.T) 
 		secrets = append(secrets, p.id.String(), p.subject)
 	}
 
-	waitFor(t, deliveryDeadline, "a revealed notice to fail", func() bool {
+	// Drawn notices turn stale once the exchange is revealed and never reach the notifier, so
+	// the wait counts failed jobs against the revealed notices instead of accepting any one.
+	wantFailed := countKind(t, s.exchange, giftexchange.KindRevealed)
+	waitFor(t, deliveryDeadline, "every revealed notice to fail", func() bool {
+		failed := 0
 		for _, job := range jobStates(t, s.h) {
 			if job.errors != "" {
-				return true
+				failed++
 			}
 		}
 
-		return false
+		return failed >= wantFailed
 	})
 
 	assertConfidential(t, s.h, nil, secrets)
