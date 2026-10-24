@@ -132,6 +132,37 @@ func TestGenerateMasterKeyProducesDistinctKeys(t *testing.T) {
 	}
 }
 
+func TestGenerateMasterKeyEncodesStandardPaddedBase64(t *testing.T) {
+	// Bytes 0xfb 0xff 0xfe encode to "+//+" in the standard alphabet and "-__-" in the URL one.
+	source := bytes.Repeat([]byte{0xfb, 0xff, 0xfe}, 10)
+	source = append(source, 0xfb, 0xff)
+
+	text, err := crypto.GenerateMasterKey(bytes.NewReader(source))
+	if err != nil {
+		t.Fatalf("generate master key: %v", err)
+	}
+
+	want := strings.Repeat("+//+", 10) + "+/8="
+	if text != want {
+		t.Errorf("encoded key = %q, want %q", text, want)
+	}
+}
+
+func TestParseMasterKeyReportsEveryProblem(t *testing.T) {
+	// 31 zero bytes: wrong length and all zero at once.
+	text := base64.StdEncoding.EncodeToString(make([]byte, 31))
+
+	_, err := crypto.ParseMasterKey(text)
+	if err == nil {
+		t.Fatalf("expected an error")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, "31 bytes") || !strings.Contains(msg, "all zero") {
+		t.Errorf("error does not name both problems: %v", err)
+	}
+}
+
 func TestMasterKeyNeverRendersItsBytes(t *testing.T) {
 	key, text := mustParse(t)
 

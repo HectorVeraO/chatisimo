@@ -59,16 +59,23 @@ func ParseMasterKey(text string) (MasterKey, error) {
 		return zero, errors.New("crypto: MASTER_KEY is not standard padded base64")
 	}
 
+	// Length and all-zero are independent problems of the decoded bytes; report both together.
+	var problems []error
+
 	if len(decoded) != masterKeySize {
-		return zero, fmt.Errorf("crypto: MASTER_KEY decodes to %d bytes, want %d", len(decoded), masterKeySize)
+		problems = append(problems, fmt.Errorf("crypto: MASTER_KEY decodes to %d bytes, want %d", len(decoded), masterKeySize))
+	}
+
+	if isAllZero(decoded) {
+		problems = append(problems, errors.New("crypto: MASTER_KEY is all zero bytes"))
+	}
+
+	if len(problems) > 0 {
+		return zero, fmt.Errorf("crypto: invalid MASTER_KEY: %w", errors.Join(problems...))
 	}
 
 	var key MasterKey
 	copy(key.key[:], decoded)
-
-	if key.isZero() {
-		return zero, errors.New("crypto: MASTER_KEY is all zero bytes")
-	}
 
 	return key, nil
 }
@@ -94,5 +101,16 @@ func GenerateMasterKey(r io.Reader) (string, error) {
 
 // isZero reports whether the key is the unset zero value.
 func (k MasterKey) isZero() bool {
-	return k.key == [masterKeySize]byte{}
+	return isAllZero(k.key[:])
+}
+
+// isAllZero reports whether every byte is zero.
+func isAllZero(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return false
+		}
+	}
+
+	return true
 }
