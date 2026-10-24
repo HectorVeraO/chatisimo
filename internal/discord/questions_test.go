@@ -760,7 +760,7 @@ func TestQuestionAnswersOfEveryShapeAreCheckedAndShownLiterally(t *testing.T) {
 		"zero width":    questionZW + questionZW + questionZW,
 		"empty":         "",
 		"only newlines": "\n\n",
-		"control rune":  "bad\x07text",
+		"control rune":  "leakmarker\x07text",
 		"bidi override": "abc" + questionRLO + "def",
 	} {
 		reopened := q.answerModal(t, recipient, dm)
@@ -789,7 +789,7 @@ func TestQuestionAnswersOfEveryShapeAreCheckedAndShownLiterally(t *testing.T) {
 		t.Errorf("edited DM = %q, want escaped mentions", text)
 	}
 	assertNoPings(t, q.fake)
-	q.assertLogsClean(t, "everyone", "bad", "שלום")
+	q.assertLogsClean(t, "everyone", "leakmarker", "שלום")
 }
 
 func TestQuestionAnswerOfTheMaximumLengthIsSaved(t *testing.T) {
