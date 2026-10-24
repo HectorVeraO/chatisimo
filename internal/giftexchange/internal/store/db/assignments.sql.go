@@ -69,6 +69,33 @@ type InsertAssignmentsParams struct {
 	Round       int32
 }
 
+const listAssignmentRecipients = `-- name: ListAssignmentRecipients :many
+SELECT recipient_id
+FROM giftexchange.assignments
+WHERE exchange_id = $1
+ORDER BY recipient_id
+`
+
+func (q *Queries) ListAssignmentRecipients(ctx context.Context, exchangeID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listAssignmentRecipients, exchangeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var recipient_id uuid.UUID
+		if err := rows.Scan(&recipient_id); err != nil {
+			return nil, err
+		}
+		items = append(items, recipient_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateAssignmentRecipient = `-- name: UpdateAssignmentRecipient :exec
 UPDATE giftexchange.assignments
 SET recipient_id = $1

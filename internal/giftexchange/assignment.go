@@ -45,6 +45,40 @@ func (s *Service) MyAssignment(ctx context.Context, a Actor, id ExchangeID) (Ass
 	return Assignment{Exchange: id, Recipient: ref}, nil
 }
 
+// MyGiver returns who gave to the caller. Revealed only; the caller must be a recipient of the
+// final round. It returns the caller's own giver only. A person with no tie to the exchange gets
+// ErrNotFound; an organizer who never joined, or a participant who left, gets ErrNotParticipant.
+func (s *Service) MyGiver(ctx context.Context, a Actor, id ExchangeID) (RevealedGiver, error) {
+	q := db.New(s.pool)
+	exchange, err := activeParticipantExchange(ctx, q, a, id)
+	if err != nil {
+		return RevealedGiver{}, err
+	}
+
+	isRevealed := exchange.State == string(StateRevealed)
+	if !isRevealed {
+		return RevealedGiver{}, &StateError{Op: "my_giver", State: State(exchange.State)}
+	}
+
+	giver, lookupErr := q.GetAssignmentOfRecipient(ctx, db.GetAssignmentOfRecipientParams{
+		ExchangeID:  exchange.ID,
+		RecipientID: uuid.UUID(a.person),
+	})
+	if errors.Is(lookupErr, pgx.ErrNoRows) {
+		return RevealedGiver{}, ErrNotParticipant
+	}
+	if lookupErr != nil {
+		return RevealedGiver{}, fmt.Errorf("get giver of %s: %w", exchange.ID, lookupErr)
+	}
+
+	ref, refErr := personRef(ctx, q, giver)
+	if refErr != nil {
+		return RevealedGiver{}, refErr
+	}
+
+	return RevealedGiver{Exchange: id, Giver: ref}, nil
+}
+
 // activeParticipantExchange loads the exchange for a group-less read of the caller's own pair.
 // The caller is related to it when they organize it or hold any participants row, active or
 // left; anyone else gets ErrNotFound, as for an unknown ID. A related caller who is not an active

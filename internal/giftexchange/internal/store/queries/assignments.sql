@@ -24,3 +24,9 @@ WHERE exchange_id = @exchange_id AND giver_id = @giver_id;
 UPDATE giftexchange.assignments
 SET recipient_id = @recipient_id
 WHERE exchange_id = @exchange_id AND giver_id = @giver_id;
+
+-- name: ListAssignmentRecipients :many
+SELECT recipient_id
+FROM giftexchange.assignments
+WHERE exchange_id = @exchange_id
+ORDER BY recipient_id;

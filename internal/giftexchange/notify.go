@@ -144,9 +144,39 @@ func (s *Service) assessNotification(
 	switch NotificationKind(row.Kind) {
 	case KindDrawn, KindRedrawn, KindAssignmentChanged:
 		return s.assessDrawn(ctx, q, row, facts)
+	case KindRevealed:
+		return s.assessRevealed(ctx, q, row, facts)
 	default:
 		return facts, false, nil
 	}
+}
+
+// assessRevealed, the rule of the revealed kind: stale unless the exchange is Revealed and the
+// addressee still has a giver in it.
+func (s *Service) assessRevealed(
+	ctx context.Context,
+	q *db.Queries,
+	row db.GiftexchangeNotification,
+	facts noticeFacts,
+) (noticeFacts, bool, error) {
+	isRevealed := facts.exchange.exchange.State == string(StateRevealed)
+	if !isRevealed {
+		return facts, true, nil
+	}
+
+	giver, err := q.GetAssignmentOfRecipient(ctx, db.GetAssignmentOfRecipientParams{
+		ExchangeID:  row.ExchangeID,
+		RecipientID: row.PersonID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return facts, true, nil
+	}
+	if err != nil {
+		return facts, false, fmt.Errorf("read giver: %w", err)
+	}
+
+	facts.counterpart = &giver
+	return facts, false, nil
 }
 
 // assessDrawn, the rule of every pair kind: stale unless the exchange is Drawn in the notice's round and the addressee still
@@ -189,7 +219,7 @@ func (s *Service) buildNotification(
 	kind := NotificationKind(row.Kind)
 
 	switch kind {
-	case KindCancelled, KindDrawn, KindRedrawn, KindAssignmentChanged, KindRoundVoided:
+	case KindCancelled, KindDrawn, KindRedrawn, KindAssignmentChanged, KindRoundVoided, KindRevealed:
 		return s.buildNotice(ctx, q, row, facts)
 	default:
 		panic("giftexchange: notify: no delivery rule for kind " + row.Kind)
@@ -197,7 +227,8 @@ func (s *Service) buildNotification(
 }
 
 // buildNotice builds a notice from the addressee, the exchange and, when the kind has one, the
-// counterpart: the addressee's own recipient (drawn, redrawn, assignment_changed). A voided
+// counterpart: the addressee's own recipient (drawn, redrawn, assignment_changed) or own giver
+// (revealed). A voided
 // round carries its reason. It carries no question.
 func (s *Service) buildNotice(
 	ctx context.Context,
