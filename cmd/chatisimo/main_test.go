@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/goleak"
 
@@ -273,8 +274,9 @@ func TestKeygenFailsWhenStdoutFails(t *testing.T) {
 	}
 }
 
-func TestMigrateTwiceSucceeds(t *testing.T) {
-	env := envFor(newClone(t), "local")
+func TestMigrateAppliesEverySchemaAndIsRepeatable(t *testing.T) {
+	database := newClone(t)
+	env := envFor(database, "local")
 
 	for range 2 {
 		got := invoke(t, env, strings.NewReader(""), "migrate")
@@ -282,6 +284,48 @@ func TestMigrateTwiceSucceeds(t *testing.T) {
 		if got.code != 0 || got.stdout != "migrations up to date\n" {
 			t.Errorf("got %+v, want exit 0 and exactly the up-to-date line", got)
 		}
+	}
+
+	for _, table := range []string{"platform.setting", "river.river_job"} {
+		var exists bool
+
+		err := database.Pool().QueryRow(t.Context(), "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists)
+		if err != nil {
+			t.Fatalf("look up %s: %v", table, err)
+		}
+
+		if !exists {
+			t.Errorf("table %s does not exist after migrate", table)
+		}
+	}
+}
+
+func TestUnreachableDatabaseExitsOneWithoutLeakingTheURL(t *testing.T) {
+	const password = "synthetic-password-marker-4"
+
+	env := environment{
+		"DATABASE_URL":  "postgres://user:" + password + "@127.0.0.1:1/chatisimo",
+		"MASTER_KEY":    masterKey,
+		"CHATISIMO_ENV": "local",
+	}
+
+	for _, args := range [][]string{{"migrate"}, {"config", "list"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+
+			var stdout, stderr bytes.Buffer
+
+			code := run(ctx, args, strings.NewReader(""), &stdout, &stderr, env.lookup)
+
+			if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "chatisimo: ") {
+				t.Errorf("got code %d, stdout %q, stderr %q, want exit 1 and a chatisimo: line", code, &stdout, &stderr)
+			}
+
+			if strings.Contains(stdout.String()+stderr.String(), password) {
+				t.Error("output contains the password")
+			}
+		})
 	}
 }
 
