@@ -43,9 +43,9 @@ const (
 	membershipCancelPublic  = "**" + membershipName + "** was cancelled by the organizer."
 	membershipCancelDM      = "was cancelled by the organizer."
 
-	callbackDeferredMessage = 5
-	callbackDeferredUpdate  = 6
-	callbackUpdateMessage   = 7
+	membershipCallbackDeferredMessage = 5
+	membershipCallbackDeferredUpdate  = 6
+	membershipCallbackUpdateMessage   = 7
 )
 
 var membershipTimeField = regexp.MustCompile(`^<t:(\d+):F>$`)
@@ -262,9 +262,15 @@ func TestMembershipCreatePostsThePublicCardAndAnswersTheOrganizerAlone(t *testin
 		options         map[string]any
 		wantDrawOffset  time.Duration
 		wantRevealField string
+		wantRevealAfter time.Duration
 	}{
 		"without times":    {options: map[string]any{"name": membershipName}, wantRevealField: "not set (organizer runs it)"},
 		"with a draw time": {options: map[string]any{"name": membershipName, "draw-at": "in 3d"}, wantDrawOffset: 72 * time.Hour},
+		"with a draw and a reveal time": {
+			options:         map[string]any{"name": membershipName, "draw-at": "in 3d", "reveal-at": "in 5d"},
+			wantDrawOffset:  72 * time.Hour,
+			wantRevealAfter: 120 * time.Hour,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -288,6 +294,9 @@ func TestMembershipCreatePostsThePublicCardAndAnswersTheOrganizerAlone(t *testin
 				t.Fatalf("fields = %+v, want Draw and Reveal", embed.Fields)
 			}
 			membershipCheckDrawField(t, embed.Fields[0].Value, tc.wantDrawOffset, before)
+			if tc.wantRevealAfter != 0 {
+				membershipCheckDrawField(t, embed.Fields[1].Value, tc.wantRevealAfter, before)
+			}
 			if tc.wantRevealField != "" && embed.Fields[1].Value != tc.wantRevealField {
 				t.Errorf("reveal field = %q, want %q", embed.Fields[1].Value, tc.wantRevealField)
 			}
@@ -390,13 +399,14 @@ func TestMembershipCreateHandlesAnyName(t *testing.T) {
 		name     string
 		typed    string
 		rejected bool
+		refusal  string
 		shown    string
 	}{
-		{name: "empty", typed: "", rejected: true},
+		{name: "empty", typed: "", rejected: true, refusal: "Not saved:\n- name is empty"},
 		{name: "one rune", typed: "A", shown: "A"},
 		{name: "100 runes", typed: strings.Repeat("a", 100), shown: strings.Repeat("a", 100)},
-		{name: "101 runes", typed: strings.Repeat("a", 101), rejected: true},
-		{name: "zero-width only", typed: "\u200b\u200b\u200b", rejected: true},
+		{name: "101 runes", typed: strings.Repeat("a", 101), rejected: true, refusal: "Not saved:\n- name is too long"},
+		{name: "zero-width only", typed: "\u200b\u200b\u200b", rejected: true, refusal: "Not saved:\n- name has no visible character"},
 		{name: "combining marks", typed: "Café", shown: "Café"},
 		{name: "right to left", typed: "שלום", shown: "שלום"},
 		{name: "emoji", typed: "\U0001F381 Gifts", shown: "\U0001F381 Gifts"},
@@ -415,8 +425,8 @@ func TestMembershipCreateHandlesAnyName(t *testing.T) {
 
 			got := replyTo(t, s.harness, result)
 			if tc.rejected {
-				if !strings.HasPrefix(got.content, "Not saved:") {
-					t.Errorf("reply = %q, want Not saved", got.content)
+				if got.content != tc.refusal {
+					t.Errorf("reply = %q, want %q", got.content, tc.refusal)
 				}
 				if listed := s.summaries(t, s.a); len(listed) != existing {
 					t.Errorf("%d exchanges exist after a rejected name, want %d", len(listed), existing)
@@ -467,7 +477,7 @@ func TestMembershipLeaveByTheCardButtonActsAndLeavesTheCardAlone(t *testing.T) {
 	result := membershipForged(t, s, s.b, card, "/gx/leave/"+id.String())
 
 	got := replyTo(t, s.harness, result)
-	if result.CallbackType != callbackDeferredMessage || got.content != membershipLeft || got.ephemeralTo != s.b {
+	if result.CallbackType != membershipCallbackDeferredMessage || got.content != membershipLeft || got.ephemeralTo != s.b {
 		t.Errorf("callback %d, reply = %+v", result.CallbackType, got)
 	}
 	for _, record := range s.fake.Outbound()[before:] {
@@ -515,8 +525,8 @@ func TestMembershipLeaveAfterTheDrawAsksFirstAndConfirmApplies(t *testing.T) {
 
 	confirmed := membershipClick(t, s, s.b, question, wantButtons[0])
 
-	if confirmed.CallbackType != callbackDeferredUpdate {
-		t.Errorf("callback type = %d, want %d", confirmed.CallbackType, callbackDeferredUpdate)
+	if confirmed.CallbackType != membershipCallbackDeferredUpdate {
+		t.Errorf("callback type = %d, want %d", confirmed.CallbackType, membershipCallbackDeferredUpdate)
 	}
 	if got := replyTo(t, s.harness, confirmed); got.content != membershipLeft {
 		t.Errorf("reply = %q, want %q", got.content, membershipLeft)
@@ -549,7 +559,7 @@ func TestMembershipBackAnswersNothingChangedAndRemovesTheButtons(t *testing.T) {
 
 	result := membershipClick(t, s, s.b, question, "/gx/dismiss/"+id.String())
 
-	if result.CallbackType != callbackUpdateMessage || result.Message == nil {
+	if result.CallbackType != membershipCallbackUpdateMessage || result.Message == nil {
 		t.Fatalf("callback type = %d, message = %v", result.CallbackType, result.Message)
 	}
 	if result.Message.Content != membershipNothing || len(result.Message.Components) != 0 {
