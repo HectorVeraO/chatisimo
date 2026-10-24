@@ -145,13 +145,6 @@ func TestRunServesDiscordAndStopsCleanlyOnCancellation(t *testing.T) {
 		t.Fatalf("/ge help: got %+v and error %v, want a reply", reply, err)
 	}
 
-	names := globalCommandNames(fake)
-	for _, want := range []string{"chatisimo", "ge"} {
-		if !slices.Contains(names, want) {
-			t.Errorf("registered commands = %v, want %q among them", names, want)
-		}
-	}
-
 	r.cancel()
 	got := r.result(t)
 
@@ -160,6 +153,43 @@ func TestRunServesDiscordAndStopsCleanlyOnCancellation(t *testing.T) {
 	}
 
 	assertNoneOf(t, got, fake.Token(), masterKey, database.URL().Reveal())
+}
+
+func TestRunRegistersTheGlobalCommands(t *testing.T) {
+	noLeaks(t)
+
+	fake := startFake(t)
+	database := newClone(t)
+	env := envFor(database, "local")
+	configureDiscord(t, env, fake)
+
+	r := startRun(t, env)
+
+	readyCtx, cancelReady := context.WithTimeout(t.Context(), readyDeadline)
+	defer cancelReady()
+
+	err := fake.WaitReady(readyCtx)
+	if err != nil {
+		t.Fatalf("the bot never became ready: %v", err)
+	}
+
+	// A reply proves the Gateway is fully open before the stop signal arrives.
+	user := fake.AddUser(fakediscord.User{ID: userID, Name: "tester"})
+
+	_, err = fake.Slash(readyCtx, user, fakediscord.Slash{Path: "/ge/help"})
+	if err != nil {
+		t.Fatalf("/ge help: %v", err)
+	}
+
+	names := globalCommandNames(fake)
+	for _, want := range []string{"chatisimo", "ge"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("registered commands = %v, want %q among them", names, want)
+		}
+	}
+
+	r.cancel()
+	r.result(t)
 }
 
 func TestRunExitsOneWhenDiscordRejectsTheToken(t *testing.T) {

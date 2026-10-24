@@ -134,6 +134,20 @@ func TestRunReportsEveryEnvironmentErrorWithoutValues(t *testing.T) {
 				}
 			}
 
+			for _, name := range []string{"DATABASE_URL", "MASTER_KEY", "CHATISIMO_ENV"} {
+				namingLines := 0
+
+				for _, line := range lines {
+					if strings.Contains(line, name) {
+						namingLines++
+					}
+				}
+
+				if namingLines != 1 {
+					t.Errorf("%d stderr lines name %s, want exactly 1 (stderr=%q)", namingLines, name, got.stderr)
+				}
+			}
+
 			assertNoneOf(t, got, badURL, badKey, badEnv)
 		})
 	}

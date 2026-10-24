@@ -122,6 +122,10 @@ type server struct {
 	runner     *jobs.Runner
 	isRunnerUp bool
 	adapter    *discord.Adapter
+
+	// drainTimeout and cancelTimeout bound the two phases of stopping the runner.
+	drainTimeout  time.Duration
+	cancelTimeout time.Duration
 }
 
 // serve is the body of the run command: it loads the environment, starts the platform and
@@ -146,7 +150,7 @@ func serve(ctx context.Context, stop context.CancelFunc, a *app) error {
 
 // runServer starts the platform, serves until the signal or a Gateway failure, then shuts down.
 func runServer(ctx context.Context, stop context.CancelFunc, env config.Env, logger *slog.Logger) error {
-	s := &server{logger: logger}
+	s := &server{logger: logger, drainTimeout: runnerDrainTimeout, cancelTimeout: runnerCancelTimeout}
 
 	// The signal context has ended by the time shutdown runs, so shutdown works under a context
 	// the signal cannot cancel and bounds each step with its own timeout.
@@ -342,10 +346,10 @@ func (s *server) shutdown(ctx context.Context) error {
 	return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 }
 
-// stopRunner lets running jobs finish for runnerDrainTimeout, then cancels them and waits
-// runnerCancelTimeout more. A cancelled job is retried by River.
+// stopRunner lets running jobs finish for drainTimeout, then cancels them and waits
+// cancelTimeout more. A cancelled job is retried by River.
 func (s *server) stopRunner(ctx context.Context) error {
-	drainCtx, cancelDrain := context.WithTimeout(ctx, runnerDrainTimeout)
+	drainCtx, cancelDrain := context.WithTimeout(ctx, s.drainTimeout)
 	defer cancelDrain()
 
 	err := s.runner.Stop(drainCtx)
@@ -358,9 +362,9 @@ func (s *server) stopRunner(ctx context.Context) error {
 		return fmt.Errorf("stop jobs: %w", err)
 	}
 
-	s.logger.Warn("jobs still running after drain timeout, cancelling them", "timeout", runnerDrainTimeout)
+	s.logger.Warn("jobs still running after drain timeout, cancelling them", "timeout", s.drainTimeout)
 
-	cancelCtx, cancelHard := context.WithTimeout(ctx, runnerCancelTimeout)
+	cancelCtx, cancelHard := context.WithTimeout(ctx, s.cancelTimeout)
 	defer cancelHard()
 
 	err = s.runner.StopAndCancel(cancelCtx)
