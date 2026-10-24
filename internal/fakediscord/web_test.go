@@ -47,8 +47,8 @@ func TestPageIsServedAtTheRoot(t *testing.T) {
 	if got.header.Get("Content-Type") != htmlType {
 		t.Errorf("content type = %q, want %q", got.header.Get("Content-Type"), htmlType)
 	}
-	if !strings.Contains(string(got.body), `data-testid="user-switcher"`) {
-		t.Errorf("the page does not hold the user switcher: %.200s", got.body)
+	if !strings.Contains(string(got.body), `<span>User</span>`) {
+		t.Errorf("the page does not label the user switcher: %.200s", got.body)
 	}
 }
 
@@ -152,8 +152,8 @@ func TestExistingRoutesStillAnswerNextToThePage(t *testing.T) {
 	if unknown.status != http.StatusNotFound || string(unknown.body) != `{"code":0,"message":"404: Not Found"}` {
 		t.Errorf("GET /nope = %d %s, want the JSON 404", unknown.status, unknown.body)
 	}
-	if post.status == http.StatusOK {
-		t.Errorf("POST / = 200, want the page to answer GET only")
+	if post.status != http.StatusNotFound {
+		t.Errorf("POST / = %d, want 404: the page answers GET only", post.status)
 	}
 }
 

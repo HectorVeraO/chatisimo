@@ -440,11 +440,13 @@ func (s *Server) controlMessageLocked(m Message) controlMessageJSON {
 		}
 	}
 
-	return controlMessageJSON{
+	view := controlMessageJSON{
 		messageJSON:   messageToJSON(m, s.botUser()),
 		InteractionID: m.InteractionID,
 		Pings:         pings,
 	}
+
+	return view
 }
 
 func (s *Server) controlMessagesLocked(messages []Message) []controlMessageJSON {
