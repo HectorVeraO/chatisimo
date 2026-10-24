@@ -52,14 +52,20 @@ func (s *Service) Draw(ctx context.Context, a Actor, g GroupID, id ExchangeID) e
 	return nil
 }
 
-// drawLocked draws an Open exchange whose row the caller holds locked.
+// drawLocked draws an Open exchange whose row the caller holds locked, whoever the caller is,
+// then re-schedules the reveal that the draw makes current again.
 func (s *Service) drawLocked(
 	ctx context.Context,
 	q *db.Queries,
 	tx pgx.Tx,
 	exchange db.GiftexchangeExchange,
 ) error {
-	return s.drawRound(ctx, q, tx, exchange, KindDrawn)
+	drawErr := s.drawRound(ctx, q, tx, exchange, KindDrawn)
+	if drawErr != nil {
+		return drawErr
+	}
+
+	return s.scheduleRevealAfterDraw(ctx, q, tx, exchange)
 }
 
 // drawRound assigns the active participants of a locked exchange as round + 1, with no assignment

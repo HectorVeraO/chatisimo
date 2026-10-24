@@ -364,7 +364,7 @@ func TestKindWithoutADeliveryRuleFailsTheJobNamingOnlyTheKind(t *testing.T) {
 	}
 	stored := jobStates(t, s.h)[0].errors
 	assertNoSecrets(t, "job errors", stored, []string{participant.id.String(), participant.subject})
-	if !strings.Contains(stored, "giftexchange: notify: no delivery rule for kind draw_soon") {
+	if !strings.Contains(stored, "giftexchange: notify: no delivery rule for kind question_received") {
 		t.Errorf("job errors %q do not name the missing delivery rule", stored)
 	}
 }
@@ -403,11 +403,24 @@ func TestUnusableNotifyJobsAreCancelledWithoutRetryOrDelivery(t *testing.T) {
 func insertUnruledNotice(t *testing.T, s scene, addressee person) string {
 	t.Helper()
 
+	other := s.h.newPerson(t)
+	s.h.join(t, other, s.group, s.exchange)
+
+	questionID := "00000000-0000-7000-8000-000000000002"
+	_, questionErr := shared.Pool().Exec(t.Context(),
+		"INSERT INTO giftexchange.questions (id, exchange_id, round, asker_id, recipient_id, text, asked_at) "+
+			"VALUES ($1, $2, 1, $3, $4, 'Synthetic question', $5)",
+		questionID, s.exchange.String(), other.id.String(), addressee.id.String(), s.h.clock.Now())
+	if questionErr != nil {
+		t.Fatalf("insert question: %v", questionErr)
+	}
+
 	noticeID := "00000000-0000-7000-8000-000000000001"
 	_, err := shared.Pool().Exec(t.Context(),
-		"INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, created_at) "+
-			"VALUES ($1, 'draw_soon', $2, $3, 0, $4)",
-		noticeID, s.exchange.String(), addressee.id.String(), s.h.clock.Now())
+		"INSERT INTO giftexchange.notifications "+
+			"(id, kind, exchange_id, person_id, round, question_id, created_at) "+
+			"VALUES ($1, 'question_received', $2, $3, 0, $4, $5)",
+		noticeID, s.exchange.String(), addressee.id.String(), questionID, s.h.clock.Now())
 	if err != nil {
 		t.Fatalf("insert notification: %v", err)
 	}

@@ -192,3 +192,27 @@ WHERE a.exchange_id = (
 UPDATE giftexchange.exchanges
 SET state = 'revealed', revealed_at = @revealed_at
 WHERE id = @id;
+
+-- The deadline draw failed: the exchange stays open without a deadline.
+-- name: ClearDrawAt :exec
+UPDATE giftexchange.exchanges
+SET draw_at = NULL
+WHERE id = @id;
+
+-- A draw finds reveal_at already past: the reveal can no longer be scheduled.
+-- name: ClearRevealAt :exec
+UPDATE giftexchange.exchanges
+SET reveal_at = NULL
+WHERE id = @id;
+
+-- The sent-marker closes the hole where draw_at set to A, then B, then A again leaves two
+-- identical current reminder jobs.
+-- name: MarkDrawReminderSent :exec
+UPDATE giftexchange.exchanges
+SET draw_reminder_sent_for = @sent_for
+WHERE id = @id;
+
+-- name: MarkRevealReminderSent :exec
+UPDATE giftexchange.exchanges
+SET reveal_reminder_sent_for = @sent_for
+WHERE id = @id;
