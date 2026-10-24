@@ -26,6 +26,7 @@ const (
 func TestGatewayResume(t *testing.T) {
 	s := newGuild(t, 2)
 
+	resumesBefore := shared.fake.Resumes()
 	shared.fake.DropGateway(closeUnknownError)
 
 	// The bot answers again once it has reconnected; until then the fake has nobody to deliver to.
@@ -38,7 +39,7 @@ func TestGatewayResume(t *testing.T) {
 
 	// A fresh identify would also leave the bot answering; only an accepted resume proves the session survived.
 	waitFor(t, "the fake to accept a Gateway resume", func() bool {
-		return strings.Contains(shared.fakeLog.String(), `msg="gateway resume" accepted=true`)
+		return shared.fake.Resumes() > resumesBefore
 	})
 
 	name := s.exchangeName("Winter exchange")
@@ -95,6 +96,9 @@ func TestAuthFailureExits(t *testing.T) {
 	raw, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(raw), "open discord gateway") {
+		t.Errorf("the log of the failed run = %q, want the Gateway open failure", raw)
 	}
 	if strings.Contains(string(raw), b.fake.Token()) {
 		t.Error("the log of the failed run holds the token")

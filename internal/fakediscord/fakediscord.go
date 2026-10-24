@@ -60,6 +60,8 @@ type Server struct {
 	conns    map[*wsConn]struct{}
 	// sessionSeq numbers sessions so an interaction goes to the newest one.
 	sessionSeq int
+	// resumes counts the Gateway resumes the fake accepted.
+	resumes int
 	// recordSeq numbers outbound records and never restarts, so a reader's ?since= cursor
 	// stays valid across a reset.
 	recordSeq int
@@ -414,4 +416,12 @@ func (s *Server) Intents() (int, bool) {
 	defer s.mu.Unlock()
 
 	return s.w.intents, s.w.intentsSet
+}
+
+// Resumes returns how many Gateway resumes the fake has accepted since it started.
+func (s *Server) Resumes() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.resumes
 }
