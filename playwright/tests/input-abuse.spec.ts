@@ -193,3 +193,45 @@ test("a repeated Join click and a repeated draw confirmation each get an error a
   await expect(world.messageWithContent(texts.format(texts.invalidState, "drawn"))).toBeVisible();
   await expect(world.messageWithContent(texts.format(texts.drawnPublic, exchange))).toHaveCount(1);
 });
+
+test("an exchange id of another guild or a made-up id is refused and changes nothing", async ({ world }) => {
+  const exchange = "Winter exchange";
+  await world.createExchange("Alice", exchange, ["Bruno", "Carla"]);
+
+  // An exchange of someone else, in a guild the cast is not in.
+  const outsider = await world.control.createUser("Zed");
+  const otherGuild = await world.control.createGuild("Other server", [outsider.id]);
+  const created = await world.control.interact({
+    as: outsider.id,
+    kind: "slash",
+    guild_id: otherGuild.id,
+    path: "/ge/create",
+    options: { name: "Foreign exchange" },
+  });
+  expect(created.status).not.toBe("rejected");
+  const joinIdOf = async (): Promise<string> => {
+    const messages = await world.control.channelMessages(otherGuild.channel_id, outsider.id);
+    return /\/gx\/join\/([\w-]+)/.exec(JSON.stringify(messages))?.[1] ?? JSON.stringify(messages);
+  };
+  await expect.poll(joinIdOf).toMatch(/^[\w-]+$/);
+  const foreignId = await joinIdOf();
+
+  await world.asUser("Alice");
+  const attempts: [string, string][] = [
+    [foreignId, texts.notFound],
+    ["not-an-exchange-id", texts.noMatch],
+  ];
+  for (const [wrongId, refusal] of attempts) {
+    for (const [position, command] of ["/ge draw", "/ge cancel"].entries()) {
+      await world.slash(command, { exchange: wrongId });
+      await expect(world.messageWithContent(refusal)).toHaveCount(position + 1);
+    }
+  }
+
+  // Neither exchange changed state and no confirmation was offered.
+  await expect(world.messages.getByRole("button", { name: texts.buttonConfirm, exact: true })).toHaveCount(0);
+  await world.slash("/ge list");
+  await expect(world.messageWithEmbed(texts.listTitle).getByTestId("embed-description")).toHaveText(
+    texts.format(texts.listLine, exchange, "open", 2, texts.roleOrganizer),
+  );
+});

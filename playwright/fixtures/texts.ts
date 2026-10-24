@@ -82,6 +82,8 @@ export const yourAnswer = "Your answer:";
 export const forbidden = "You are not allowed to do that in this exchange.";
 export const notParticipant = "You are not in this exchange.";
 export const invalidState = "Not possible while the exchange is %s.";
+export const notFound = "That exchange does not exist here.";
+export const noMatch = "No exchange matches that name. Pick one from the list.";
 export const infeasible =
   "No valid draw exists with the current exclusions: %d givers have no possible " +
   "recipient. Remove some exclusions and try again.";

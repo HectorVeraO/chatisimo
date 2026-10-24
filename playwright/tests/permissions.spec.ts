@@ -3,7 +3,7 @@ import * as texts from "../fixtures/texts";
 
 const EXCHANGE = "Winter exchange";
 
-test.use({ cast: ["Olga", "Alice", "Bruno"] });
+test.use({ cast: ["Olga", "Alice", "Bruno", "Carla"] });
 
 test("a participant cannot draw, cancel or change rules, and nothing changes or is sent", async ({ world }) => {
   await world.createExchange("Olga", EXCHANGE, ["Alice", "Bruno"]);
@@ -78,4 +78,35 @@ test("a participant cannot draw, cancel or change rules, and nothing changes or 
     expect(record.ephemeral).toBe(true);
     expect(record.visible_to).toEqual([bruno.id]);
   }
+});
+
+test("a participant cannot reveal an exchange or remove a participant, and nothing changes", async ({ world }) => {
+  await world.createExchange("Olga", EXCHANGE, ["Alice", "Bruno", "Carla"]);
+  await world.draw("Olga", EXCHANGE, 3);
+  const exchangeId = await world.exchangeId(EXCHANGE);
+  const bruno = world.user("Bruno");
+  const refused = world.messageWithContent(texts.forbidden);
+
+  await world.asUser("Bruno");
+  await world.slash("/ge reveal", { exchange: exchangeId });
+  await expect(refused).toHaveCount(1);
+  await world.slash("/ge remove", { exchange: exchangeId, participant: { user: "Alice" } });
+  await expect(refused).toHaveCount(2);
+  await expect(world.messages.getByRole("button", { name: texts.buttonConfirm, exact: true })).toHaveCount(0);
+
+  // The exchange is still drawn, with both participants.
+  await world.asUser("Olga");
+  await world.slash("/ge list");
+  await expect(world.messageWithEmbed(texts.listTitle).getByTestId("embed-description")).toHaveText(
+    texts.format(texts.listLine, EXCHANGE, "drawn", 3, texts.roleOrganizer),
+  );
+
+  const records = await world.castRecords();
+  const refusals = records.filter((record) => record.content === texts.forbidden);
+  expect(refusals).toHaveLength(2);
+  for (const record of refusals) {
+    expect(record.ephemeral).toBe(true);
+    expect(record.visible_to).toEqual([bruno.id]);
+  }
+  expect(records.some((record) => record.content.includes(texts.format(texts.revealed, EXCHANGE)))).toBe(false);
 });
