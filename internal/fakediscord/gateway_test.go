@@ -167,8 +167,8 @@ func TestWaitReadyEndsWithItsContext(t *testing.T) {
 
 	err := srv.WaitReady(ctx)
 
-	if err == nil {
-		t.Error("WaitReady returned nil with no bot connected")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("WaitReady = %v, want context.DeadlineExceeded", err)
 	}
 }
 
