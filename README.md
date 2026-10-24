@@ -18,7 +18,7 @@ Chatisimo is Chatolandia's platform, written in Go.
 | sqlc | 1.31.1 | Query code generation |
 | govulncheck | 1.9.0 | Vulnerability scan |
 | Node | 24.14.0 | Playwright suite |
-| Docker | Compose v2 | Runs the local stack in `.deploy/local` (Postgres 18.6) |
+| Docker | Compose v2 | Runs Postgres 18.6 and the E2E stack locally (`.deploy/local`) |
 
 Activate mise in your shell ([instructions](https://mise.jdx.dev/getting-started.html)) so the
 pinned versions are used inside the repository.
@@ -79,6 +79,7 @@ in the database.
 | Format | `golangci-lint fmt` |
 | Run the pre-commit checks without committing | `lefthook run pre-commit` |
 | Stop Postgres | `docker compose --env-file .env -f .deploy/local/docker-compose.yaml down` |
+| E2E stack | `docker compose --env-file .env -f .deploy/local/docker-compose.yaml --profile e2e up -d --build --wait`; stop with `... --profile e2e down` |
 
 ## Continuous integration
 
@@ -101,7 +102,7 @@ cmd/chatisimo/        binary entry point
 cookbooks/            architecture, coding and testing rules
 .claude/              Claude Code agents, skills, hooks and settings
 .github/              CI workflow, Dependabot, issue and pull request templates
-.deploy/local/        local compose stack
+.deploy/local/        local compose stack and E2E images
 mise.toml             pinned toolchain
 .golangci.yml         linters, formatters, import rules
 lefthook.yml          pre-commit hooks

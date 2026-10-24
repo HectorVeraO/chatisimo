@@ -1,0 +1,11 @@
+.git
+.me
+.cover
+.env
+*.env
+!.example.env
+playwright/node_modules
+playwright/playwright-report
+playwright/test-results
+*.exe
+bin
