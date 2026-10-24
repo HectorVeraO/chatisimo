@@ -45,9 +45,6 @@ var (
 	buildNamePattern    = regexp.MustCompile(`^chatisimo_b_[0-9a-f]{16}$`)
 )
 
-// templateBuiltAt stamps a template when it is promoted; tests replace it to age a template.
-var templateBuiltAt = time.Now
-
 // errMissingURL names the fix for the most common setup mistake.
 var errMissingURL = errors.New("pgtest: DATABASE_URL is not set: copy .example.env to .env, " +
 	"start Postgres with docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d --wait, " +
@@ -57,6 +54,16 @@ var errMissingURL = errors.New("pgtest: DATABASE_URL is not set: copy .example.e
 // database (the E2E binary migrates it itself).
 type Options struct {
 	Sources []db.Source
+	// Now is the clock that stamps the clone, the template and the sweep. Nil means time.Now.
+	Now func() time.Time
+}
+
+func (o Options) now() time.Time {
+	if o.Now == nil {
+		return time.Now()
+	}
+
+	return o.Now()
 }
 
 // Database is one test package's database.
@@ -80,7 +87,7 @@ func New(ctx context.Context, opts Options) (*Database, error) {
 		return nil, err
 	}
 
-	cloneName, err := newCloneName(time.Now())
+	cloneName, err := newCloneName(opts.now())
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +181,7 @@ func cloneFromTemplate(ctx context.Context, adminURL, templateName, cloneName st
 		return fmt.Errorf("pgtest: clone %s: %w", cloneName, err)
 	}
 
-	sweepErr := sweep(ctx, conn, templateName, time.Now())
+	sweepErr := sweep(ctx, conn, templateName, opts.now())
 	if sweepErr != nil {
 		dropErr := dropDatabase(context.WithoutCancel(ctx), conn, cloneName)
 
@@ -221,7 +228,7 @@ func buildTemplate(ctx context.Context, conn *pgx.Conn, adminURL, templateName s
 		return fmt.Errorf("pgtest: build template %s: %w", templateName, errors.Join(migrateErr, dropErr))
 	}
 
-	return promote(ctx, conn, buildName, templateName)
+	return promote(ctx, conn, buildName, templateName, opts.now())
 }
 
 func migrateBuild(ctx context.Context, adminURL, buildName string, opts Options) error {
@@ -250,8 +257,8 @@ func migrateBuild(ctx context.Context, adminURL, buildName string, opts Options)
 	return nil
 }
 
-func promote(ctx context.Context, conn *pgx.Conn, buildName, templateName string) error {
-	comment := templateCommentPrefix + strconv.FormatInt(templateBuiltAt().Unix(), 10)
+func promote(ctx context.Context, conn *pgx.Conn, buildName, templateName string, builtAt time.Time) error {
+	comment := templateCommentPrefix + strconv.FormatInt(builtAt.Unix(), 10)
 
 	// A previous run killed between the rename and the template mark leaves an unmarked database
 	// under the final name, which would make the rename fail on every later run.

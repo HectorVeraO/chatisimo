@@ -83,7 +83,7 @@ func pingWithBackoff(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logge
 			return fmt.Errorf("connect to Postgres: %w", err)
 		}
 
-		logger.WarnContext(ctx, "Postgres not ready, retrying", "attempt", attempt, "next_delay", delay)
+		logger.DebugContext(ctx, "Postgres not ready, retrying", "attempt", attempt, "next_delay", delay)
 
 		timer := time.NewTimer(delay)
 		select {

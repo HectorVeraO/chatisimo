@@ -32,19 +32,7 @@ type Source interface {
 //
 // The lock connection is held while Up uses others, so the pool needs MaxConns of at least 2.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, sources ...Source) error {
-	if ctx == nil {
-		return errors.New("migrate: nil context")
-	}
-
-	if pool == nil {
-		return errors.New("migrate: nil pool")
-	}
-
-	if pool.Config().MaxConns < 2 {
-		return errors.New("migrate: pool needs MaxConns >= 2 (one connection holds the lock while migrations use another)")
-	}
-
-	validationErr := validateSources(sources)
+	validationErr := validateArguments(ctx, pool, sources)
 	if validationErr != nil {
 		return validationErr
 	}
@@ -67,6 +55,33 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, sources ...Source) error {
 	joined := errors.Join(runErr, unlockErr)
 	if joined != nil {
 		return fmt.Errorf("migrate: %w", joined)
+	}
+
+	return nil
+}
+
+// validateArguments reports every problem with the arguments of Migrate together.
+func validateArguments(ctx context.Context, pool *pgxpool.Pool, sources []Source) error {
+	var problems []error
+
+	if ctx == nil {
+		problems = append(problems, errors.New("migrate: nil context"))
+	}
+
+	if pool == nil {
+		problems = append(problems, errors.New("migrate: nil pool"))
+	} else if pool.Config().MaxConns < 2 {
+		problems = append(problems, errors.New("migrate: pool needs MaxConns >= 2 (one connection holds the lock while migrations use another)"))
+	}
+
+	sourcesErr := validateSources(sources)
+	if sourcesErr != nil {
+		problems = append(problems, sourcesErr)
+	}
+
+	joined := errors.Join(problems...)
+	if joined != nil {
+		return fmt.Errorf("migrate: invalid arguments: %w", joined)
 	}
 
 	return nil

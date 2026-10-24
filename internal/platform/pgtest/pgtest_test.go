@@ -80,7 +80,19 @@ func demoSource(t *testing.T, table string) db.Source {
 func newDemo(t *testing.T, table string) *pgtest.Database {
 	t.Helper()
 
-	database, err := pgtest.New(t.Context(), pgtest.Options{Sources: []db.Source{demoSource(t, table)}})
+	return newDemoAt(t, table, time.Now())
+}
+
+// newDemoAt builds a clone whose clone name and template stamp carry the given time.
+func newDemoAt(t *testing.T, table string, at time.Time) *pgtest.Database {
+	t.Helper()
+
+	options := pgtest.Options{
+		Sources: []db.Source{demoSource(t, table)},
+		Now:     func() time.Time { return at },
+	}
+
+	database, err := pgtest.New(t.Context(), options)
 	if err != nil {
 		t.Fatalf("pgtest.New: %v", err)
 	}
@@ -359,9 +371,19 @@ func TestSweepNeverTouchesForeignDatabases(t *testing.T) {
 func TestSweepDropsAbandonedBuildDatabase(t *testing.T) {
 	admin := adminConn(t)
 
-	const abandoned = "chatisimo_b_0123456789abcdef"
+	// A failed build reveals the name of a real build database; recreating it stands for the
+	// leftover of a run that was killed mid-build.
+	upErr := errors.New("synthetic migration failure " + strconv.FormatInt(time.Now().UnixNano(), 10))
+	source := failingSource{upErr: upErr, database: make(chan string, 1)}
 
-	_, err := admin.Exec(t.Context(), "CREATE DATABASE "+abandoned)
+	_, err := pgtest.New(t.Context(), pgtest.Options{Sources: []db.Source{source}})
+	if !errors.Is(err, upErr) {
+		t.Fatalf("New error = %v, want it to wrap the migration failure", err)
+	}
+
+	abandoned := <-source.database
+
+	_, err = admin.Exec(t.Context(), "CREATE DATABASE "+abandoned)
 	if err != nil {
 		t.Fatalf("create %s: %v", abandoned, err)
 	}
@@ -380,61 +402,36 @@ func TestSweepDropsAbandonedBuildDatabase(t *testing.T) {
 func TestSweepDropsStaleCloneButKeepsFreshOne(t *testing.T) {
 	admin := adminConn(t)
 
-	stale := "chatisimo_t_1_" + "0123456789abcdef"
-	fresh := "chatisimo_t_" + strconv.FormatInt(time.Now().Unix(), 10) + "_fedcba9876543210"
+	stale := newDemoAt(t, "items", time.Now().Add(-7*time.Hour))
+	staleName := currentDatabase(t, stale)
 
-	for _, name := range []string{stale, fresh} {
-		_, err := admin.Exec(t.Context(), "CREATE DATABASE "+name)
-		if err != nil {
-			t.Fatalf("create %s: %v", name, err)
-		}
-	}
+	// Creating a clone on the real clock sweeps the stale one.
+	fresh := newDemo(t, "items")
+	freshName := currentDatabase(t, fresh)
 
-	t.Cleanup(func() {
-		_, _ = admin.Exec(context.WithoutCancel(t.Context()), "DROP DATABASE IF EXISTS "+fresh+" WITH (FORCE)")
-		_, _ = admin.Exec(context.WithoutCancel(t.Context()), "DROP DATABASE IF EXISTS "+stale+" WITH (FORCE)")
-	})
-
-	newDemo(t, "items")
-
-	if databaseExists(t, admin, stale) {
+	if databaseExists(t, admin, staleName) {
 		t.Error("sweep kept a clone older than 6 hours")
 	}
 
-	if !databaseExists(t, admin, fresh) {
+	if !databaseExists(t, admin, freshName) {
 		t.Error("sweep dropped a recent clone")
 	}
 }
 
 func TestSweepDropsOnlyOldTemplates(t *testing.T) {
 	admin := adminConn(t)
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	oldTable := "old_" + suffix
+	recentTable := "recent_" + suffix
 
-	oldTemplate := "chatisimo_tpl_00000000000000aa"
-	recentTemplate := "chatisimo_tpl_00000000000000bb"
-	recentBuild := strconv.FormatInt(time.Now().Unix(), 10)
+	newDemoAt(t, oldTable, time.Now().Add(-8*24*time.Hour))
+	newDemoAt(t, recentTable, time.Now())
 
-	setups := map[string]string{
-		oldTemplate:    "1",
-		recentTemplate: recentBuild,
-	}
-
-	for name, built := range setups {
-		statements := []string{
-			"CREATE DATABASE " + name,
-			"ALTER DATABASE " + name + " WITH IS_TEMPLATE true ALLOW_CONNECTIONS false",
-			"COMMENT ON DATABASE " + name + " IS 'built " + built + "'",
-		}
-
-		for _, statement := range statements {
-			_, err := admin.Exec(t.Context(), statement)
-			if err != nil {
-				t.Fatalf("%s: %v", statement, err)
-			}
-		}
-	}
+	oldTemplate := templateNameForTable(t, oldTable)
+	recentTemplate := templateNameForTable(t, recentTable)
 
 	t.Cleanup(func() {
-		for name := range setups {
+		for _, name := range []string{oldTemplate, recentTemplate} {
 			_, _ = admin.Exec(context.WithoutCancel(t.Context()), "ALTER DATABASE "+name+" WITH IS_TEMPLATE false")
 			_, _ = admin.Exec(context.WithoutCancel(t.Context()), "DROP DATABASE IF EXISTS "+name)
 		}
@@ -449,6 +446,17 @@ func TestSweepDropsOnlyOldTemplates(t *testing.T) {
 	if !databaseExists(t, admin, recentTemplate) {
 		t.Error("sweep dropped a recent template")
 	}
+}
+
+func templateNameForTable(t *testing.T, table string) string {
+	t.Helper()
+
+	name, err := pgtest.TemplateNameFor([]db.Source{demoSource(t, table)})
+	if err != nil {
+		t.Fatalf("template name: %v", err)
+	}
+
+	return name
 }
 
 func discardLogger() *slog.Logger {
@@ -470,9 +478,7 @@ func TestSweepKeepsTheCurrentTemplateEvenWhenOld(t *testing.T) {
 		_, _ = admin.Exec(context.WithoutCancel(t.Context()), "DROP DATABASE IF EXISTS "+current)
 	})
 
-	restore := pgtest.StampTemplatesWith(time.Now().Add(-30 * 24 * time.Hour))
-	newDemo(t, table)
-	restore()
+	newDemoAt(t, table, time.Now().Add(-30*24*time.Hour))
 
 	second := newDemo(t, table)
 

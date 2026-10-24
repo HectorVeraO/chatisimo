@@ -392,6 +392,10 @@ func TestMigrateReportsFailingMigrationAndReleasesTheLock(t *testing.T) {
 		t.Fatal("Migrate hid a failing migration")
 	}
 
+	if !strings.Contains(err.Error(), schema) {
+		t.Fatalf("Migrate error = %q, want it to name schema %s", err, schema)
+	}
+
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
@@ -411,21 +415,35 @@ func TestMigrateRejectsNilArguments(t *testing.T) {
 	schema := uniqueSchema(t, "dbtest_a")
 	valid := newSource(t, schema, migrations(schema, "alpha"))
 
-	cases := map[string]func() error{
-		"nil context": func() error { return db.Migrate(nilContext, shared.Pool(), valid) },
-		"nil pool":    func() error { return db.Migrate(t.Context(), nil, valid) },
-		"nil source":  func() error { return db.Migrate(t.Context(), shared.Pool(), valid, nil) },
+	cases := map[string]struct {
+		call func() error
+		want string
+	}{
+		"nil context": {func() error { return db.Migrate(nilContext, shared.Pool(), valid) }, "nil context"},
+		"nil pool":    {func() error { return db.Migrate(t.Context(), nil, valid) }, "nil pool"},
+		"nil source":  {func() error { return db.Migrate(t.Context(), shared.Pool(), valid, nil) }, "source 1 is nil"},
 	}
 
-	for label, call := range cases {
+	for label, tc := range cases {
 		t.Run(label, func(t *testing.T) {
 			t.Parallel()
 
-			err := call()
+			err := tc.call()
 			if err == nil {
 				t.Fatalf("Migrate accepted %s", label)
 			}
+
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Migrate error = %q, want it to mention %q", err, tc.want)
+			}
 		})
+	}
+
+	allErr := db.Migrate(nilContext, nil, valid, nil)
+	for _, want := range []string{"nil context", "nil pool", "source 1 is nil"} {
+		if !strings.Contains(allErr.Error(), want) {
+			t.Errorf("combined error = %q, want it to mention %q", allErr, want)
+		}
 	}
 
 	created := count(t, shared.Pool(), "SELECT count(*) FROM pg_namespace WHERE nspname = $1", schema)
