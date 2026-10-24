@@ -27,3 +27,10 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# E2E coverage and Playwright output
+.cover/
+playwright/node_modules/
+playwright/playwright-report/
+playwright/test-results/
+playwright/blob-report/
