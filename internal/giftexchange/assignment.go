@@ -104,22 +104,13 @@ func activeParticipantExchange(
 	}
 	exchange := row.exchange
 
-	participant, participantErr := q.GetParticipant(ctx, db.GetParticipantParams{
-		ExchangeID: exchange.ID,
-		PersonID:   uuid.UUID(a.person),
-	})
-	hasRow := participantErr == nil
-	if participantErr != nil && !errors.Is(participantErr, pgx.ErrNoRows) {
-		return db.GiftexchangeExchange{}, fmt.Errorf("get participant of %s: %w", exchange.ID, participantErr)
+	isRelated, isActive, relationErr := callerRelation(ctx, q, a, exchange)
+	if relationErr != nil {
+		return db.GiftexchangeExchange{}, relationErr
 	}
-
-	isOrganizer := PersonID(exchange.OrganizerID) == a.person
-	isRelated := hasRow || isOrganizer
 	if !isRelated {
 		return db.GiftexchangeExchange{}, ErrNotFound
 	}
-
-	isActive := hasRow && !participant.LeftAt.Valid
 	if !isActive {
 		return db.GiftexchangeExchange{}, ErrNotParticipant
 	}
@@ -136,4 +127,27 @@ func personRef(ctx context.Context, q *db.Queries, person uuid.UUID) (PersonRef,
 
 	ref := PersonRef{ID: PersonID(person), Identities: identities[person]}
 	return ref, nil
+}
+
+// callerRelation reports whether the caller is related to the exchange (its organizer, or holding
+// any participants row, active or left) and whether they are an active participant.
+func callerRelation(
+	ctx context.Context,
+	q *db.Queries,
+	a Actor,
+	exchange db.GiftexchangeExchange,
+) (bool, bool, error) {
+	participant, err := q.GetParticipant(ctx, db.GetParticipantParams{
+		ExchangeID: exchange.ID,
+		PersonID:   uuid.UUID(a.person),
+	})
+	hasRow := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, false, fmt.Errorf("get participant of %s: %w", exchange.ID, err)
+	}
+
+	isOrganizer := PersonID(exchange.OrganizerID) == a.person
+	isRelated := hasRow || isOrganizer
+	isActive := hasRow && !participant.LeftAt.Valid
+	return isRelated, isActive, nil
 }

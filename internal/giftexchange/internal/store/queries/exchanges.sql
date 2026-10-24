@@ -155,10 +155,16 @@ FROM giftexchange.external_identities
 WHERE person_id = ANY(@person_ids::uuid[])
 ORDER BY person_id, provider, subject;
 
--- reason is set only for the kinds that carry one (notifications_reason_kinds).
+-- reason is set only for the kinds that carry one (notifications_reason_kinds), question_id only
+-- for the question kinds (notifications_question_kinds).
 -- name: InsertNotification :exec
-INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, reason, created_at)
-VALUES (@id, @kind, @exchange_id, @person_id, @round, sqlc.narg('reason'), @created_at);
+INSERT INTO giftexchange.notifications (
+    id, kind, exchange_id, person_id, round, question_id, reason, created_at
+)
+VALUES (
+    @id, @kind, @exchange_id, @person_id, @round, sqlc.narg('question_id'), sqlc.narg('reason'),
+    @created_at
+);
 
 -- One statement, because exchanges_drawn_has_round is checked per statement. draw_at is
 -- non-null only in state open, so the draw clears it.
