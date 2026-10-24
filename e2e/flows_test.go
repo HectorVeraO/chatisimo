@@ -686,8 +686,9 @@ func TestRulesInvalidInputKeepsEarlierValue(t *testing.T) {
 			t.Errorf("invalid %s = %q, want the Not saved line naming it", rule, got.text)
 		}
 	}
-	if got := fieldValue(t, badLead.message, "Draw time"); !strings.Contains(got, "<t:") {
-		t.Errorf("draw time after invalid input = %q, want the earlier value kept", got)
+	want := fieldValue(t, timeView.message, "Draw time")
+	if got := fieldValue(t, badLead.message, "Draw time"); got != want {
+		t.Errorf("draw time after invalid input = %q, want the earlier value %q kept", got, want)
 	}
 }
 

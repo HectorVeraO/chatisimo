@@ -167,9 +167,12 @@ func TestConfidentialityOutbound(t *testing.T) {
 	for _, user := range everyone {
 		idsInScene[user.ID] = true
 	}
+	counterparts := counterpartsOf(t, s, everyone)
 	for _, record := range shared.fake.Outbound() {
 		markers := markersOf(t, record)
 		if len(markers) == 0 {
+			assertNoPlainPair(t, record, counterparts)
+
 			continue
 		}
 
@@ -186,15 +189,76 @@ func TestConfidentialityOutbound(t *testing.T) {
 		if viewer == organizer.ID || viewer == outsider.ID {
 			t.Errorf("a pair marker reached the non-participant %s", map[bool]string{true: "organizer", false: "outsider"}[viewer == organizer.ID])
 		}
-		if idsInScene[viewer] {
-			content := record.Content
-			for _, embed := range record.Embeds {
-				content += string(embed)
+		named := mentionPattern.FindStringSubmatch(contentOf(record))
+		if named == nil {
+			continue
+		}
+		if named[1] == viewer {
+			t.Error("a pair marker names its own viewer")
+		}
+		isGiverMarker := len(markers) == 1 && markers[0] == titleGiver
+		if isGiverMarker && !counterparts.recipientsOf[named[1]][viewer] {
+			t.Error("a giver marker reached someone who is not the recipient of the giver it names")
+		}
+	}
+}
+
+// pairCounterparts holds, from the pair DMs, who each user was told is their recipient and
+// everyone each user is paired with in either direction.
+type pairCounterparts struct {
+	recipientsOf map[string]map[string]bool
+	all          map[string]map[string]bool
+}
+
+// counterpartsOf reads the pair DMs of every user.
+func counterpartsOf(t *testing.T, s *scene, users []fakediscord.User) pairCounterparts {
+	t.Helper()
+
+	found := pairCounterparts{recipientsOf: map[string]map[string]bool{}, all: map[string]map[string]bool{}}
+	link := func(from, to string) {
+		if found.all[from] == nil {
+			found.all[from] = map[string]bool{}
+		}
+		found.all[from][to] = true
+	}
+	for _, user := range users {
+		found.recipientsOf[user.ID] = map[string]bool{}
+		messages := append(s.dmsWithTitle(t, user, titleRecipient), s.dmsWithTitle(t, user, titleNewRecipient)...)
+		for _, message := range messages {
+			match := mentionPattern.FindStringSubmatch(textOf(t, message))
+			if match == nil {
+				continue
 			}
-			match := mentionPattern.FindStringSubmatch(content)
-			if match != nil && match[1] == viewer {
-				t.Error("a pair marker names its own viewer")
-			}
+			found.recipientsOf[user.ID][match[1]] = true
+			link(user.ID, match[1])
+			link(match[1], user.ID)
+		}
+	}
+
+	return found
+}
+
+func contentOf(record fakediscord.Record) string {
+	content := record.Content
+	for _, embed := range record.Embeds {
+		content += string(embed)
+	}
+
+	return content
+}
+
+// assertNoPlainPair fails when a record without a pair marker, visible to one user, mentions
+// someone that user is paired with.
+func assertNoPlainPair(t *testing.T, record fakediscord.Record, found pairCounterparts) {
+	t.Helper()
+
+	if len(record.VisibleTo) != 1 {
+		return
+	}
+	viewer := record.VisibleTo[0]
+	for _, match := range mentionPattern.FindAllStringSubmatch(contentOf(record), -1) {
+		if found.all[viewer][match[1]] {
+			t.Errorf("a private record without a pair marker names the counterpart of its viewer: %s", record.Source)
 		}
 	}
 }

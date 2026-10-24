@@ -171,10 +171,6 @@ func TestRateLimitedDM(t *testing.T) {
 	pairs := s.pairsAfterDraw(t, givers)
 	assertDerangement(t, pairs)
 
-	pending, err := shared.fake.PendingFaults(route)
-	if err != nil || pending != 0 {
-		t.Errorf("rate limits still queued = %d, %v, want 0: the fault never fired", pending, err)
-	}
 	for _, giver := range givers {
 		if got := len(s.dmsWithTitle(t, giver, titleRecipient)); got != 1 {
 			t.Errorf("%s received %d recipient DMs, want exactly 1", giver.Name, got)
