@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/alecthomas/kong"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -33,6 +36,7 @@ type cli struct {
 		List configListCmd `cmd:"" help:"List every setting."`
 	} `cmd:"" help:"Read and write settings stored in the database."`
 	Keygen keygenCmd `cmd:"" help:"Print a new random MASTER_KEY."`
+	Run    runCmd    `cmd:"" help:"Serve Discord and run timed jobs until SIGINT or SIGTERM."`
 }
 
 // app is what a command needs from its process: its streams and its environment lookup.
@@ -60,6 +64,7 @@ type (
 	versionCmd   struct{}
 	migrateCmd   struct{}
 	keygenCmd    struct{}
+	runCmd       struct{}
 	configSetCmd struct {
 		Key string `arg:"" help:"Setting name, such as discord.token."`
 	}
@@ -301,4 +306,12 @@ func formatStatus(status config.Status) string {
 	}
 
 	return strings.Join([]string{status.Name, kind, value, status.Doc}, "\t")
+}
+
+// Run serves Discord and the timed jobs until SIGINT, SIGTERM or the end of ctx.
+func (c *runCmd) Run(ctx context.Context, a *app) error {
+	signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	return serve(signalCtx, stop, a)
 }
