@@ -96,4 +96,16 @@ func TestIdentitySubjectsStayOpaqueText(t *testing.T) {
 	if actor.Person() != again.Person() {
 		t.Error("the same opaque subject resolved to two persons")
 	}
+
+	nearby := []string{subject + " ", " " + subject, strings.ToUpper(subject), "<@" + fakeUserA + ">", fakeUserA}
+	for _, other := range nearby {
+		got, err := h.svc.ResolvePerson(t.Context(),
+			giftexchange.IdentityRef{Provider: giftexchange.ProviderDiscord, Subject: other})
+		if err != nil {
+			t.Fatalf("ResolvePerson(%q): %v", other, err)
+		}
+		if got == actor.Person() {
+			t.Errorf("subject %q resolved to the person of %q: subjects are not stored verbatim", other, subject)
+		}
+	}
 }

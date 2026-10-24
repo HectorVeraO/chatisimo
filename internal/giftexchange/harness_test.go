@@ -159,7 +159,7 @@ type harness struct {
 
 // newService builds a Service over the shared database with its own queue name, so the jobs it
 // inserts are told apart from every other test's.
-func newService(t *testing.T) *harness {
+func newService(t testing.TB) *harness {
 	t.Helper()
 
 	clock := newFakeClock()
@@ -193,7 +193,7 @@ func newService(t *testing.T) *harness {
 	return &harness{svc: svc, clock: clock, random: random, notifier: notifier, logs: logs, queue: queue}
 }
 
-func newQueueName(t *testing.T) string {
+func newQueueName(t testing.TB) string {
 	t.Helper()
 
 	var raw [8]byte
