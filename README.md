@@ -41,6 +41,8 @@ pinned versions are used inside the repository.
    ```sh
    cp .example.env .env
    ```
+   Set `MASTER_KEY` to the output of `go run ./cmd/chatisimo keygen`. Keep it: it decrypts the
+   secrets stored in the database.
 4. Start Postgres, wait for its healthcheck, and check that it accepts connections:
    ```sh
    docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d --wait

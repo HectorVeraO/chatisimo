@@ -3,6 +3,7 @@ module github.com/HectorVeraO/chatisimo
 go 1.27.3
 
 require (
+	github.com/alecthomas/kong v1.16.1
 	github.com/disgoorg/disgo v0.19.6
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.11.0
