@@ -17,7 +17,8 @@ Chatisimo is Chatolandia's platform, written in Go.
 | goose | 3.29.0 | Database migrations |
 | sqlc | 1.31.1 | Query code generation |
 | govulncheck | 1.9.0 | Vulnerability scan |
-| Docker | Compose v2 | Runs Postgres 18.6 locally |
+| Node | 24.14.0 | Playwright suite |
+| Docker | Compose v2 | Runs the local stack in `.deploy/local` (Postgres 18.6) |
 
 Activate mise in your shell ([instructions](https://mise.jdx.dev/getting-started.html)) so the
 pinned versions are used inside the repository.
@@ -34,15 +35,16 @@ pinned versions are used inside the repository.
    git config user.email <id>+<login>@users.noreply.github.com
    lefthook install
    ```
-3. Create your local environment file (Docker Compose reads `.env`) and replace every
-   `change-me` value:
+3. Create your local environment file and replace every `change-me` value. Docker Compose
+   reads `.env` through `--env-file`, and mise also loads it, so create it before running any
+   command that needs the database:
    ```sh
    cp .example.env .env
    ```
 4. Start Postgres, wait for its healthcheck, and check that it accepts connections:
    ```sh
-   docker compose up -d --wait
-   docker compose exec postgres pg_isready -U chatisimo
+   docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d --wait
+   docker compose --env-file .env -f .deploy/local/docker-compose.yaml exec postgres pg_isready -U chatisimo
    ```
    Expected: `/var/run/postgresql:5432 - accepting connections`. Postgres is published on
    `localhost:10000`.
@@ -74,7 +76,7 @@ in the database.
 | Vulnerability scan | `govulncheck ./...` |
 | Format | `golangci-lint fmt` |
 | Run the pre-commit checks without committing | `lefthook run pre-commit` |
-| Stop Postgres | `docker compose down` |
+| Stop Postgres | `docker compose --env-file .env -f .deploy/local/docker-compose.yaml down` |
 
 ## Continuous integration
 
@@ -97,7 +99,7 @@ cmd/chatisimo/        binary entry point
 cookbooks/            architecture, coding and testing rules
 .claude/              Claude Code agents, skills, hooks and settings
 .github/              CI workflow, Dependabot, issue and pull request templates
-compose.yaml          local Postgres
+.deploy/local/        local compose stack
 mise.toml             pinned toolchain
 .golangci.yml         linters, formatters, import rules
 lefthook.yml          pre-commit hooks
