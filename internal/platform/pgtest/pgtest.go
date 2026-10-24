@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/db"
 )
 
@@ -117,9 +118,10 @@ func (d *Database) Pool() *pgxpool.Pool {
 	return d.pool
 }
 
-// URL is the clone's connection string (for a subprocess's DATABASE_URL).
-func (d *Database) URL() string {
-	return d.url
+// URL is the clone's connection string (for a subprocess's DATABASE_URL). It is a config.Secret
+// because it carries the password of the admin URL.
+func (d *Database) URL() config.Secret {
+	return config.NewSecret(d.url)
 }
 
 // Close closes the pool and drops the clone (DROP DATABASE ... WITH (FORCE)).

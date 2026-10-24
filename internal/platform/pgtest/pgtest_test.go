@@ -297,7 +297,7 @@ func TestURLPointsAtTheClone(t *testing.T) {
 
 	database := newDemo(t, "items")
 
-	pool, err := db.Open(t.Context(), database.URL(), discardLogger())
+	pool, err := db.Open(t.Context(), database.URL().Reveal(), discardLogger())
 	if err != nil {
 		t.Fatalf("open with URL: %v", err)
 	}

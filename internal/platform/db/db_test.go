@@ -276,7 +276,7 @@ func TestConcurrentMigrateAppliesEachMigrationOnce(t *testing.T) {
 	// Each caller has its own pool, like separate processes: one pool shared by callers could
 	// hold every connection with waiting lock takers.
 	for range processes {
-		pool := openPool(t, shared.URL())
+		pool := openPool(t, shared.URL().Reveal())
 
 		group.Add(1)
 
@@ -397,7 +397,7 @@ func TestMigrateReportsEveryInvalidSource(t *testing.T) {
 func TestMigrateRefusesSingleConnectionPool(t *testing.T) {
 	t.Parallel()
 
-	pool := openPool(t, withQuery(shared.URL(), "pool_max_conns=1"))
+	pool := openPool(t, withQuery(shared.URL().Reveal(), "pool_max_conns=1"))
 	schema := uniqueSchema(t, "dbtest_a")
 
 	err := db.Migrate(t.Context(), pool, newSource(t, schema, migrations(schema, "alpha")))
@@ -607,7 +607,7 @@ func TestOpenRejectsUnparsableURL(t *testing.T) {
 func TestOpenRejectsNilLogger(t *testing.T) {
 	t.Parallel()
 
-	_, err := db.Open(t.Context(), shared.URL(), nil)
+	_, err := db.Open(t.Context(), shared.URL().Reveal(), nil)
 	if err == nil {
 		t.Fatal("Open accepted a nil logger")
 	}
@@ -799,7 +799,7 @@ func (p *delayedProxy) stop() {
 func TestOpenSucceedsOncePostgresBecomesReachable(t *testing.T) {
 	t.Parallel()
 
-	parsed, err := url.Parse(shared.URL())
+	parsed, err := url.Parse(shared.URL().Reveal())
 	if err != nil {
 		t.Fatalf("parse the shared URL: %v", err)
 	}
@@ -830,7 +830,7 @@ func TestOpenSucceedsOncePostgresBecomesReachable(t *testing.T) {
 func TestOpenReachableServerReturnsWorkingPool(t *testing.T) {
 	t.Parallel()
 
-	pool := openPool(t, shared.URL())
+	pool := openPool(t, shared.URL().Reveal())
 
 	if count(t, pool, "SELECT 1") != 1 {
 		t.Fatal("pool does not answer queries")
