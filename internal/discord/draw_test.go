@@ -7,6 +7,7 @@ package discord_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -228,14 +229,21 @@ func drawForged(t *testing.T, h *harness, user string, in fakediscord.Slash, cus
 	return drawWait(t, h, result, "edit")
 }
 
-func TestDrawPromptsThenConfirmDrawsAndAnnouncesWithoutAPair(t *testing.T) {
-	h := newHarness(t)
+// drawReadyToConfirm opens an exchange and returns the organizer, the exchange and the draw prompt.
+func drawReadyToConfirm(t *testing.T, h *harness) (drawMember, giftexchange.ExchangeID, fakediscord.Record) {
+	t.Helper()
+
 	h.startRunner(t, h.world)
 	organizer := drawNewMember(t, h, h.guild)
 	id := drawOpenExchange(t, h, organizer)
-	h.markDrawn(id)
-
 	prompt := drawPrompt(t, h, organizer.user.ID, "draw", id)
+
+	return organizer, id, prompt
+}
+
+func TestDrawPromptOffersConfirmAndDismissToTheOrganizerOnly(t *testing.T) {
+	h := newHarness(t)
+	organizer, id, prompt := drawReadyToConfirm(t, h)
 
 	if prompt.Content != drawTextPrompt {
 		t.Errorf("prompt = %q, want %q", prompt.Content, drawTextPrompt)
@@ -249,9 +257,21 @@ func TestDrawPromptsThenConfirmDrawsAndAnnouncesWithoutAPair(t *testing.T) {
 			t.Errorf("prompt lacks the button %q: %s", want, components)
 		}
 	}
+}
+
+func TestDrawPromptLeavesTheExchangeOpen(t *testing.T) {
+	h := newHarness(t)
+	organizer, id, _ := drawReadyToConfirm(t, h)
+
 	if got := drawState(t, h, organizer, id); got != giftexchange.StateOpen {
-		t.Fatalf("state after the prompt = %q, want open", got)
+		t.Errorf("state after the prompt = %q, want open", got)
 	}
+}
+
+func TestDrawConfirmDrawsAndAnnouncesPubliclyWithoutAPair(t *testing.T) {
+	h := newHarness(t)
+	organizer, id, prompt := drawReadyToConfirm(t, h)
+	h.markDrawn(id)
 
 	result := drawClick(t, h, organizer.user.ID, prompt, "/gx/draw-confirm/"+id.String())
 
@@ -269,8 +289,16 @@ func TestDrawPromptsThenConfirmDrawsAndAnnouncesWithoutAPair(t *testing.T) {
 	if got := drawState(t, h, organizer, id); got != giftexchange.StateDrawn {
 		t.Errorf("state after the confirm = %q, want drawn", got)
 	}
+}
 
+func TestDrawConfirmSendsEachParticipantOneRecipientDM(t *testing.T) {
+	h := newHarness(t)
+	organizer, id, prompt := drawReadyToConfirm(t, h)
+	h.markDrawn(id)
+
+	drawClick(t, h, organizer.user.ID, prompt, "/gx/draw-confirm/"+id.String())
 	drawWaitDelivered(t, id, 3)
+
 	seenRecipients := map[string]bool{}
 	for _, subject := range []string{userA, userB, userC} {
 		dms := h.fake.DMs(h.users[subject])
@@ -288,6 +316,16 @@ func TestDrawPromptsThenConfirmDrawsAndAnnouncesWithoutAPair(t *testing.T) {
 	if len(seenRecipients) != 3 {
 		t.Errorf("distinct recipients = %d, want 3 (every participant receives once)", len(seenRecipients))
 	}
+}
+
+func TestDrawConfirmSendsNoDMToAnOrganizerWhoDidNotJoin(t *testing.T) {
+	h := newHarness(t)
+	organizer, id, prompt := drawReadyToConfirm(t, h)
+	h.markDrawn(id)
+
+	drawClick(t, h, organizer.user.ID, prompt, "/gx/draw-confirm/"+id.String())
+	drawWaitDelivered(t, id, 3)
+
 	if got := len(h.fake.DMs(organizer.user)); got != 0 {
 		t.Errorf("the organizer who did not join got %d DMs, want none", got)
 	}
@@ -509,34 +547,43 @@ func TestDrawRecipientAndGiverAnswerOnlyTheCaller(t *testing.T) {
 
 	for _, inGuild := range []bool{true, false} {
 		for _, subject := range []string{userA, userB, userC} {
-			assignment, err := h.svc.MyAssignment(t.Context(), h.people[subject].actor, id)
-			if err != nil {
-				t.Fatalf("MyAssignment: %v", err)
-			}
-			giver, err := h.svc.MyGiver(t.Context(), h.people[subject].actor, id)
-			if err != nil {
-				t.Fatalf("MyGiver: %v", err)
-			}
-			wantRecipient := drawMention(t, assignment.Recipient)
-			drawAssertPairConsistent(t, h, subject, id, assignment.Recipient, giver.Giver)
-			wantGiver := drawMention(t, giver.Giver)
-
-			for verb, want := range map[string][2]string{
-				"recipient": {"Your recipient", wantRecipient},
-				"giver":     {"Your giver", wantGiver},
-			} {
-				result := slashOrFail(t, h, subject, h.ge(verb, inGuild, map[string]any{"exchange": id.String()}))
-				record := drawWait(t, h, result, "edit")
-				title, description := drawEmbedOf(t, record)
-
-				if title != want[0] || description != want[1] {
-					t.Errorf("%s guild=%v: embed = %q %q, want %q %q", verb, inGuild, title, description, want[0], want[1])
-				}
-				if !slices.Equal(record.VisibleTo, []string{subject}) {
-					t.Errorf("%s guild=%v: visible to %v, want the caller only", verb, inGuild, record.VisibleTo)
-				}
+			for _, verb := range []string{"recipient", "giver"} {
+				name := fmt.Sprintf("%s/guild=%v/%s", verb, inGuild, subject)
+				t.Run(name, func(t *testing.T) {
+					drawAssertVerbAnswersOnlyTheCaller(t, h, id, subject, verb, inGuild)
+				})
 			}
 		}
+	}
+}
+
+func drawAssertVerbAnswersOnlyTheCaller(t *testing.T, h *harness, id giftexchange.ExchangeID, subject, verb string, inGuild bool) {
+	t.Helper()
+
+	assignment, err := h.svc.MyAssignment(t.Context(), h.people[subject].actor, id)
+	if err != nil {
+		t.Fatalf("MyAssignment: %v", err)
+	}
+	giver, err := h.svc.MyGiver(t.Context(), h.people[subject].actor, id)
+	if err != nil {
+		t.Fatalf("MyGiver: %v", err)
+	}
+	drawAssertPairConsistent(t, h, subject, id, assignment.Recipient, giver.Giver)
+
+	wantTitle, wantDescription := "Your recipient", drawMention(t, assignment.Recipient)
+	if verb == "giver" {
+		wantTitle, wantDescription = "Your giver", drawMention(t, giver.Giver)
+	}
+
+	result := slashOrFail(t, h, subject, h.ge(verb, inGuild, map[string]any{"exchange": id.String()}))
+	record := drawWait(t, h, result, "edit")
+	title, description := drawEmbedOf(t, record)
+
+	if title != wantTitle || description != wantDescription {
+		t.Errorf("embed = %q %q, want %q %q", title, description, wantTitle, wantDescription)
+	}
+	if !slices.Equal(record.VisibleTo, []string{subject}) {
+		t.Errorf("visible to %v, want the caller only", record.VisibleTo)
 	}
 }
 
