@@ -436,8 +436,9 @@ func readFloor(filePath string) (float64, error) {
 
 // parseFloor accepts plain decimal notation only (digits with at most one dot), so forms
 // strconv would take, such as "NaN", "Inf", "1e1" or "0x10", are rejected.
+// A leading UTF-8 byte order mark, which some Windows editors write, is ignored.
 func parseFloor(text string) (float64, error) {
-	trimmed := strings.TrimSpace(text)
+	trimmed := strings.TrimSpace(strings.TrimPrefix(text, "\ufeff"))
 	isPlainDecimal := trimmed != "" && strings.Count(trimmed, ".") <= 1 &&
 		strings.Trim(trimmed, "0123456789.") == "" && trimmed != "."
 	if !isPlainDecimal {

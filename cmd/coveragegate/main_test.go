@@ -327,6 +327,20 @@ func TestHostileProfileReportIsBounded(t *testing.T) {
 	}
 }
 
+func TestOversizedProfileLineIsRejectedWithBoundedReport(t *testing.T) {
+	huge := defaultModule + "/internal/a/" + strings.Repeat("a", 2<<20) + ".go:1.1,2.1 3 1\n"
+	profilePath := writeFile(t, "huge.txt", "mode: set\n"+huge)
+
+	code, _, stderr := execute(t, "-profile", profilePath)
+
+	if code != exitUsage {
+		t.Fatalf("exit = %d, want 2\nstderr: %.300s", code, stderr)
+	}
+	if len(stderr) > 2000 {
+		t.Errorf("stderr is unbounded (%d bytes)", len(stderr))
+	}
+}
+
 func TestFloorFileInputAbuse(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -351,6 +365,11 @@ func TestFloorFileInputAbuse(t *testing.T) {
 		{name: "lone dot", content: ".", wantCode: exitUsage},
 		{name: "percent sign", content: "90%", wantCode: exitUsage},
 		{name: "long text", content: strings.Repeat("9", 5000), wantCode: exitUsage},
+		{name: "byte order mark", content: "\ufeff90.0\n", wantCode: exitOK},
+		{name: "byte order mark only", content: "\ufeff", wantCode: exitUsage},
+		{name: "fullwidth digits", content: "\uff19\uff10", wantCode: exitUsage},
+		{name: "zero-width space inside", content: "9\u200b0", wantCode: exitUsage},
+		{name: "arabic-indic digits", content: "\u0669\u0660", wantCode: exitUsage},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -402,7 +421,7 @@ func TestBaseFloorFileInputAbuse(t *testing.T) {
 }
 
 func FuzzParseFloor(f *testing.F) {
-	for _, seed := range []string{"90.0", " 1 ", "-1", "101", "NaN", "Inf", "1e9", "0x1p3", ".", "", "9.9.9", "\x00"} {
+	for _, seed := range []string{"90.0", " 1 ", "-1", "101", "NaN", "Inf", "1e9", "0x1p3", ".", "", "9.9.9", "\x00", "\ufeff90"} {
 		f.Add(seed)
 	}
 
@@ -442,8 +461,11 @@ func FuzzParseProfile(f *testing.F) {
 			if !isConsistent {
 				t.Fatalf("package %q has %d covered of %d statements", name, entry.covered, entry.statements)
 			}
-			if isExcluded(name) {
-				t.Fatalf("excluded package %q was counted", name)
+			for _, excluded := range []string{"internal/fakediscord", "cmd/fakediscord", "cmd/coveragegate", "e2e"} {
+				isExcluded := name == excluded || strings.HasPrefix(name, excluded+"/")
+				if isExcluded {
+					t.Fatalf("excluded package %q was counted", name)
+				}
 			}
 		}
 	})
