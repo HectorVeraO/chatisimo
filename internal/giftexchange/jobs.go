@@ -58,23 +58,55 @@ func (s *Service) queueNotice(
 		storedReason = &text
 	}
 
-	id := uuid.NewV7()
-	insertErr := q.InsertNotification(ctx, db.InsertNotificationParams{
-		ID:         id,
+	params := db.InsertNotificationParams{
+		ID:         uuid.NewV7(),
 		Kind:       string(kind),
 		ExchangeID: exchange.ID,
 		PersonID:   addressee,
 		Round:      exchange.Round,
 		Reason:     storedReason,
 		CreatedAt:  timestamptz(s.now()),
-	})
+	}
+	return s.enqueueNotice(ctx, q, tx, params)
+}
+
+// queueQuestionNotice queues a question_received or answer_received notice for question.
+func (s *Service) queueQuestionNotice(
+	ctx context.Context,
+	q *db.Queries,
+	tx pgx.Tx,
+	kind NotificationKind,
+	question uuid.UUID,
+	exchange db.GiftexchangeExchange,
+	addressee uuid.UUID,
+) error {
+	params := db.InsertNotificationParams{
+		ID:         uuid.NewV7(),
+		Kind:       string(kind),
+		ExchangeID: exchange.ID,
+		PersonID:   addressee,
+		Round:      exchange.Round,
+		QuestionID: pgtype.UUID{Bytes: question, Valid: true},
+		CreatedAt:  timestamptz(s.now()),
+	}
+	return s.enqueueNotice(ctx, q, tx, params)
+}
+
+// enqueueNotice stores the outbox row and enqueues its notify job.
+func (s *Service) enqueueNotice(
+	ctx context.Context,
+	q *db.Queries,
+	tx pgx.Tx,
+	params db.InsertNotificationParams,
+) error {
+	insertErr := q.InsertNotification(ctx, params)
 	if insertErr != nil {
 		return fmt.Errorf("insert notification: %w", insertErr)
 	}
 
-	enqueueErr := s.scheduler.EnqueueTx(ctx, tx, notifyArgs{NotificationID: id.String()})
+	enqueueErr := s.scheduler.EnqueueTx(ctx, tx, notifyArgs{NotificationID: params.ID.String()})
 	if enqueueErr != nil {
-		return fmt.Errorf("queue notification %s: %w", id, enqueueErr)
+		return fmt.Errorf("queue notification %s: %w", params.ID, enqueueErr)
 	}
 
 	return nil

@@ -126,6 +126,7 @@ func (s *Service) recordOutcome(
 type noticeFacts struct {
 	exchange    exchangeRow
 	counterpart *uuid.UUID
+	question    *db.GiftexchangeQuestion
 }
 
 // assessNotification decides whether the notice is still true, and loads what the build needs.
@@ -152,9 +153,34 @@ func (s *Service) assessNotification(
 		return facts, isStale, nil
 	case KindRevealed:
 		return s.assessRevealed(ctx, q, row, facts)
+	case KindQuestionReceived, KindAnswerReceived:
+		return s.assessQuestion(ctx, q, row, facts)
 	default:
 		return facts, false, nil
 	}
+}
+
+// assessQuestion, the rule of the question kinds: a question_received notice is stale once its
+// question is closed; an answer_received notice is always delivered.
+func (s *Service) assessQuestion(
+	ctx context.Context,
+	q *db.Queries,
+	row db.GiftexchangeNotification,
+	facts noticeFacts,
+) (noticeFacts, bool, error) {
+	if !row.QuestionID.Valid {
+		panic("giftexchange: notify: question notice without a question")
+	}
+
+	question, err := q.GetQuestion(ctx, row.QuestionID.Bytes)
+	if err != nil {
+		return facts, false, fmt.Errorf("read question %s: %w", uuid.UUID(row.QuestionID.Bytes), err)
+	}
+	facts.question = &question
+
+	isReceived := NotificationKind(row.Kind) == KindQuestionReceived
+	isStale := isReceived && question.ClosedAt.Valid
+	return facts, isStale, nil
 }
 
 // assessRevealed, the rule of the revealed kind: stale unless the exchange is Revealed and the
@@ -226,7 +252,7 @@ func (s *Service) buildNotification(
 
 	switch kind {
 	case KindCancelled, KindDrawn, KindRedrawn, KindAssignmentChanged, KindRoundVoided, KindRevealed,
-		KindDrawFailed, KindDrawSoon, KindRevealSoon:
+		KindDrawFailed, KindDrawSoon, KindRevealSoon, KindQuestionReceived, KindAnswerReceived:
 		return s.buildNotice(ctx, q, row, facts)
 	default:
 		panic("giftexchange: notify: no delivery rule for kind " + row.Kind)
@@ -263,10 +289,23 @@ func (s *Service) buildNotice(
 	if row.Reason != nil {
 		notification.Reason = Reason(*row.Reason)
 	}
+	if facts.question != nil {
+		notification.Question = noticeQuestion(NotificationKind(row.Kind), *facts.question)
+	}
 	if facts.counterpart != nil {
 		counterpart := PersonRef{ID: PersonID(*facts.counterpart), Identities: identities[*facts.counterpart]}
 		notification.Counterpart = &counterpart
 	}
 
 	return notification, nil
+}
+
+// noticeQuestion is the question content a notice carries: the answer only for answer_received,
+// and never the asker.
+func noticeQuestion(kind NotificationKind, question db.GiftexchangeQuestion) *NotifiedQuestion {
+	notified := &NotifiedQuestion{ID: QuestionID(question.ID), Text: question.Text}
+	if kind == KindAnswerReceived && question.Answer != nil {
+		notified.Answer = *question.Answer
+	}
+	return notified
 }
