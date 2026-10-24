@@ -24,14 +24,22 @@ func TestSecretRendersRedactedEverywhere(t *testing.T) {
 		Token config.Secret
 	}
 
-	for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q", "%x", "%d"} {
-		got := fmt.Sprintf(verb, secret) + fmt.Sprintf(verb, holder{Token: secret}) + fmt.Sprintf(verb, &secret)
-		if strings.Contains(got, plain) {
-			t.Errorf("%s leaks the value: %s", verb, got)
-		}
+	renders := map[string]any{
+		"value":   secret,
+		"field":   holder{Token: secret},
+		"pointer": &secret,
+	}
 
-		if !strings.Contains(got, "[redacted]") {
-			t.Errorf("%s = %q, want [redacted]", verb, got)
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q", "%x", "%d"} {
+		for form, arg := range renders {
+			got := fmt.Sprintf(verb, arg)
+			if strings.Contains(got, plain) {
+				t.Errorf("%s of %s leaks the value: %s", verb, form, got)
+			}
+
+			if !strings.Contains(got, "[redacted]") {
+				t.Errorf("%s of %s = %q, want [redacted]", verb, form, got)
+			}
 		}
 	}
 
