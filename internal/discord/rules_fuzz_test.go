@@ -47,6 +47,42 @@ func FuzzRulesPickValue(f *testing.F) {
 	})
 }
 
+func FuzzRulesOptionValue(f *testing.F) {
+	rules := []string{
+		"dropout_policy", "min_participants", "exclusions", "no_such_rule", "Bad-Rule", "",
+		strings.Repeat("a", 40), "draw_at",
+	}
+	values := []string{
+		"", "   ", "on", "off", "redraw", "bogus", "<@100000000000000001>", "@everyone", "**on**",
+		strings.Repeat("a", 4096), "\xff\xfe", "\U0001F381", "\x00",
+	}
+	for _, rule := range rules {
+		for _, value := range values {
+			f.Add(rule, value)
+		}
+	}
+
+	f.Fuzz(func(t *testing.T, rule, value string) {
+		s := newScene(t)
+		id := rulesOpenExchange(t, s, "Winter")
+		view := rulesShow(t, s, s.a, id)
+
+		customID := "/gx/rule-option/" + id.String() + "/" + rule
+		result, err := s.fake.SelectForged(t.Context(), s.users[s.a], view.message, customID, value)
+		if err != nil {
+			t.Fatalf("SelectForged(%q, %q): %v", rule, value, err)
+		}
+
+		got := rulesReplyOf(t, s, result)
+		if len(got.visibleTo) != 1 || got.visibleTo[0] != s.a {
+			t.Fatalf("%q %q: reply visible to %v, want only the caller", rule, value, got.visibleTo)
+		}
+		if strings.Contains(got.content, "@everyone") {
+			t.Fatalf("%q %q: the reply echoes a mention: %q", rule, value, got.content)
+		}
+	})
+}
+
 func FuzzRulesModalInput(f *testing.F) {
 	seeds := []string{
 		"", "   ", "in 3d", "in 9999d", "tomorrow", "2026-12-20 18:00", "2030-01-02T03:04:05Z",

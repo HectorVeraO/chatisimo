@@ -7,10 +7,13 @@ package discord_test
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/disgoorg/disgo/discord"
 
@@ -473,13 +476,19 @@ func TestRulesDrawTimeAcceptsTheMaximumHorizon(t *testing.T) {
 	s := newScene(t)
 	id := rulesOpenExchange(t, s, "Winter")
 
+	before := time.Now().UTC()
 	reply, _ := rulesSubmit(t, s, id, "draw_at", "in 730d")
 
 	if strings.HasPrefix(reply.content, rulesTextNotSaved) {
 		t.Errorf("content = %q, want the 730-day draw time accepted", reply.content)
 	}
-	if got := rulesViewOf(t, s, s.a, id)["draw_at"].Value; got == "unset" || got == "" {
-		t.Errorf("draw_at = %q, want a time", got)
+	drawAt, err := time.Parse(time.RFC3339, rulesViewOf(t, s, s.a, id)["draw_at"].Value)
+	if err != nil {
+		t.Fatalf("draw_at is not a time: %v", err)
+	}
+	horizon := before.Add(730 * 24 * time.Hour)
+	if drawAt.Before(horizon.Add(-time.Hour)) || drawAt.After(horizon.Add(time.Hour)) {
+		t.Errorf("draw_at = %v, want about 730 days from %v", drawAt, before)
 	}
 }
 
@@ -853,6 +862,57 @@ func TestRulesExcludeUnexcludeAndTheOrganizersPairList(t *testing.T) {
 	}
 	if !slices.Equal(removed.visibleTo, []string{s.a}) {
 		t.Errorf("unexclude reply is visible to %v", removed.visibleTo)
+	}
+}
+
+func TestRulesOrganizerExclusionListCapsItsLinesAndCountsTheRest(t *testing.T) {
+	s := newScene(t)
+	id := rulesOpenExchange(t, s, "Winter")
+
+	people := []string{s.a, s.b, s.c, s.d}
+	for range 3 {
+		subject := uniqueSnowflake(t)
+		actor, err := s.svc.ResolveActor(t.Context(), giftexchange.IdentityRef{
+			Provider: giftexchange.ProviderDiscord, Subject: subject,
+		})
+		if err != nil {
+			t.Fatalf("ResolveActor: %v", err)
+		}
+		s.people[subject] = person{actor: actor, id: actor.Person()}
+		people = append(people, subject)
+	}
+	for _, user := range people {
+		err := s.svc.Join(t.Context(), s.people[user].actor, s.group, id)
+		if err != nil && !errors.Is(err, giftexchange.ErrAlreadyParticipant) {
+			t.Fatalf("Join: %v", err)
+		}
+	}
+
+	pairs := 0
+	for i, giver := range people {
+		for _, recipient := range people[i+1:] {
+			err := s.svc.AddExclusion(t.Context(), s.people[s.a].actor, s.group, id,
+				s.people[giver].id, s.people[recipient].id, true)
+			if err != nil {
+				t.Fatalf("AddExclusion: %v", err)
+			}
+			pairs += 2
+		}
+	}
+	if pairs <= 20 {
+		t.Fatalf("pairs = %d, want more than the 20 lines the view lists", pairs)
+	}
+
+	lines := rulesField(t, rulesShow(t, s, s.a, id).embed, "Exclusions")
+
+	if got := strings.Count(lines, " -> "); got != 20 {
+		t.Errorf("listed pairs = %d, want 20", got)
+	}
+	if want := fmt.Sprintf("and %d more", pairs-20); !strings.HasSuffix(lines, want) {
+		t.Errorf("exclusions %q do not end with %q", lines, want)
+	}
+	if got := utf8.RuneCountInString(lines); got > rulesEmbedFieldMaxRunes {
+		t.Errorf("exclusions field has %d runes, want at most %d", got, rulesEmbedFieldMaxRunes)
 	}
 }
 
