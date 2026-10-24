@@ -672,7 +672,8 @@ func TestEventStreamReportsEditsDeletesModalsAndTheWorld(t *testing.T) {
 	everything := subscribe(t, w.srv, "")
 
 	sent, _ := w.answerSlash(t, w.alice, w.inGuild("/ping", nil), `{"type":4,"data":{"content":"v1"}}`)
-	call(t, w.srv, http.MethodPatch, sent.webhookPath(w.srv, "/messages/@original"), "", `{"content":"v2"}`)
+	edited := call(t, w.srv, http.MethodPatch, sent.webhookPath(w.srv, "/messages/@original"), "", `{"content":"v2"}`)
+	messageID, _ := edited.json(t)["id"].(string)
 	call(t, w.srv, http.MethodDelete, sent.webhookPath(w.srv, "/messages/@original"), "", "")
 	w.answerSlash(t, w.alice, w.inGuild("/ping", nil),
 		`{"type":9,"data":{"custom_id":"m","title":"T","components":[{"type":1,"components":[{"type":4,"custom_id":"a","style":1,"label":"A"}]}]}}`)
@@ -682,7 +683,7 @@ func TestEventStreamReportsEditsDeletesModalsAndTheWorld(t *testing.T) {
 	if updated := nextEvent(t, aliceEvents, "message_updated"); !strings.Contains(updated.data, "v2") {
 		t.Errorf("message_updated = %s, want v2", updated.data)
 	}
-	if deleted := nextEvent(t, aliceEvents, "message_deleted"); !strings.Contains(deleted.data, sent.ID) && !strings.Contains(deleted.data, "channel_id") {
+	if deleted := nextEvent(t, aliceEvents, "message_deleted"); messageID == "" || !strings.Contains(deleted.data, messageID) {
 		t.Errorf("message_deleted = %s", deleted.data)
 	}
 	if modal := nextEvent(t, aliceEvents, "modal_opened"); !strings.Contains(modal.data, `"custom_id":"m"`) {
@@ -728,4 +729,42 @@ func TestClosingTheServerEndsEventStreams(t *testing.T) {
 	case <-time.After(actionTimeout):
 		t.Error("the event stream did not end when the server closed")
 	}
+}
+
+func FuzzControlWorldBodies(f *testing.F) {
+	targets := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/users"},
+		{http.MethodPatch, "/users/" + aliceID},
+		{http.MethodPost, "/guilds"},
+		{http.MethodPost, "/guilds/" + winterGuildID + "/members"},
+		{http.MethodPost, "/faults"},
+	}
+	seeds := []string{
+		``, `{`, `[]`, `null`, `{}`, `{"name":"Dana"}`, `{"name":"` + abuseText + `"}`,
+		`{"id":"` + strings.Repeat("9", 40) + `","name":"x"}`, `{"user":"` + aliceID + `"}`,
+		`{"route":"POST /channels/{id}/messages","status":500}`, `{"route":5,"status":"x"}`,
+	}
+	for _, seed := range seeds {
+		for index := range targets {
+			f.Add(index, seed)
+		}
+	}
+
+	f.Fuzz(func(t *testing.T, index int, body string) {
+		if index < 0 || index >= len(targets) {
+			t.Skip()
+		}
+		srv := newFake(t, fakediscord.Options{})
+		alice := srv.AddUser(fakediscord.User{ID: aliceID, Name: "Alice"})
+		srv.AddGuild(fakediscord.Guild{ID: winterGuildID, Name: "Winter guild"}, alice)
+
+		got := control(t, srv, targets[index].method, targets[index].path, body)
+
+		if got.status < 200 || got.status > 499 {
+			t.Fatalf("%s %s answered %d for body %.200q", targets[index].method, targets[index].path, got.status, body)
+		}
+	})
 }

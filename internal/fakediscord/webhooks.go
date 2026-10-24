@@ -558,6 +558,8 @@ func (s *Server) createFollowupLocked(r *http.Request, body createMessageBody, s
 	if isEphemeral {
 		message.EphemeralFor = intr.actorID
 		message.Flags |= messageFlagEphemeral
+	} else {
+		message.Flags &^= messageFlagEphemeral
 	}
 	stored := s.storeMessageLocked(message, recordInput{
 		route:         routeFollowup,

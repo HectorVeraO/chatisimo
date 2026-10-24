@@ -698,6 +698,10 @@ func TestDeletedDeferredOriginalIsGone(t *testing.T) {
 	}
 }
 
+// abuseText mixes a combining mark, right-to-left override, zero-width characters, an emoji
+// and mentions, written as byte escapes so the source holds no invisible characters.
+const abuseText = "e\xcc\x81 \xe2\x80\xaeabc \xe2\x80\x8b\xe2\x80\x8d \xf0\x9f\x98\x80 <@100000000000000001> <@&1> @everyone"
+
 func FuzzCallbackBody(f *testing.F) {
 	seeds := []string{
 		``, `nope`, `{}`, `{"type":4}`, `{"type":4,"data":{}}`, `{"type":4,"data":[1]}`,
@@ -705,6 +709,8 @@ func FuzzCallbackBody(f *testing.F) {
 		`{"type":4,"data":{"content":5}}`, `{"type":7,"data":null}`, `{"type":8,"data":{"choices":[{}]}}`,
 		`{"type":9,"data":{"custom_id":"a","components":"x"}}`, `{"type":5,"data":{"flags":"x"}}`,
 		`{"type":"4"}`, `{"type":-1}`, `{"type":4,"data":{"content":"` + strings.Repeat("a", 4096) + `"}}`,
+		`{"type":4,"data":{"content":"` + abuseText + `"}}`,
+		`{"type":7,"data":{"content":"` + abuseText + `"}}`,
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -724,4 +730,68 @@ func FuzzCallbackBody(f *testing.F) {
 		}
 		finish(t, done)
 	})
+}
+
+func TestInvalidEditBodiesAreRefusedAndChangeNothing(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"content that is not a string", `{"content":5}`},
+		{"null content", `{"content":null}`},
+		{"embeds that are not a list", `{"content":"x","embeds":"y"}`},
+		{"not JSON", `nope`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newInteractionWorld(t, fakediscord.Options{})
+			sent, _ := w.answerSlash(t, w.alice, w.inGuild("/ping", nil), `{"type":4,"data":{"content":"keep"}}`)
+
+			got := call(t, w.srv, http.MethodPatch, sent.webhookPath(w.srv, "/messages/@original"), "", tc.body)
+
+			if got.status != http.StatusBadRequest {
+				t.Errorf("PATCH = %d %.100s, want 400", got.status, got.body)
+			}
+			if visible := w.srv.Visible(w.alice, w.guild.ChannelID); len(visible) != 1 || visible[0].Content != "keep" {
+				t.Errorf("Alice sees %+v, want the original reply untouched", visible)
+			}
+		})
+	}
+}
+
+func FuzzEditBody(f *testing.F) {
+	seeds := []string{
+		``, `nope`, `{}`, `{"content":5}`, `{"content":null}`, `{"content":"x"}`,
+		`{"content":"x","embeds":"y"}`, `{"content":"x","components":[1]}`,
+		`{"content":"` + abuseText + `"}`,
+		`{"content":"` + strings.Repeat("a", 4096) + `"}`,
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, body string) {
+		w := newInteractionWorld(t, fakediscord.Options{})
+		sent, _ := w.answerSlash(t, w.alice, w.inGuild("/ping", nil), `{"type":4,"data":{"content":"keep"}}`)
+
+		got := call(t, w.srv, http.MethodPatch, sent.webhookPath(w.srv, "/messages/@original"), "", body)
+
+		if got.status != http.StatusOK && got.status != http.StatusBadRequest && got.status != http.StatusRequestEntityTooLarge {
+			t.Fatalf("PATCH answered %d for body %q", got.status, body)
+		}
+	})
+}
+
+func TestFirstFollowupOfAPublicDeferralStaysPublicDespiteTheEphemeralFlag(t *testing.T) {
+	w := newInteractionWorld(t, fakediscord.Options{})
+	sent, _ := w.answerSlash(t, w.alice, w.inGuild("/ping", nil), `{"type":5}`)
+
+	got := call(t, w.srv, http.MethodPost, sent.webhookPath(w.srv, ""), "", `{"content":"done","flags":64}`)
+
+	if got.status != http.StatusOK || got.json(t)["flags"] != float64(0) {
+		t.Fatalf("followup = %d %s, want 200 with no ephemeral flag", got.status, got.body)
+	}
+	if visible := w.srv.Visible(w.bruno, w.guild.ChannelID); len(visible) != 1 {
+		t.Errorf("Bruno sees %+v, want the public followup", visible)
+	}
 }
