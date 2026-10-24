@@ -642,6 +642,24 @@ func (q *Queries) MarkExchangeDrawn(ctx context.Context, arg MarkExchangeDrawnPa
 	return err
 }
 
+const markExchangeRevealed = `-- name: MarkExchangeRevealed :exec
+UPDATE giftexchange.exchanges
+SET state = 'revealed', revealed_at = $1
+WHERE id = $2
+`
+
+type MarkExchangeRevealedParams struct {
+	RevealedAt pgtype.Timestamptz
+	ID         uuid.UUID
+}
+
+// One statement, because exchanges_revealed_at_iff_revealed is checked per statement. The
+// assignments stay: they are the last round that avoid_last_round reads.
+func (q *Queries) MarkExchangeRevealed(ctx context.Context, arg MarkExchangeRevealedParams) error {
+	_, err := q.db.Exec(ctx, markExchangeRevealed, arg.RevealedAt, arg.ID)
+	return err
+}
+
 const markExchangeVoided = `-- name: MarkExchangeVoided :exec
 UPDATE giftexchange.exchanges
 SET state = 'open', drawn_at = NULL

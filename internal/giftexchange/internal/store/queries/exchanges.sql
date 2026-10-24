@@ -185,3 +185,10 @@ WHERE a.exchange_id = (
     ORDER BY e.revealed_at DESC, e.id DESC
     LIMIT 1
 );
+
+-- One statement, because exchanges_revealed_at_iff_revealed is checked per statement. The
+-- assignments stay: they are the last round that avoid_last_round reads.
+-- name: MarkExchangeRevealed :exec
+UPDATE giftexchange.exchanges
+SET state = 'revealed', revealed_at = @revealed_at
+WHERE id = @id;
