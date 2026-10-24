@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/db"
 	"github.com/HectorVeraO/chatisimo/internal/platform/jobs"
@@ -21,7 +22,12 @@ func migrationSources() ([]db.Source, error) {
 		return nil, fmt.Errorf("migration sources: %w", err)
 	}
 
-	sources := []db.Source{platform, jobs.NewMigrationSource()}
+	exchanges, err := giftexchange.MigrationSource()
+	if err != nil {
+		return nil, fmt.Errorf("migration sources: %w", err)
+	}
+
+	sources := []db.Source{platform, exchanges, jobs.NewMigrationSource()}
 
 	return sources, nil
 }
