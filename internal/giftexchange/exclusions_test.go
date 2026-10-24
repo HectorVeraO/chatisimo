@@ -284,7 +284,7 @@ func TestLeavingDeletesTheLeaversExclusionsInBothRoles(t *testing.T) {
 
 	s.h.clock.Advance(1)
 	s.h.join(t, p[0], s.group, s.exchange)
-	if got := s.pairs(t); len(got) != 1 {
+	if got := s.pairs(t); !slices.Equal(got, []string{pairOf(p[1], p[2])}) {
 		t.Errorf("pairs after rejoin = %v, want the leaver to come back without exclusions", got)
 	}
 }
