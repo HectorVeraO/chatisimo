@@ -443,6 +443,7 @@ func (s *Server) handleResume(c *wsConn, data json.RawMessage) {
 		}
 	}
 	s.dispatchLocked(sess, "RESUMED", map[string]any{})
+	s.resumes++
 	s.logger.Info("gateway resume", "accepted", true)
 }
 
