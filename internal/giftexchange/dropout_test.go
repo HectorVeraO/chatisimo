@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 )
@@ -397,12 +398,20 @@ func TestDropoutWhosePatchWouldBreakAnExclusionRedraws(t *testing.T) {
 func revealPreviousRound(t *testing.T, s drawScene) {
 	t.Helper()
 
-	previous := s.h.newExchange(t, s.organizer, s.group)
+	revealRound(t, s, s.group, 1, s.h.clock.Now())
+}
+
+// revealRound stores a Revealed exchange of group where person i gave to person i+shift, revealed
+// at revealedAt. The people join the new exchange in group first.
+func revealRound(t *testing.T, s drawScene, group giftexchange.GroupID, shift int, revealedAt time.Time) {
+	t.Helper()
+
+	previous := s.h.newExchange(t, s.organizer, group)
 	for _, p := range s.people {
-		s.h.join(t, p, s.group, previous.ID)
+		s.h.join(t, p, group, previous.ID)
 	}
 	for i, giver := range s.people {
-		recipient := s.people[(i+1)%len(s.people)]
+		recipient := s.people[(i+shift)%len(s.people)]
 		_, err := shared.Pool().Exec(t.Context(),
 			"INSERT INTO giftexchange.assignments (exchange_id, giver_id, recipient_id, round) VALUES ($1, $2, $3, 1)",
 			previous.ID.String(), giver.id.String(), recipient.id.String())
@@ -412,9 +421,91 @@ func revealPreviousRound(t *testing.T, s drawScene) {
 	}
 	_, err := shared.Pool().Exec(t.Context(),
 		"UPDATE giftexchange.exchanges SET state = 'revealed', round = 1, drawn_at = $2, revealed_at = $2 WHERE id = $1",
-		previous.ID.String(), s.h.clock.Now())
+		previous.ID.String(), revealedAt)
 	if err != nil {
 		t.Fatalf("reveal previous exchange: %v", err)
+	}
+}
+
+// shiftPairs counts the givers of a whose recipient is shift places after them in join order.
+func shiftPairs(s drawScene, a assignmentMap, shift int) int {
+	count := 0
+	for i, giver := range s.people {
+		if a[giver.id] == s.people[(i+shift)%len(s.people)].id {
+			count++
+		}
+	}
+
+	return count
+}
+
+const lastRoundDrawAttempts = 30
+
+func TestDrawWithAvoidLastRoundNeverRepeatsThePreviousRoundsPairs(t *testing.T) {
+	repeatedElsewhere := 0
+	for attempt := range uint64(lastRoundDrawAttempts) {
+		s := newDrawScene(t, 4)
+		s.h.random.Reseed(seedOf(attempt))
+		revealPreviousRound(t, s)
+		_, err := s.set(t, s.organizer, giftexchange.RuleAvoidLastRound, "on")
+		if err != nil {
+			t.Fatalf("SetRule: %v", err)
+		}
+		drawErr := s.draw(t)
+		if drawErr != nil {
+			t.Fatalf("draw: %v", drawErr)
+		}
+
+		assigned := assignmentsOf(t, s.h, s.exchange, s.people)
+		if shiftPairs(s, assigned, 1) != 0 {
+			t.Fatalf("attempt %d repeated a pair of the last round", attempt)
+		}
+		repeatedElsewhere += shiftPairs(s, assigned, 2) + shiftPairs(s, assigned, 3)
+	}
+
+	// Only the last round is forbidden: the other pairs must still be drawn.
+	if repeatedElsewhere == 0 {
+		t.Error("no draw used any pair outside the last round")
+	}
+}
+
+func TestAvoidLastRoundReadsTheLatestRevealedRoundOfTheSameGroupOnly(t *testing.T) {
+	const (
+		olderShift   = 1
+		latestShift  = 2
+		foreignShift = 3
+	)
+	olderPairsSeen := 0
+	foreignPairsSeen := 0
+	for attempt := range uint64(lastRoundDrawAttempts) {
+		s := newDrawScene(t, 4)
+		s.h.random.Reseed(seedOf(attempt))
+		start := s.h.clock.Now()
+		revealRound(t, s, s.group, olderShift, start)
+		revealRound(t, s, s.group, latestShift, start.Add(time.Hour))
+		revealRound(t, s, s.h.newGroup(t), foreignShift, start.Add(2*time.Hour))
+		_, err := s.set(t, s.organizer, giftexchange.RuleAvoidLastRound, "on")
+		if err != nil {
+			t.Fatalf("SetRule: %v", err)
+		}
+		drawErr := s.draw(t)
+		if drawErr != nil {
+			t.Fatalf("draw: %v", drawErr)
+		}
+
+		assigned := assignmentsOf(t, s.h, s.exchange, s.people)
+		if shiftPairs(s, assigned, latestShift) != 0 {
+			t.Fatalf("attempt %d repeated a pair of the latest round of the group", attempt)
+		}
+		olderPairsSeen += shiftPairs(s, assigned, olderShift)
+		foreignPairsSeen += shiftPairs(s, assigned, foreignShift)
+	}
+
+	if olderPairsSeen == 0 {
+		t.Error("an older round of the group was treated as the last round")
+	}
+	if foreignPairsSeen == 0 {
+		t.Error("a round of another group was treated as the last round")
 	}
 }
 
