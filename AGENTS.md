@@ -55,6 +55,7 @@ their own import rules. Details, diagram and import rules: `cookbooks/architectu
 **Configuration.** Settings and app secrets live in the database, with secrets encrypted by
 keys derived from `MASTER_KEY`. The environment holds only `DATABASE_URL`, `MASTER_KEY` and
 `CHATISIMO_ENV` (`local` or `production`); adding another variable needs Héctor's approval.
+`GOCOVERDIR` is set only in E2E runs of a `-cover` build; the Go runtime reads it, Chatisimo does not.
 Secrets are entered through `chatisimo config set`, which reads them from stdin; never pass a
 secret as a command-line argument or keep it in a file in the repo.
 

@@ -28,7 +28,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # Recreates the E2E database on every e2e boot; the development database is never touched.
+  # Recreates the E2E database on a fresh e2e boot, keeps it while a client is connected; the
+  # development database is never touched.
   e2e-db:
     profiles: [e2e]
     image: postgres:18.6-alpine
@@ -43,6 +44,11 @@ services:
     entrypoint: ["sh", "-ec"]
     command:
       - |
+        clients=$$(psql -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_stat_activity WHERE datname = 'chatisimo_e2e'")
+        if [ "$$clients" -gt 0 ]; then
+          echo 'chatisimo_e2e has live clients; keeping it'
+          exit 0
+        fi
         psql -v ON_ERROR_STOP=1 -c 'DROP DATABASE IF EXISTS chatisimo_e2e WITH (FORCE)'
         psql -v ON_ERROR_STOP=1 -c 'CREATE DATABASE chatisimo_e2e'
     restart: "no"

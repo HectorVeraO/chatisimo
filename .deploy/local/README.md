@@ -71,8 +71,9 @@ only with `CHATISIMO_ENV=local`.
 
 The compose project is named `chatisimo`, so the data lives in the `chatisimo_postgres-data`
 volume. The e2e profile uses its own database, `chatisimo_e2e`, in the same Postgres; `e2e-db`
-drops and recreates it on every e2e boot and never touches the development database. `down -v`
-deletes the volume, which holds the **development database too**.
+drops and recreates it on a fresh e2e boot (it keeps the database while a client is connected,
+so a repeated `up` does not pull it from a running bot) and never touches the development
+database. `down -v` deletes the volume, which holds the **development database too**.
 
 ## Host-dev
 
