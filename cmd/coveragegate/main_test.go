@@ -262,21 +262,22 @@ func TestUsageAndInputErrorsExitTwo(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing")
 
 	tests := []struct {
-		name string
-		args []string
+		name       string
+		args       []string
+		wantStderr string
 	}{
-		{name: "no arguments", args: nil},
-		{name: "unknown flag", args: []string{"-nope"}},
-		{name: "positional argument", args: []string{"-profile", fixture("basic.txt"), "extra"}},
-		{name: "base floor without floor", args: []string{"-profile", fixture("basic.txt"), "-base-floor", goodFloor}},
-		{name: "missing profile file", args: []string{"-profile", missing}},
-		{name: "empty profile file", args: []string{"-profile", emptyProfile}},
-		{name: "profile without mode line", args: []string{"-profile", fixture("nomode.txt")}},
-		{name: "malformed profile", args: []string{"-profile", fixture("malformed.txt")}},
-		{name: "only excluded packages", args: []string{"-profile", fixture("onlyexcluded.txt")}},
-		{name: "missing floor file", args: []string{"-profile", fixture("basic.txt"), "-floor", missing}},
-		{name: "missing base floor file", args: []string{"-profile", fixture("basic.txt"), "-floor", goodFloor, "-base-floor", missing}},
-		{name: "empty module", args: []string{"-profile", fixture("basic.txt"), "-module", " "}},
+		{name: "no arguments", args: nil, wantStderr: "-profile is required"},
+		{name: "unknown flag", args: []string{"-nope"}, wantStderr: "flag provided but not defined"},
+		{name: "positional argument", args: []string{"-profile", fixture("basic.txt"), "extra"}, wantStderr: "unexpected positional arguments"},
+		{name: "base floor without floor", args: []string{"-profile", fixture("basic.txt"), "-base-floor", goodFloor}, wantStderr: "-base-floor needs -floor"},
+		{name: "missing profile file", args: []string{"-profile", missing}, wantStderr: "open profile"},
+		{name: "empty profile file", args: []string{"-profile", emptyProfile}, wantStderr: "empty profile"},
+		{name: "profile without mode line", args: []string{"-profile", fixture("nomode.txt")}, wantStderr: "is not a mode line"},
+		{name: "malformed profile", args: []string{"-profile", fixture("malformed.txt")}, wantStderr: "want 3 fields"},
+		{name: "only excluded packages", args: []string{"-profile", fixture("onlyexcluded.txt")}, wantStderr: "no statements outside the excluded packages"},
+		{name: "missing floor file", args: []string{"-profile", fixture("basic.txt"), "-floor", missing}, wantStderr: "read floor"},
+		{name: "missing base floor file", args: []string{"-profile", fixture("basic.txt"), "-floor", goodFloor, "-base-floor", missing}, wantStderr: "read floor"},
+		{name: "empty module", args: []string{"-profile", fixture("basic.txt"), "-module", " "}, wantStderr: "-module must not be empty"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -285,8 +286,8 @@ func TestUsageAndInputErrorsExitTwo(t *testing.T) {
 			if code != exitUsage {
 				t.Fatalf("exit = %d, want 2\nstdout: %s\nstderr: %s", code, stdout, stderr)
 			}
-			if stderr == "" {
-				t.Error("stderr is empty, want the reason")
+			if !strings.Contains(stderr, tc.wantStderr) {
+				t.Errorf("stderr lacks %q:\n%s", tc.wantStderr, stderr)
 			}
 		})
 	}
@@ -302,6 +303,27 @@ func TestMalformedProfileReportsEveryBadLine(t *testing.T) {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, stderr)
 		}
+	}
+}
+
+func TestHostileProfileReportIsBounded(t *testing.T) {
+	var profile strings.Builder
+	profile.WriteString("mode: set\n")
+	for range 50 {
+		profile.WriteString("not a block line at all\n")
+	}
+	profilePath := writeFile(t, "hostile.txt", profile.String())
+
+	code, _, stderr := execute(t, "-profile", profilePath)
+
+	if code != exitUsage {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "and 40 more") {
+		t.Errorf("stderr lacks the overflow line:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "line 12:") {
+		t.Errorf("stderr reports more than ten bad lines:\n%s", stderr)
 	}
 }
 
