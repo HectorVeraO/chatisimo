@@ -231,6 +231,9 @@ func TestZeroIDsAreInvalidInputBeforeAnyLookup(t *testing.T) {
 		"join with zero exchange": func() error {
 			return s.h.svc.Join(t.Context(), s.organizer.actor, s.group, zeroExchange)
 		},
+		"draw with zero group": func() error {
+			return s.h.svc.Draw(t.Context(), s.organizer.actor, zeroGroup, s.exchange)
+		},
 		"draw with zero exchange": func() error {
 			return s.h.svc.Draw(t.Context(), s.organizer.actor, s.group, zeroExchange)
 		},
