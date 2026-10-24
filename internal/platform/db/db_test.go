@@ -394,24 +394,24 @@ func TestMigrateReportsEveryInvalidSource(t *testing.T) {
 	}
 }
 
-func TestMigrateRefusesSingleConnectionPool(t *testing.T) {
+func TestMigrateWorksOnASingleConnectionPool(t *testing.T) {
 	t.Parallel()
 
 	pool := openPool(t, withQuery(shared.URL().Reveal(), "pool_max_conns=1"))
 	schema := uniqueSchema(t, "dbtest_a")
 
-	err := db.Migrate(t.Context(), pool, newSource(t, schema, migrations(schema, "alpha")))
-	if err == nil {
-		t.Fatal("Migrate accepted a pool with one connection")
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	err := db.Migrate(ctx, pool, newSource(t, schema, migrations(schema, "alpha")))
+	if err != nil {
+		t.Fatalf("migrate on a pool with one connection: %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "MaxConns >= 2") {
-		t.Fatalf("error = %q, want the pool size refusal", err)
-	}
-
-	created := count(t, shared.Pool(), "SELECT count(*) FROM pg_namespace WHERE nspname = $1", schema)
-	if created != 0 {
-		t.Fatal("Migrate created a schema despite refusing the pool")
+	tables := count(t, pool,
+		"SELECT count(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'alpha'", schema)
+	if tables != 1 {
+		t.Fatal("the migration did not run")
 	}
 }
 
@@ -942,4 +942,59 @@ func withQuery(url, option string) string {
 	}
 
 	return url + "?" + option
+}
+
+func TestConcurrentMigrateOnASmallSharedPoolNeitherDeadlocksNorReappliesMigrations(t *testing.T) {
+	t.Parallel()
+
+	pool := isolatedPool(t)
+
+	smallConfig := pool.Config().Copy()
+	smallConfig.MaxConns = 2
+
+	small, err := pgxpool.NewWithConfig(t.Context(), smallConfig)
+	if err != nil {
+		t.Fatalf("open small pool: %v", err)
+	}
+
+	t.Cleanup(small.Close)
+
+	const callers = 6
+
+	schema := uniqueSchema(t, "dbtest_a")
+	files := migrations(schema, "alpha", "beta")
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	errs := make(chan error, callers)
+
+	for range callers {
+		go func() {
+			source, sourceErr := db.NewGooseSource(schema, files)
+			if sourceErr != nil {
+				errs <- sourceErr
+
+				return
+			}
+
+			errs <- db.Migrate(ctx, small, source)
+		}()
+	}
+
+	for range callers {
+		migrateErr := <-errs
+		if migrateErr != nil {
+			t.Errorf("concurrent migrate on a pool of 2 connections: %v", migrateErr)
+		}
+	}
+
+	rows := count(t, pool, "SELECT count(*) FROM "+schema+".goose_db_version")
+	if rows != 3 {
+		t.Fatalf("version table has %d rows, want 3 (initial row plus two migrations)", rows)
+	}
+
+	if holders := migrateLockHolders(t, pool); holders != 0 {
+		t.Fatalf("%d sessions still hold the migration lock", holders)
+	}
 }
