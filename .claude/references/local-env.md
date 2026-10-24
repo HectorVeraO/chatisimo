@@ -9,12 +9,12 @@ Operational runbook for the local stack. Passive reference, reached from root `A
 
 ### The split: infra in Docker, the component you are editing on the host
 
-`compose.yaml` is the source of truth for the local stack. Two kinds of service live in it:
+`.deploy/local/docker-compose.yaml` is the source of truth for the local stack. Two kinds of service live in it:
 
 - **Infra** - databases: `postgres`. Always in Docker.
-- **Sourced components** - none: `compose.yaml` builds nothing from this repository. The
-  `chatisimo` binary always runs on the host (`go run ./cmd/chatisimo`). If a service with a `build:` stanza is
-  ever added, the rule below applies to it.
+- **Sourced components** - none yet: the e2e profile (milestone 2) adds fakediscord
+  (cmd/fakediscord) and chatisimo built with -cover. If a service with a `build:` stanza is
+  added, the rule below applies to it.
 
 **The rule for a sourced component:**
 
@@ -31,13 +31,13 @@ that one on the host.** Do not run the whole stack on the host because one servi
 ### Booting
 
 ```
-docker compose -f compose.yaml up -d
+docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d
 ```
 
 **Always `-d`.** Follow logs on demand, into a file:
 
 ```
-docker compose -f compose.yaml logs --no-color <service> > .me/<slug>/logs/<service>.log 2>&1
+docker compose --env-file .env -f .deploy/local/docker-compose.yaml logs --no-color <service> > .me/<slug>/logs/<service>.log 2>&1
 ```
 
 then grep that file. For a live stream use `--tail 80` or `--since 10m`. Never paste a whole log into the
@@ -52,15 +52,15 @@ Get **addressing** right:
   provided the compose file publishes it.
 
 When moving a component to host-dev, its configuration must point at `localhost:<published-port>` for every
-dependency, not at compose service names. If a dependency port is not published in `compose.yaml`,
+dependency, not at compose service names. If a dependency port is not published in `.deploy/local/docker-compose.yaml`,
 publishing it is part of the change. It must use a port allocated from the project's assigned range
-(documented alongside `compose.yaml`), not an arbitrary free port; ask when no port range is documented.
+(documented in `.deploy/local/README.md`), not an arbitrary free port; ask when no port range is documented.
 
 Sequence:
 
 ```
-docker compose -f compose.yaml up -d
-docker compose -f compose.yaml stop <the component you are about to edit>
+docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d
+docker compose --env-file .env -f .deploy/local/docker-compose.yaml stop <the component you are about to edit>
 <its host dev command, e.g. npm run dev>
 ```
 
@@ -72,9 +72,11 @@ Stopping rather than removing it keeps the rest of the stack's view of the netwo
 their seeded fixtures and dev data on the next `up`.
 
 ```
-docker compose -f compose.yaml down -v
-docker compose -f compose.yaml up -d
+docker compose --env-file .env -f .deploy/local/docker-compose.yaml down -v
+docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d
 ```
+
+`down -v` also removes the development database (same Postgres volume).
 
 This applies to **local** environments only. Nothing here authorises touching a shared, staging or production
 stack, or any volume outside this compose project.

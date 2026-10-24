@@ -15,7 +15,6 @@
   ".claude/references/data-changes.md": "sha256:d21d2c5a9177e08645cc3647664593bacc9b9a15d24e0632e352011bc0684c8f",
   ".claude/references/git-conventions.md": "sha256:107fd2e78a428e5a5418848915be57ca909673b06811854d0e6364a544503caa",
   ".claude/references/lessons-learned-format.md": "sha256:234bd89b9a0c7bfbda897f35791fc042e16c6caa24d17ff314e05d8dcdd76fbf",
-  ".claude/references/local-env.md": "sha256:c2c4c7b8fe29759b4623b99ac842ce616bbd82a8be91ff329cd6e757fc9fa987",
   ".claude/references/pr-format.md": "sha256:46b513dc140352a0d37fcdf613320905e29adbd7de4febd1091b5468f76e9fe8",
   ".claude/references/reviewer-contract.md": "sha256:07eb63eb11640a82beb779f016fb82bb80272f8a109daabf8b56cd470664a909",
   ".claude/references/test-anti-patterns.md": "sha256:84ed3dd0e5cac7ce9d81a9400b0e6cd332c8f8caedbacae9295a7e867d0dd919",
