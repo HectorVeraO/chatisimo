@@ -335,6 +335,11 @@ func (s *Service) cancelLocked(
 		return fmt.Errorf("delete assignments of %s: %w", exchange.ID, deleteErr)
 	}
 
+	closeErr := s.closeOpenQuestions(ctx, q, exchange.ID)
+	if closeErr != nil {
+		return closeErr
+	}
+
 	participants, listErr := q.ListActiveParticipants(ctx, exchange.ID)
 	if listErr != nil {
 		return fmt.Errorf("list participants of %s: %w", exchange.ID, listErr)

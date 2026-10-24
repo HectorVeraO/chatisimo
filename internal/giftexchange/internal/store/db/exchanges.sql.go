@@ -286,8 +286,13 @@ func (q *Queries) InsertExclusion(ctx context.Context, arg InsertExclusionParams
 }
 
 const insertNotification = `-- name: InsertNotification :exec
-INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, reason, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO giftexchange.notifications (
+    id, kind, exchange_id, person_id, round, question_id, reason, created_at
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6, $7,
+    $8
+)
 `
 
 type InsertNotificationParams struct {
@@ -296,11 +301,13 @@ type InsertNotificationParams struct {
 	ExchangeID uuid.UUID
 	PersonID   uuid.UUID
 	Round      int32
+	QuestionID pgtype.UUID
 	Reason     *string
 	CreatedAt  pgtype.Timestamptz
 }
 
-// reason is set only for the kinds that carry one (notifications_reason_kinds).
+// reason is set only for the kinds that carry one (notifications_reason_kinds), question_id only
+// for the question kinds (notifications_question_kinds).
 func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotificationParams) error {
 	_, err := q.db.Exec(ctx, insertNotification,
 		arg.ID,
@@ -308,6 +315,7 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		arg.ExchangeID,
 		arg.PersonID,
 		arg.Round,
+		arg.QuestionID,
 		arg.Reason,
 		arg.CreatedAt,
 	)

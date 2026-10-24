@@ -154,6 +154,11 @@ func (s *Service) redrawRound(
 	exchange db.GiftexchangeExchange,
 	dropout uuid.UUID,
 ) (DropoutOutcome, error) {
+	closeErr := s.closeOpenQuestions(ctx, q, exchange.ID)
+	if closeErr != nil {
+		return "", closeErr
+	}
+
 	deleteErr := q.DeleteAssignments(ctx, exchange.ID)
 	if deleteErr != nil {
 		return "", fmt.Errorf("delete assignments of %s: %w", exchange.ID, deleteErr)
@@ -180,6 +185,11 @@ func (s *Service) patchRound(
 	giver uuid.UUID,
 	recipient uuid.UUID,
 ) (DropoutOutcome, error) {
+	closeErr := s.closeQuestionsOfPerson(ctx, q, exchange.ID, dropout)
+	if closeErr != nil {
+		return "", closeErr
+	}
+
 	deleteErr := q.DeleteAssignmentOfGiver(ctx, db.DeleteAssignmentOfGiverParams{
 		ExchangeID: exchange.ID,
 		GiverID:    dropout,
@@ -217,6 +227,11 @@ func (s *Service) voidRound(
 	givers, err := sortedActiveParticipants(ctx, q, exchange.ID)
 	if err != nil {
 		return "", err
+	}
+
+	closeErr := s.closeOpenQuestions(ctx, q, exchange.ID)
+	if closeErr != nil {
+		return "", closeErr
 	}
 
 	deleteErr := q.DeleteAssignments(ctx, exchange.ID)
