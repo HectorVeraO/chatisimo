@@ -205,6 +205,9 @@ func TestGatewayResumesAfterADrop(t *testing.T) {
 	spring := srv.AddGuild(fakediscord.Guild{ID: springGuildID, Name: "Spring guild"})
 
 	waitChan(t, h.resumed, gatewayTimeout, "Resumed")
+	if got := srv.Resumes(); got != 1 {
+		t.Errorf("Resumes() = %d, want 1", got)
+	}
 	if joined := waitChan(t, h.joined, gatewayTimeout, "GuildJoin for the guild added while away"); joined != spring.ID {
 		t.Errorf("GuildJoin for %s, want %s", joined, spring.ID)
 	}

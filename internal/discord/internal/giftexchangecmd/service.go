@@ -7,7 +7,7 @@ import (
 )
 
 // Service is the part of the giftexchange module the handlers call. *giftexchange.Service
-// satisfies it. The question methods are added by the question handlers.
+// satisfies it.
 type Service interface {
 	ResolveActor(ctx context.Context, ref giftexchange.IdentityRef) (giftexchange.Actor, error)
 	ResolvePerson(ctx context.Context, ref giftexchange.IdentityRef) (giftexchange.PersonID, error)
@@ -59,4 +59,13 @@ type Service interface {
 	Reveal(ctx context.Context, a giftexchange.Actor, g giftexchange.GroupID, id giftexchange.ExchangeID) error
 	MyAssignment(ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID) (giftexchange.Assignment, error)
 	MyGiver(ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID) (giftexchange.RevealedGiver, error)
+
+	Ask(ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID, text string) (giftexchange.QuestionID, error)
+	Answer(ctx context.Context, a giftexchange.Actor, q giftexchange.QuestionID, text string) error
+	QuestionsAsked(
+		ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID,
+	) ([]giftexchange.AskedQuestion, error)
+	QuestionsReceived(
+		ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID,
+	) ([]giftexchange.ReceivedQuestion, error)
 }
