@@ -6,6 +6,7 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -231,7 +232,12 @@ type person struct {
 func (h *harness) newPerson(t *testing.T) person {
 	t.Helper()
 
-	subject := newSubject()
+	return h.newPersonWithSubject(t, newSubject())
+}
+
+func (h *harness) newPersonWithSubject(t *testing.T, subject string) person {
+	t.Helper()
+
 	ref := giftexchange.IdentityRef{Provider: giftexchange.ProviderDiscord, Subject: subject}
 
 	actor, err := h.svc.ResolveActor(t.Context(), ref)
@@ -443,6 +449,58 @@ func assertConfidential(t *testing.T, h *harness, errs []error, secrets []string
 	}
 }
 
+// startRunner works the harness queue with a Runner over the module's workers until the test
+// ends. Tests that call it do not run in parallel, so only one Runner is alive at a time.
+func (h *harness) startRunner(t *testing.T) {
+	t.Helper()
+
+	registry := jobs.NewRegistry()
+	registerErr := h.svc.RegisterJobs(registry)
+	if registerErr != nil {
+		t.Fatalf("RegisterJobs: %v", registerErr)
+	}
+
+	runner, err := jobs.NewRunner(shared.Pool(), registry, jobs.RunnerOptions{
+		Logger:            slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Clock:             h.clock,
+		FetchPollInterval: 50 * time.Millisecond,
+		Queue:             h.queue,
+		TestOnly:          true,
+	})
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	startErr := runner.Start(context.Background())
+	if startErr != nil {
+		t.Fatalf("Runner.Start: %v", startErr)
+	}
+
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), closeDeadline)
+		defer cancel()
+
+		stopErr := runner.Stop(stopCtx)
+		if stopErr != nil {
+			t.Errorf("Runner.Stop: %v", stopErr)
+		}
+	})
+}
+
+// waitFor polls cond until it holds or the deadline passes, then fails the test with what.
+func waitFor(t *testing.T, deadline time.Duration, what string, cond func() bool) {
+	t.Helper()
+
+	end := time.Now().Add(deadline)
+	for !cond() {
+		if time.Now().After(end) {
+			t.Fatalf("timed out after %v waiting for %s", deadline, what)
+		}
+
+		<-time.After(25 * time.Millisecond)
+	}
+}
+
 // inputFields returns the Field of every InputError inside err, walking errors.Join trees.
 func inputFields(err error) []string {
 	var fields []string
@@ -461,4 +519,27 @@ func inputFields(err error) []string {
 	}
 
 	return fields
+}
+
+// warnRecords returns every Warn-level record the harness logger captured, as decoded JSON.
+func warnRecords(t *testing.T, h *harness) []map[string]any {
+	t.Helper()
+
+	var found []map[string]any
+	for _, line := range strings.Split(h.logs.String(), "\n") {
+		if line == "" {
+			continue
+		}
+
+		var record map[string]any
+		err := json.Unmarshal([]byte(line), &record)
+		if err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		if record["level"] == "WARN" {
+			found = append(found, record)
+		}
+	}
+
+	return found
 }
