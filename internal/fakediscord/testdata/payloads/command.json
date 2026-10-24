@@ -1,0 +1,9 @@
+{
+  "id": {{json .CommandID}},
+  "application_id": {{json .AppID}},
+  "version": {{json .CommandVersion}},
+  "type": 1,
+  "name": {{json .CommandName}},
+  "description": {{json .CommandDescription}}{{if .GuildID}},
+  "guild_id": {{json .GuildID}}{{end}}
+}

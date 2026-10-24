@@ -65,6 +65,8 @@ type dmChannelJSON struct {
 }
 
 type createMessageBody struct {
+	Nonce           json.RawMessage   `json:"nonce"`
+	EnforceNonce    bool              `json:"enforce_nonce"`
 	Content         string            `json:"content"`
 	Embeds          []json.RawMessage `json:"embeds"`
 	Components      []json.RawMessage `json:"components"`
@@ -74,11 +76,13 @@ type createMessageBody struct {
 
 func (s *Server) buildHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET "+restPrefix+"/gateway", s.handleGetGateway)
-	mux.HandleFunc("PUT "+restPrefix+"/applications/{app}/commands", s.botOnly(s.handlePutGlobalCommands))
-	mux.HandleFunc("PUT "+restPrefix+"/applications/{app}/guilds/{guild}/commands", s.botOnly(s.handlePutGuildCommands))
-	mux.HandleFunc("POST "+restPrefix+"/users/@me/channels", s.botOnly(s.handleCreateDM))
-	mux.HandleFunc("POST "+restPrefix+"/channels/{channel}/messages", s.botOnly(s.handleCreateMessage))
+	mux.HandleFunc("GET "+restPrefix+"/gateway", s.faulted(routeGetGateway, s.handleGetGateway))
+	mux.HandleFunc("PUT "+restPrefix+"/applications/{app}/commands", s.botOnly(s.faulted(routePutCommands, s.handlePutGlobalCommands)))
+	mux.HandleFunc("PUT "+restPrefix+"/applications/{app}/guilds/{guild}/commands", s.botOnly(s.faulted(routePutGuildCommands, s.handlePutGuildCommands)))
+	mux.HandleFunc("POST "+restPrefix+"/users/@me/channels", s.botOnly(s.faulted(routeCreateDM, s.handleCreateDM)))
+	mux.HandleFunc("POST "+restPrefix+"/channels/{channel}/messages", s.botOnly(s.faulted(routeCreateMessage, s.handleCreateMessage)))
+	s.addWebhookRoutes(mux)
+	s.addControlRoutes(mux)
 	mux.HandleFunc("GET "+gatewayPath, s.serveGateway)
 	mux.HandleFunc("/", handleNotFound)
 
@@ -368,92 +372,81 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sent, mentionsErr := parseAllowedMentions(body.AllowedMentions)
-	hasNothing := body.Content == "" && len(body.Embeds) == 0 && len(body.Components) == 0
-	var problems []error
-	if mentionsErr != nil {
-		problems = append(problems, errors.New("allowed_mentions: invalid"))
-	}
-	if hasNothing {
-		problems = append(problems, errors.New("message: cannot send an empty message"))
-	}
-	if len(problems) > 0 {
-		writeCreateMessageProblems(w, mentionsErr != nil, problems)
+	sent, problem := checkMessageBody(body)
+	if problem != nil {
+		problem.write(w)
 		return
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	out := s.createChannelMessageLocked(r.PathValue("channel"), body, sent)
+	s.mu.Unlock()
 
-	channel, found := s.w.channels[r.PathValue("channel")]
+	out.write(w)
+}
+
+// createChannelMessageLocked implements POST /channels/{id}/messages: the closed-DM refusal,
+// nonce deduplication and the message itself.
+func (s *Server) createChannelMessageLocked(channelID string, body createMessageBody, sent *AllowedMentions) outcome {
+	channel, found := s.w.channels[channelID]
 	if !found {
-		writeError(w, http.StatusNotFound, codeUnknownChannel, "Unknown Channel")
-		return
+		return fail(http.StatusNotFound, codeUnknownChannel, "Unknown Channel")
 	}
 
-	message := s.storeChannelMessage(channel, body, sent)
-	writeJSON(w, http.StatusOK, messageToJSON(message, s.botUser()))
+	attempt := s.newMessageLocked(channel.id, body)
+	record := recordInput{route: routeCreateMessage, source: sourceChannel, sentContent: body.Content, sent: sent}
+	if channel.guildID == "" {
+		record.source = sourceDM
+	}
+
+	isClosedDM := channel.guildID == "" && s.w.dmsClosed[channel.recipientID]
+	if isClosedDM {
+		attempt.ID = ""
+		s.recordRejectedLocked(attempt, http.StatusForbidden, record)
+		return fail(http.StatusForbidden, codeCannotDM, "Cannot send messages to this user")
+	}
+
+	nonce := nonceText(body.Nonce)
+	isEnforced := body.EnforceNonce && nonce != ""
+	if isEnforced {
+		first, isDuplicate := s.firstMessageForNonceLocked(channel.id, nonce)
+		if isDuplicate {
+			record.deduplicated = true
+			record.sentContent = ""
+			record.message = first
+			record.status = http.StatusOK
+			record.visibleTo = s.w.visibleTo(first)
+			record.guildID = channel.guildID
+			s.appendRecordLocked(record)
+
+			return succeed(http.StatusOK, messageToJSON(first, s.botUser()))
+		}
+	}
+
+	stored := s.storeMessageLocked(attempt, record)
+	if isEnforced {
+		s.w.nonces[dedupeKey(channel.id, nonce)] = nonceEntry{messageID: stored.ID, at: stored.CreatedAt}
+	}
+
+	return succeed(http.StatusOK, messageToJSON(stored, s.botUser()))
 }
 
-// writeCreateMessageProblems answers with every problem found in the request. A malformed
-// allowed_mentions is a form-body error; an empty message alone keeps Discord's own code.
-func writeCreateMessageProblems(w http.ResponseWriter, hasFormBodyError bool, problems []error) {
-	if !hasFormBodyError {
-		writeError(w, http.StatusBadRequest, codeEmptyMessage, "Cannot send an empty message")
-		return
+// firstMessageForNonceLocked returns the message an earlier send with the same nonce created
+// within the deduplication window, if it still exists.
+func (s *Server) firstMessageForNonceLocked(channelID, nonce string) (Message, bool) {
+	key := dedupeKey(channelID, nonce)
+	entry, found := s.w.nonces[key]
+	if !found {
+		return Message{}, false
+	}
+	isExpired := time.Since(entry.at) > nonceWindow
+	index := s.w.messageIndex(entry.messageID)
+	if isExpired || index < 0 {
+		delete(s.w.nonces, key)
+		return Message{}, false
 	}
 
-	joined := strings.ReplaceAll(errors.Join(problems...).Error(), "\n", "; ")
-	writeError(w, http.StatusBadRequest, codeInvalidFormBody, "Invalid Form Body: "+joined)
-}
-
-// storeChannelMessage appends the message and its outbound record to the world.
-func (s *Server) storeChannelMessage(channel *channelState, body createMessageBody, sent *AllowedMentions) Message {
-	now := time.Now().UTC()
-	message := Message{
-		ID:         s.ids.next(),
-		ChannelID:  channel.id,
-		AuthorID:   s.appID,
-		Content:    body.Content,
-		Embeds:     nonNilRaw(body.Embeds),
-		Components: nonNilRaw(body.Components),
-		Flags:      body.Flags,
-		CreatedAt:  now,
-	}
-	s.w.messages = append(s.w.messages, message)
-
-	source := sourceChannel
-	var guildID *string
-	if channel.guildID != "" {
-		id := channel.guildID
-		guildID = &id
-	} else {
-		source = sourceDM
-	}
-
-	effective := effectiveMentions(sent)
-	texts := append([]string{body.Content}, embedStrings(body.Embeds)...)
-	record := Record{
-		Seq:                      len(s.w.records) + 1,
-		At:                       now,
-		Route:                    routeCreateMessage,
-		Source:                   source,
-		Status:                   http.StatusOK,
-		MessageID:                message.ID,
-		ChannelID:                channel.id,
-		GuildID:                  guildID,
-		VisibleTo:                s.w.audience(channel),
-		Content:                  body.Content,
-		Embeds:                   message.Embeds,
-		Components:               message.Components,
-		AllowedMentionsSent:      sent,
-		AllowedMentionsEffective: effective,
-		MentionsRendered:         renderedMentions(texts...),
-		Pings:                    pingsFor(body.Content, effective),
-	}
-	s.w.records = append(s.w.records, record)
-
-	return message
+	return cloneMessage(s.w.messages[index]), true
 }
 
 func (s *Server) botUser() userJSON {

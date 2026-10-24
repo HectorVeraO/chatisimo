@@ -1,0 +1,11 @@
+{
+  "op": 0,
+  "s": {{json .Seq}},
+  "t": "GUILD_CREATE",
+  "d": {
+    "id": {{json .GuildID}},
+    "name": {{json .GuildName}},
+    "owner_id": {{json .OwnerID}},
+    "unavailable": false
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": {{json .InteractionID}},
+  "application_id": {{json .AppID}},
+  "type": 3,
+  "token": {{json .Token}},
+  "version": 1,
+  "guild_id": {{json .GuildID}},
+  "channel_id": {{json .ChannelID}},
+  "channel": {
+    "id": {{json .ChannelID}},
+    "type": 0,
+    "guild_id": {{json .GuildID}},
+    "name": "general",
+    "permissions": "0"
+  },
+  "member": {
+    "user": {{json .User}},
+    "roles": [],
+    "joined_at": "2024-01-01T00:00:00.000000+00:00",
+    "permissions": "0",
+    "flags": 0,
+    "deaf": false,
+    "mute": false
+  },
+  "locale": "en-US",
+  "guild_locale": "en-US",
+  "app_permissions": "0",
+  "context": 0,
+  "authorizing_integration_owners": {"0": {{json .GuildID}}},
+  "entitlements": [],
+  "message": {{json .Message}},
+  "data": {
+    "component_type": 3,
+    "custom_id": {{json .CustomID}},
+    "values": {{json .Values}}
+  }
+}

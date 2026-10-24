@@ -497,3 +497,11 @@ func TestCreateMessageReportsEveryProblemTogether(t *testing.T) {
 		t.Errorf("message = %q, want both the allowed_mentions and the empty message problems", message)
 	}
 }
+
+func TestNewReportsEveryInvalidOption(t *testing.T) {
+	_, err := fakediscord.New(fakediscord.Options{HeartbeatInterval: -time.Second, CallbackDeadline: time.Microsecond})
+
+	if err == nil || !strings.Contains(err.Error(), "heartbeat interval") || !strings.Contains(err.Error(), "callback deadline") {
+		t.Errorf("New = %v, want one error naming both options", err)
+	}
+}

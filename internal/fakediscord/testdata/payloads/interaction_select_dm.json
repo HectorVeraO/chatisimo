@@ -1,0 +1,26 @@
+{
+  "id": {{json .InteractionID}},
+  "application_id": {{json .AppID}},
+  "type": 3,
+  "token": {{json .Token}},
+  "version": 1,
+  "channel_id": {{json .ChannelID}},
+  "channel": {
+    "id": {{json .ChannelID}},
+    "type": 1,
+    "recipients": [{{json .User}}],
+    "permissions": "0"
+  },
+  "user": {{json .User}},
+  "locale": "en-US",
+  "app_permissions": "0",
+  "context": 1,
+  "authorizing_integration_owners": {"0": {{json .AppID}}},
+  "entitlements": [],
+  "message": {{json .Message}},
+  "data": {
+    "component_type": 3,
+    "custom_id": {{json .CustomID}},
+    "values": {{json .Values}}
+  }
+}
