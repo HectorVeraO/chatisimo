@@ -11,7 +11,7 @@ test("create posts a public card with the organizer and the join controls", asyn
 
   const card = world.messageWithEmbed(EXCHANGE);
   await expect(card).toBeVisible();
-  await expect(card).toHaveAttribute("data-ephemeral", "false");
+  await expect(card.getByTestId("ephemeral-note")).toHaveCount(0);
   await expect(card.getByTestId("embed-description")).toHaveText(texts.format(texts.cardBody, "@Alice"));
   await expect(card.getByTestId("mention")).toHaveAttribute("data-user-id", alice.id);
   await expect(world.fieldValue(card, texts.fieldDraw)).toHaveText(texts.manual);

@@ -150,7 +150,7 @@ export class World {
     }
   }
 
-  // Waits until the page lists as many messages as the fake holds for the current user and view.
+  // Waits until the page lists exactly the messages, by id and in order, that the fake holds for the current user and view.
   private async settle(): Promise<void> {
     const viewer = this.viewer;
     const view = this.view;
@@ -161,8 +161,11 @@ export class World {
             view === "dm"
               ? await this.control.directMessages(viewer.id)
               : await this.control.channelMessages(this.guild.channel_id, viewer.id);
-          const shown = await this.messages.count();
-          return shown === stored.length;
+          const shown = await this.messages.evaluateAll((nodes) =>
+            nodes.map((node) => node.getAttribute("data-message-id")),
+          );
+          const expected = stored.map((message) => message.id);
+          return JSON.stringify(shown) === JSON.stringify(expected);
         },
         { message: `the page never listed the messages of ${viewer.name}`, timeout: SYNC_BUDGET_MS },
       )
