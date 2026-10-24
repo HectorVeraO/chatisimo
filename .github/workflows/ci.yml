@@ -130,6 +130,48 @@ jobs:
           go-version-file: go.mod
       - run: go test -race ./...
 
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Run the E2E tests against the coverage build
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/.cover/e2e" "${RUNNER_TEMP}/e2e-logs"
+          go test -tags e2e -count=1 -timeout 15m ./e2e/... -args             -coverdir="${GITHUB_WORKSPACE}/.cover/e2e" -logdir="${RUNNER_TEMP}/e2e-logs"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: cover-e2e
+          path: .cover/e2e
+          retention-days: 1
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: e2e-logs
+          path: ${{ runner.temp }}/e2e-logs
+          retention-days: 7
+          if-no-files-found: warn
+
   govulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
