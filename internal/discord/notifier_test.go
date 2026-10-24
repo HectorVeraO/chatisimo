@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -100,7 +101,8 @@ func TestNotifySendsOneDMThatOnlyTheAddresseeSees(t *testing.T) {
 
 func TestNotifyNamesTheGuildFromTheCache(t *testing.T) {
 	w := newWorld(t)
-	w.notifier.AddGuildToCache(discord.Guild{ID: 200000000000000001, Name: guildName})
+	// The Gateway fills this cache in production; the test plays the Gateway.
+	w.notifier.Caches().AddGuild(discord.Guild{ID: 200000000000000001, Name: guildName})
 
 	err := w.notifier.Notify(t.Context(), cancelledNotice(userB))
 	if err != nil {
@@ -190,7 +192,7 @@ func TestNotifySendsDifferentNotificationsAsDifferentMessages(t *testing.T) {
 // rateLimitingProxy forwards to the fake and answers the first message send with the 429 a
 // real Discord sends: a whole-second Retry-After and a bucket header. The fake's own 429 has a
 // fractional Retry-After, which disgo cannot parse.
-func rateLimitingProxy(t *testing.T, w *world) *httptest.Server {
+func rateLimitingProxy(t *testing.T, w *world) (*httptest.Server, *atomic.Bool) {
 	t.Helper()
 
 	target, err := url.Parse(w.fake.URL())
@@ -214,12 +216,12 @@ func rateLimitingProxy(t *testing.T, w *world) *httptest.Server {
 	}))
 	t.Cleanup(proxy.Close)
 
-	return proxy
+	return proxy, &limited
 }
 
 func TestNotifyDeliversOnceAfterARateLimit(t *testing.T) {
 	w := newWorld(t)
-	proxy := rateLimitingProxy(t, w)
+	proxy, limited := rateLimitingProxy(t, w)
 	notifier, err := appdiscord.NewNotifier(appdiscord.Settings{
 		Token:      config.NewSecret(w.fake.Token()),
 		APIBaseURL: proxy.URL + "/api/v10",
@@ -232,6 +234,10 @@ func TestNotifyDeliversOnceAfterARateLimit(t *testing.T) {
 	err = notifier.Notify(t.Context(), cancelledNotice(userB))
 	if err != nil {
 		t.Fatalf("Notify after a 429: %v", err)
+	}
+
+	if !limited.Load() {
+		t.Fatal("the proxy never served a 429, so the retry path was not exercised")
 	}
 
 	if got := len(w.fake.DMs(w.users[userB])); got != 1 {
@@ -367,8 +373,12 @@ func FuzzNotifyIdentitySubject(f *testing.F) {
 
 		err := w.notifier.Notify(t.Context(), notice)
 
-		isInvalidSubject := errors.Is(err, giftexchange.ErrUndeliverable)
-		if isInvalidSubject && strings.Contains(err.Error(), subject) && len(subject) > 8 {
+		_, parseErr := strconv.ParseUint(subject, 10, 64)
+		isInvalidSubject := parseErr != nil
+		if isInvalidSubject && !errors.Is(err, giftexchange.ErrUndeliverable) {
+			t.Fatalf("subject %q: error = %v, want ErrUndeliverable", subject, err)
+		}
+		if isInvalidSubject && len(subject) > 8 && strings.Contains(err.Error(), subject) {
 			t.Errorf("error %q repeats the identity subject", err)
 		}
 	})

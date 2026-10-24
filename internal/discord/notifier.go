@@ -176,6 +176,12 @@ func (n *Notifier) guildName(g giftexchange.Group) string {
 	return guild.Name
 }
 
+// Caches returns the guild cache the notifier reads guild names from. The Gateway client is
+// built over it, so the Gateway fills the cache the notifier reads.
+func (n *Notifier) Caches() cache.Caches {
+	return n.caches
+}
+
 // Close waits for the requests in flight and closes the idle connections. The notifier cannot
 // send afterwards. Call it once, when nothing will send through it again.
 func (n *Notifier) Close(ctx context.Context) {
