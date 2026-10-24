@@ -576,6 +576,25 @@ func (q *Queries) LockExchange(ctx context.Context, id uuid.UUID) (GiftexchangeE
 	return i, err
 }
 
+const markExchangeDrawn = `-- name: MarkExchangeDrawn :exec
+UPDATE giftexchange.exchanges
+SET state = 'drawn', round = $1, drawn_at = $2, draw_at = NULL
+WHERE id = $3
+`
+
+type MarkExchangeDrawnParams struct {
+	Round   int32
+	DrawnAt pgtype.Timestamptz
+	ID      uuid.UUID
+}
+
+// One statement, because exchanges_drawn_has_round is checked per statement. draw_at is
+// non-null only in state open, so the draw clears it.
+func (q *Queries) MarkExchangeDrawn(ctx context.Context, arg MarkExchangeDrawnParams) error {
+	_, err := q.db.Exec(ctx, markExchangeDrawn, arg.Round, arg.DrawnAt, arg.ID)
+	return err
+}
+
 const markParticipantLeft = `-- name: MarkParticipantLeft :exec
 UPDATE giftexchange.participants
 SET left_at = GREATEST($1::timestamptz, joined_at)

@@ -16,6 +16,7 @@ import (
 // The outcomes a finished notification row records.
 const (
 	outcomeDelivered     = "delivered"
+	outcomeStale         = "stale"
 	outcomeUndeliverable = "undeliverable"
 )
 
@@ -55,7 +56,15 @@ func (s *Service) deliver(ctx context.Context, id uuid.UUID) error {
 		return nil
 	}
 
-	notification, err := s.buildNotification(ctx, q, row)
+	facts, isStale, err := s.assessNotification(ctx, q, row)
+	if err != nil {
+		return fmt.Errorf("notify %s %s: %w", id, row.Kind, err)
+	}
+	if isStale {
+		return s.recordOutcome(ctx, q, row, outcomeStale)
+	}
+
+	notification, err := s.buildNotification(ctx, q, row, facts)
 	if err != nil {
 		return fmt.Errorf("notify %s %s: %w", id, row.Kind, err)
 	}
@@ -112,47 +121,109 @@ func (s *Service) recordOutcome(
 	return nil
 }
 
+// noticeFacts is what the stale check learned about a notification, so the build step does not
+// read it again. counterpart is set for the kinds that carry one.
+type noticeFacts struct {
+	exchange    exchangeRow
+	counterpart *uuid.UUID
+}
+
+// assessNotification decides whether the notice is still true, and loads what the build needs.
+// A kind with no rule here is never stale; buildNotification then decides whether it can be built.
+func (s *Service) assessNotification(
+	ctx context.Context,
+	q *db.Queries,
+	row db.GiftexchangeNotification,
+) (noticeFacts, bool, error) {
+	exchange, err := readRow(ctx, q, PersonID(row.PersonID), row.ExchangeID)
+	if err != nil {
+		return noticeFacts{}, false, fmt.Errorf("read exchange: %w", err)
+	}
+	facts := noticeFacts{exchange: exchange}
+
+	switch NotificationKind(row.Kind) {
+	case KindDrawn:
+		return s.assessDrawn(ctx, q, row, facts)
+	default:
+		return facts, false, nil
+	}
+}
+
+// assessDrawn: stale unless the exchange is Drawn in the notice's round and the addressee still
+// gives to someone.
+func (s *Service) assessDrawn(
+	ctx context.Context,
+	q *db.Queries,
+	row db.GiftexchangeNotification,
+	facts noticeFacts,
+) (noticeFacts, bool, error) {
+	exchange := facts.exchange.exchange
+	isCurrent := exchange.State == string(StateDrawn) && exchange.Round == row.Round
+	if !isCurrent {
+		return facts, true, nil
+	}
+
+	recipient, err := q.GetAssignmentOfGiver(ctx, db.GetAssignmentOfGiverParams{
+		ExchangeID: row.ExchangeID,
+		GiverID:    row.PersonID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return facts, true, nil
+	}
+	if err != nil {
+		return facts, false, fmt.Errorf("read assignment: %w", err)
+	}
+
+	facts.counterpart = &recipient
+	return facts, false, nil
+}
+
 // buildNotification builds the Notification of row from current data. A kind with no delivery
 // rule is a bug and panics with the kind only.
 func (s *Service) buildNotification(
 	ctx context.Context,
 	q *db.Queries,
 	row db.GiftexchangeNotification,
+	facts noticeFacts,
 ) (Notification, error) {
 	kind := NotificationKind(row.Kind)
 
 	switch kind {
-	case KindCancelled:
-		return s.buildCancelled(ctx, q, row)
+	case KindCancelled, KindDrawn:
+		return s.buildNotice(ctx, q, row, facts)
 	default:
 		panic("giftexchange: notify: no delivery rule for kind " + row.Kind)
 	}
 }
 
-// buildCancelled builds the notice of a cancelled exchange: always delivered, no counterpart,
-// question or reason.
-func (s *Service) buildCancelled(
+// buildNotice builds a notice from the addressee, the exchange and, when the kind has one, the
+// counterpart: the addressee's own recipient (drawn). It carries no question or reason.
+func (s *Service) buildNotice(
 	ctx context.Context,
 	q *db.Queries,
 	row db.GiftexchangeNotification,
+	facts noticeFacts,
 ) (Notification, error) {
 	addressee := PersonID(row.PersonID)
 
-	exchange, err := readRow(ctx, q, addressee, row.ExchangeID)
-	if err != nil {
-		return Notification{}, fmt.Errorf("read exchange: %w", err)
+	people := []uuid.UUID{row.PersonID}
+	if facts.counterpart != nil {
+		people = append(people, *facts.counterpart)
 	}
-
-	identities, err := identitiesOf(ctx, q, []uuid.UUID{row.PersonID})
+	identities, err := identitiesOf(ctx, q, people)
 	if err != nil {
 		return Notification{}, fmt.Errorf("read identities: %w", err)
 	}
 
 	notification := Notification{
 		ID:       NotificationID(row.ID),
-		Kind:     KindCancelled,
+		Kind:     NotificationKind(row.Kind),
 		To:       PersonRef{ID: addressee, Identities: identities[row.PersonID]},
-		Exchange: summaryOf(exchange, addressee),
+		Exchange: summaryOf(facts.exchange, addressee),
+	}
+	if facts.counterpart != nil {
+		counterpart := PersonRef{ID: PersonID(*facts.counterpart), Identities: identities[*facts.counterpart]}
+		notification.Counterpart = &counterpart
 	}
 
 	return notification, nil

@@ -364,7 +364,7 @@ func TestKindWithoutADeliveryRuleFailsTheJobNamingOnlyTheKind(t *testing.T) {
 	}
 	stored := jobStates(t, s.h)[0].errors
 	assertNoSecrets(t, "job errors", stored, []string{participant.id.String(), participant.subject})
-	if !strings.Contains(stored, "giftexchange: notify: no delivery rule for kind drawn") {
+	if !strings.Contains(stored, "giftexchange: notify: no delivery rule for kind redrawn") {
 		t.Errorf("job errors %q do not name the missing delivery rule", stored)
 	}
 }
@@ -398,7 +398,7 @@ func TestUnusableNotifyJobsAreCancelledWithoutRetryOrDelivery(t *testing.T) {
 	}
 }
 
-// insertUnruledNotice writes an outbox row of a kind master cannot create yet, and a notify job
+// insertUnruledNotice writes an outbox row of a kind no delivery rule covers yet, and a notify job
 // for it that is available now on the harness queue.
 func insertUnruledNotice(t *testing.T, s scene, addressee person) string {
 	t.Helper()
@@ -406,7 +406,7 @@ func insertUnruledNotice(t *testing.T, s scene, addressee person) string {
 	noticeID := "00000000-0000-7000-8000-000000000001"
 	_, err := shared.Pool().Exec(t.Context(),
 		"INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, created_at) "+
-			"VALUES ($1, 'drawn', $2, $3, 0, $4)",
+			"VALUES ($1, 'redrawn', $2, $3, 0, $4)",
 		noticeID, s.exchange.String(), addressee.id.String(), s.h.clock.Now())
 	if err != nil {
 		t.Fatalf("insert notification: %v", err)
@@ -427,5 +427,176 @@ func insertNotifyJob(t *testing.T, h *harness, args string) {
 		h.queue, args, h.clock.Now())
 	if err != nil {
 		t.Fatalf("insert job: %v", err)
+	}
+}
+
+// finishedCount returns how many notices of the exchange ended with the given kind and outcome.
+func finishedCount(t *testing.T, x giftexchange.ExchangeID, kind, outcome string) int {
+	t.Helper()
+
+	var count int
+	err := shared.Pool().QueryRow(t.Context(),
+		"SELECT count(*) FROM giftexchange.notifications WHERE exchange_id = $1 AND kind = $2 AND outcome = $3",
+		x.String(), kind, outcome).Scan(&count)
+	if err != nil {
+		t.Fatalf("count finished notices: %v", err)
+	}
+
+	return count
+}
+
+// waitForFinished waits until n notices of the exchange have an outcome.
+func waitForFinished(t *testing.T, x giftexchange.ExchangeID, n int) {
+	t.Helper()
+
+	waitFor(t, deliveryDeadline, "the notices to finish", func() bool {
+		var count int
+		err := shared.Pool().QueryRow(t.Context(),
+			"SELECT count(*) FROM giftexchange.notifications WHERE exchange_id = $1 AND outcome IS NOT NULL",
+			x.String()).Scan(&count)
+		if err != nil {
+			t.Fatalf("count finished notices: %v", err)
+		}
+
+		return count == n
+	})
+}
+
+func receivedOfKind(
+	received []giftexchange.Notification,
+	kind giftexchange.NotificationKind,
+) []giftexchange.Notification {
+	var found []giftexchange.Notification
+	for _, notification := range received {
+		if notification.Kind == kind {
+			found = append(found, notification)
+		}
+	}
+
+	return found
+}
+
+func personWithID(people []person, id giftexchange.PersonID) person {
+	for _, p := range people {
+		if p.id == id {
+			return p
+		}
+	}
+
+	return person{}
+}
+
+func TestDrawnNoticeIsDeliveredToEachGiverNamingTheirOwnRecipient(t *testing.T) {
+	s := newDrawScene(t, 4)
+	s.forceCycle(t)
+	s.mustDraw(t)
+	recipients := assignmentsOf(t, s.h, s.exchange, s.people)
+	s.h.startRunner(t)
+
+	waitForFinished(t, s.exchange, len(s.people))
+
+	received := s.h.notifier.Received()
+	if len(received) != len(s.people) {
+		t.Fatalf("notifier received %d notifications, want %d", len(received), len(s.people))
+	}
+	seen := make(map[giftexchange.PersonID]bool)
+	for _, got := range received {
+		seen[got.To.ID] = true
+		if got.Kind != giftexchange.KindDrawn || got.Exchange.State != giftexchange.StateDrawn {
+			t.Errorf("notification = (%v, %v), want a drawn notice of a drawn exchange", got.Kind, got.Exchange.State)
+		}
+		if got.Counterpart == nil || got.Counterpart.ID != recipients[got.To.ID] {
+			t.Error("the counterpart is not the addressee's own recipient")
+		}
+		if got.Question != nil || got.Reason != "" {
+			t.Error("drawn notice carries a question or reason")
+		}
+	}
+	for _, p := range s.people {
+		if !seen[p.id] {
+			t.Error("a giver got no drawn notice")
+		}
+	}
+	if finishedCount(t, s.exchange, "drawn", "delivered") != len(s.people) {
+		t.Error("not every drawn notice is recorded as delivered")
+	}
+}
+
+func TestDrawnNoticeCounterpartCarriesTheRecipientsIdentity(t *testing.T) {
+	s := newDrawScene(t, 3)
+	s.mustDraw(t)
+	s.h.startRunner(t)
+	waitForFinished(t, s.exchange, len(s.people))
+
+	for _, got := range s.h.notifier.Received() {
+		recipient := personWithID(s.people, got.Counterpart.ID)
+		want := giftexchange.ExternalIdentity{Provider: giftexchange.ProviderDiscord, Subject: recipient.subject}
+		if len(got.Counterpart.Identities) != 1 || got.Counterpart.Identities[0] != want {
+			t.Error("the counterpart's identities are not the recipient's Discord identity")
+		}
+	}
+}
+
+func TestDrawnNoticeOfAnExchangeCancelledBeforeDeliveryIsStaleAndNotDelivered(t *testing.T) {
+	s := newDrawScene(t, 3)
+	s.mustDraw(t)
+	if err := s.h.svc.Cancel(t.Context(), s.organizer.actor, s.group, s.exchange); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	s.h.startRunner(t)
+
+	waitForFinished(t, s.exchange, 2*len(s.people))
+
+	if got := len(receivedOfKind(s.h.notifier.Received(), giftexchange.KindDrawn)); got != 0 {
+		t.Errorf("%d drawn notices were delivered after the cancel, want 0", got)
+	}
+	if got := len(receivedOfKind(s.h.notifier.Received(), giftexchange.KindCancelled)); got != len(s.people) {
+		t.Errorf("%d cancelled notices delivered, want %d: the cancel is always delivered", got, len(s.people))
+	}
+	if finishedCount(t, s.exchange, "drawn", "stale") != len(s.people) {
+		t.Error("not every drawn notice is marked stale")
+	}
+}
+
+func TestDrawnNoticeOfAnEarlierRoundIsStale(t *testing.T) {
+	s := newDrawScene(t, 3)
+	s.mustDraw(t)
+	_, err := shared.Pool().Exec(t.Context(),
+		"UPDATE giftexchange.notifications SET round = 0 WHERE exchange_id = $1", s.exchange.String())
+	if err != nil {
+		t.Fatalf("age notices: %v", err)
+	}
+	s.h.startRunner(t)
+
+	waitForFinished(t, s.exchange, len(s.people))
+
+	if got := len(s.h.notifier.Received()); got != 0 {
+		t.Errorf("notifier received %d notifications, want 0", got)
+	}
+	if finishedCount(t, s.exchange, "drawn", "stale") != len(s.people) {
+		t.Error("not every drawn notice is marked stale")
+	}
+}
+
+func TestDrawnNoticeIsStaleWhenTheAddresseeNoLongerGives(t *testing.T) {
+	s := newDrawScene(t, 3)
+	s.mustDraw(t)
+	_, err := shared.Pool().Exec(t.Context(),
+		"DELETE FROM giftexchange.assignments WHERE exchange_id = $1 AND giver_id = $2",
+		s.exchange.String(), s.people[0].id.String())
+	if err != nil {
+		t.Fatalf("remove assignment: %v", err)
+	}
+	s.h.startRunner(t)
+
+	waitForFinished(t, s.exchange, len(s.people))
+
+	if finishedCount(t, s.exchange, "drawn", "stale") != 1 || finishedCount(t, s.exchange, "drawn", "delivered") != 2 {
+		t.Error("want exactly the notice of the giver without an assignment marked stale")
+	}
+	for _, got := range s.h.notifier.Received() {
+		if got.To.ID == s.people[0].id {
+			t.Error("the giver without an assignment was notified")
+		}
 	}
 }
