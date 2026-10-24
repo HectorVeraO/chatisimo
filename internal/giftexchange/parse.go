@@ -93,9 +93,6 @@ type textFlaws struct {
 }
 
 func parseText(field, raw string, maxRunes int, allowNewline bool) (string, error) {
-	if !utf8.ValidString(raw) {
-		return "", &InputError{Field: field, Reason: "is not valid UTF-8"}
-	}
 	text := raw
 	if allowNewline {
 		text = strings.ReplaceAll(text, "\r\n", "\n")
@@ -107,6 +104,9 @@ func parseText(field, raw string, maxRunes int, allowNewline bool) (string, erro
 	}
 
 	var problems []error
+	if !utf8.ValidString(raw) {
+		problems = append(problems, &InputError{Field: field, Reason: "is not valid UTF-8"})
+	}
 	if runeCount > maxRunes {
 		problems = append(problems, &InputError{Field: field, Reason: "is too long"})
 	}

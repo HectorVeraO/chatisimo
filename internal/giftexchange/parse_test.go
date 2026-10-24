@@ -97,6 +97,35 @@ func TestIDZeroValue(t *testing.T) {
 	}
 }
 
+func TestGroupIDValues(t *testing.T) {
+	var zero giftexchange.GroupID
+	if !zero.IsZero() {
+		t.Fatal("zero value must report IsZero")
+	}
+	if got := zero.String(); got != zeroID {
+		t.Fatalf("zero String = %q", got)
+	}
+	set := giftexchange.GroupID{15: 1}
+	if set.IsZero() {
+		t.Fatal("non-zero value must not report IsZero")
+	}
+	if got, want := set.String(), "00000000-0000-0000-0000-000000000001"; got != want {
+		t.Fatalf("String = %q, want %q", got, want)
+	}
+}
+
+func TestParseTextReportsEveryProblem(t *testing.T) {
+	_, err := giftexchange.ParseExchangeName("Win\xff\x07ter")
+	if !errors.Is(err, giftexchange.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+	for _, want := range []string{"not valid UTF-8", "control characters"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not mention %q", err.Error(), want)
+		}
+	}
+}
+
 const (
 	zeroWidth    = string(rune(0x200B))
 	combiningAcc = string(rune(0x0301))
