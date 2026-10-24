@@ -538,7 +538,7 @@ func checkModal(pending *pendingModal, m Modal, fields map[string]string) []erro
 	for _, input := range inputs {
 		value, isGiven := fields[input.CustomID]
 		isRequired := input.Required == nil || *input.Required
-		if !isGiven && isRequired {
+		if isRequired && (!isGiven || value == "") {
 			problems = append(problems, fmt.Errorf("text input %q: required", input.CustomID))
 			continue
 		}

@@ -319,6 +319,7 @@ func TestSubmitModalRefusesWhatTheModalDoesNotAllow(t *testing.T) {
 		want   string
 	}{
 		{"a missing required field", same, map[string]string{"note": "n"}, "required"},
+		{"an empty required field", same, map[string]string{"wish": ""}, "required"},
 		{"a field the modal lacks", same, map[string]string{"wish": "w", "extra": "e"}, "no text input"},
 		{"a value over max_length", same, map[string]string{"wish": strings.Repeat("w", 11)}, "max_length 10"},
 		{"another modal's custom id", func(m fakediscord.Modal) fakediscord.Modal { m.CustomID = "other"; return m }, map[string]string{"wish": "w"}, `the open modal is "wish:1", not "other"`},
@@ -440,7 +441,14 @@ func FuzzSlashInput(f *testing.F) {
 		if err == nil {
 			t.Fatalf("Slash succeeded with no bot connected for %q", path)
 		}
-		if !errors.Is(err, fakediscord.ErrRejected) && !errors.Is(err, fakediscord.ErrNoBot) {
+		isRejected := errors.Is(err, fakediscord.ErrRejected)
+		isNoBot := errors.Is(err, fakediscord.ErrNoBot)
+		// Every input carries an option no command declares, so validation must refuse
+		// it; only a bypass may reach the missing bot.
+		if !bypass && !isRejected {
+			t.Fatalf("Slash error = %v, want ErrRejected", err)
+		}
+		if bypass && !isRejected && !isNoBot {
 			t.Fatalf("Slash error = %v, want ErrRejected or ErrNoBot", err)
 		}
 	})
