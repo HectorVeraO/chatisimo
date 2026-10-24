@@ -5,12 +5,12 @@ WHERE id = @id;
 
 -- name: InsertExchange :exec
 INSERT INTO giftexchange.exchanges (
-    id, group_id, organizer_id, name, state, round, reminder_lead_seconds, dropout_policy,
-    avoid_last_round, questions_enabled, created_at
+    id, group_id, organizer_id, name, state, round, draw_at, reveal_at, reminder_lead_seconds,
+    dropout_policy, avoid_last_round, questions_enabled, created_at
 )
 VALUES (
-    @id, @group_id, @organizer_id, @name, 'open', 0, @reminder_lead_seconds, @dropout_policy,
-    @avoid_last_round, @questions_enabled, @created_at
+    @id, @group_id, @organizer_id, @name, 'open', 0, @draw_at, @reveal_at, @reminder_lead_seconds,
+    @dropout_policy, @avoid_last_round, @questions_enabled, @created_at
 );
 
 -- The row lock serializes every state-changing call on one exchange.
@@ -72,6 +72,16 @@ UPDATE giftexchange.exchanges
 SET name = @name
 WHERE id = @id;
 
+-- name: UpdateExchangeRules :exec
+UPDATE giftexchange.exchanges
+SET draw_at = @draw_at,
+    reveal_at = @reveal_at,
+    reminder_lead_seconds = @reminder_lead_seconds,
+    dropout_policy = @dropout_policy,
+    avoid_last_round = @avoid_last_round,
+    questions_enabled = @questions_enabled
+WHERE id = @id;
+
 -- draw_at is non-null only in state open, so a cancel clears it.
 -- name: CancelExchange :exec
 UPDATE giftexchange.exchanges
@@ -86,6 +96,25 @@ WHERE exchange_id = @exchange_id;
 SELECT count(*)
 FROM giftexchange.exclusions
 WHERE exchange_id = @exchange_id;
+
+-- name: ListExclusions :many
+SELECT giver_id, recipient_id
+FROM giftexchange.exclusions
+WHERE exchange_id = @exchange_id
+ORDER BY created_at, giver_id, recipient_id;
+
+-- name: InsertExclusion :exec
+INSERT INTO giftexchange.exclusions (exchange_id, giver_id, recipient_id, created_at)
+VALUES (@exchange_id, @giver_id, @recipient_id, @created_at)
+ON CONFLICT (exchange_id, giver_id, recipient_id) DO NOTHING;
+
+-- name: DeleteExclusion :exec
+DELETE FROM giftexchange.exclusions
+WHERE exchange_id = @exchange_id AND giver_id = @giver_id AND recipient_id = @recipient_id;
+
+-- name: DeleteExclusionsOfPerson :exec
+DELETE FROM giftexchange.exclusions
+WHERE exchange_id = @exchange_id AND (giver_id = @person_id OR recipient_id = @person_id);
 
 -- name: GetParticipant :one
 SELECT exchange_id, person_id, joined_at, left_at

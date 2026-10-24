@@ -51,13 +51,6 @@ func optionalTime(value pgtype.Timestamptz) *time.Time {
 	return &instant
 }
 
-func ruleTimeText(value pgtype.Timestamptz) string {
-	if !value.Valid {
-		return unsetText
-	}
-	return value.Time.UTC().Format(time.RFC3339)
-}
-
 // buildSummaries turns a listing's rows into summaries in the order the query returned them.
 func buildSummaries(rows []exchangeRow, caller PersonID) []ExchangeSummary {
 	summaries := make([]ExchangeSummary, 0, len(rows))
@@ -139,13 +132,14 @@ func identitiesOf(
 func ruleViews(exchange db.GiftexchangeExchange, exclusionCount int, isOrganizer bool) []RuleView {
 	descriptors := ruleDescriptors()
 	views := make([]RuleView, 0, len(descriptors))
+	settings := settingsOf(exchange)
 	state := State(exchange.State)
 	for _, descriptor := range descriptors {
 		isEditableState := slices.Contains(descriptor.editableIn, state)
 		view := RuleView{
 			Name:         descriptor.name,
 			Kind:         descriptor.kind,
-			Value:        ruleValueText(exchange, descriptor, exclusionCount),
+			Value:        ruleValueText(settings, descriptor, exclusionCount),
 			Default:      descriptor.defaultValue,
 			Options:      ruleOptions(descriptor),
 			Configurable: descriptor.configurable,
@@ -166,22 +160,22 @@ func ruleOptions(descriptor ruleDescriptor) []string {
 }
 
 // ruleValueText returns the stored value of a configurable rule, or the fixed value.
-func ruleValueText(exchange db.GiftexchangeExchange, descriptor ruleDescriptor, exclusionCount int) string {
+func ruleValueText(settings ruleSettings, descriptor ruleDescriptor, exclusionCount int) string {
 	switch descriptor.name {
 	case RuleDrawAt:
-		return ruleTimeText(exchange.DrawAt)
+		return instantText(settings.drawAt)
 	case RuleRevealAt:
-		return ruleTimeText(exchange.RevealAt)
+		return instantText(settings.revealAt)
 	case RuleReminderLead:
-		return formatLead(time.Duration(exchange.ReminderLeadSeconds) * time.Second)
+		return formatLead(settings.reminderLead)
 	case RuleDropoutPolicy:
-		return exchange.DropoutPolicy
+		return settings.dropoutPolicy
 	case RuleAvoidLastRound:
-		return flagText(exchange.AvoidLastRound)
+		return flagText(settings.avoidLastRound)
 	case RuleExclusions:
 		return strconv.Itoa(exclusionCount)
 	case RuleQuestionsEnabled:
-		return flagText(exchange.QuestionsEnabled)
+		return flagText(settings.questionsEnabled)
 	default:
 		return descriptor.defaultValue
 	}

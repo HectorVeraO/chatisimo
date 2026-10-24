@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
@@ -11,9 +12,9 @@ import (
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange/internal/store/db"
 )
 
-// CreateExchangeRequest creates an exchange in Group with the caller as organizer. Rules must be
-// empty for now: a non-empty list is rejected as invalid input, reported together with any name
-// error. The organizer is not a participant until they Join.
+// CreateExchangeRequest creates an exchange in Group with the caller as organizer. Rules are
+// applied in order as if by SetRule in state Open; every invalid rule and the name are reported
+// together. The organizer is not a participant until they Join.
 type CreateExchangeRequest struct {
 	Group GroupID
 	Name  string
@@ -27,7 +28,7 @@ func (s *Service) CreateExchange(ctx context.Context, a Actor, req CreateExchang
 		return ExchangeView{}, authErr
 	}
 
-	name, validationErr := validateCreate(req)
+	name, settings, validationErr := validateCreate(req, s.now())
 	if validationErr != nil {
 		return ExchangeView{}, validationErr
 	}
@@ -35,7 +36,7 @@ func (s *Service) CreateExchange(ctx context.Context, a Actor, req CreateExchang
 	var view ExchangeView
 	txErr := s.inTx(ctx, func(q *db.Queries, _ pgx.Tx) error {
 		var createErr error
-		view, createErr = s.createExchange(ctx, q, a, req.Group, name)
+		view, createErr = s.createExchange(ctx, q, a, req.Group, name, settings)
 		return createErr
 	})
 	if txErr != nil {
@@ -47,8 +48,9 @@ func (s *Service) CreateExchange(ctx context.Context, a Actor, req CreateExchang
 	return view, nil
 }
 
-// validateCreate reports the name error and the unsupported initial rules together.
-func validateCreate(req CreateExchangeRequest) (string, error) {
+// validateCreate reports the group, the name and every rule error together, and returns the
+// settings the initial rules produce.
+func validateCreate(req CreateExchangeRequest, now time.Time) (string, ruleSettings, error) {
 	var problems []error
 	groupErr := requireID("group_id", req.Group.IsZero())
 	if groupErr != nil {
@@ -60,14 +62,26 @@ func validateCreate(req CreateExchangeRequest) (string, error) {
 		problems = append(problems, nameErr)
 	}
 
-	if len(req.Rules) > 0 {
-		problems = append(problems, &InputError{Field: "rules", Reason: "initial rules are not supported yet"})
+	settings := defaultSettings()
+	for _, change := range req.Rules {
+		value, parseErr := parseChange(change)
+		if parseErr != nil {
+			problems = append(problems, parseErr)
+			continue
+		}
+
+		checkErr := settings.check(value, now)
+		if checkErr != nil {
+			problems = append(problems, checkErr)
+			continue
+		}
+		settings = settings.assign(value)
 	}
 
 	if len(problems) > 0 {
-		return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+		return "", ruleSettings{}, errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 	}
-	return name, nil
+	return name, settings, nil
 }
 
 func (s *Service) createExchange(
@@ -76,6 +90,7 @@ func (s *Service) createExchange(
 	a Actor,
 	group GroupID,
 	name string,
+	settings ruleSettings,
 ) (ExchangeView, error) {
 	_, groupErr := q.GetGroup(ctx, uuid.UUID(group))
 	if errors.Is(groupErr, pgx.ErrNoRows) {
@@ -91,10 +106,12 @@ func (s *Service) createExchange(
 		GroupID:             uuid.UUID(group),
 		OrganizerID:         uuid.UUID(a.person),
 		Name:                name,
-		ReminderLeadSeconds: int32(defaultReminderLead.Seconds()),
-		DropoutPolicy:       string(DropoutPatch),
-		AvoidLastRound:      false,
-		QuestionsEnabled:    true,
+		DrawAt:              optionalTimestamptz(settings.drawAt),
+		RevealAt:            optionalTimestamptz(settings.revealAt),
+		ReminderLeadSeconds: int32(settings.reminderLead.Seconds()),
+		DropoutPolicy:       settings.dropoutPolicy,
+		AvoidLastRound:      settings.avoidLastRound,
+		QuestionsEnabled:    settings.questionsEnabled,
 		CreatedAt:           timestamptz(s.now()),
 	})
 	if insertErr != nil {

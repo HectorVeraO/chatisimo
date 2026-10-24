@@ -87,7 +87,7 @@ func TestCreateExchangeNameBoundaries(t *testing.T) {
 	}
 }
 
-func TestCreateExchangeReportsNameAndInitialRulesTogether(t *testing.T) {
+func TestCreateExchangeReportsNameAndRuleErrorsTogether(t *testing.T) {
 	h := newService(t)
 	group := h.newGroup(t)
 	organizer := h.newPerson(t)
@@ -95,34 +95,20 @@ func TestCreateExchangeReportsNameAndInitialRulesTogether(t *testing.T) {
 	_, err := h.svc.CreateExchange(t.Context(), organizer.actor, giftexchange.CreateExchangeRequest{
 		Group: group,
 		Name:  "",
-		Rules: []giftexchange.RuleChange{{Name: giftexchange.RuleReminderLead, Raw: "2d"}},
+		Rules: []giftexchange.RuleChange{
+			{Name: giftexchange.RuleReminderLead, Raw: "15d"},
+			{Name: giftexchange.RuleDropoutPolicy, Raw: "random"},
+		},
 	})
 
 	if !errors.Is(err, giftexchange.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
 	fields := inputFields(err)
-	if !slices.Contains(fields, "name") || !slices.Contains(fields, "rules") {
-		t.Errorf("fields = %v, want both name and rules", fields)
-	}
-}
-
-func TestCreateExchangeRejectsInitialRulesEvenWithAValidName(t *testing.T) {
-	h := newService(t)
-	group := h.newGroup(t)
-	organizer := h.newPerson(t)
-
-	_, err := h.svc.CreateExchange(t.Context(), organizer.actor, giftexchange.CreateExchangeRequest{
-		Group: group,
-		Name:  "Winter exchange",
-		Rules: []giftexchange.RuleChange{{Name: giftexchange.RuleDropoutPolicy, Raw: "redraw"}},
-	})
-
-	if !errors.Is(err, giftexchange.ErrInvalidInput) {
-		t.Fatalf("err = %v, want ErrInvalidInput", err)
-	}
-	if !slices.Equal(inputFields(err), []string{"rules"}) {
-		t.Errorf("fields = %v, want [rules]", inputFields(err))
+	for _, want := range []string{"name", "reminder_lead", "dropout_policy"} {
+		if !slices.Contains(fields, want) {
+			t.Errorf("fields = %v, want %q among them", fields, want)
+		}
 	}
 }
 

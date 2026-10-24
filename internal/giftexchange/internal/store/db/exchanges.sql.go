@@ -65,6 +65,37 @@ func (q *Queries) DeleteAssignments(ctx context.Context, exchangeID uuid.UUID) e
 	return err
 }
 
+const deleteExclusion = `-- name: DeleteExclusion :exec
+DELETE FROM giftexchange.exclusions
+WHERE exchange_id = $1 AND giver_id = $2 AND recipient_id = $3
+`
+
+type DeleteExclusionParams struct {
+	ExchangeID  uuid.UUID
+	GiverID     uuid.UUID
+	RecipientID uuid.UUID
+}
+
+func (q *Queries) DeleteExclusion(ctx context.Context, arg DeleteExclusionParams) error {
+	_, err := q.db.Exec(ctx, deleteExclusion, arg.ExchangeID, arg.GiverID, arg.RecipientID)
+	return err
+}
+
+const deleteExclusionsOfPerson = `-- name: DeleteExclusionsOfPerson :exec
+DELETE FROM giftexchange.exclusions
+WHERE exchange_id = $1 AND (giver_id = $2 OR recipient_id = $2)
+`
+
+type DeleteExclusionsOfPersonParams struct {
+	ExchangeID uuid.UUID
+	PersonID   uuid.UUID
+}
+
+func (q *Queries) DeleteExclusionsOfPerson(ctx context.Context, arg DeleteExclusionsOfPersonParams) error {
+	_, err := q.db.Exec(ctx, deleteExclusionsOfPerson, arg.ExchangeID, arg.PersonID)
+	return err
+}
+
 const getExchangeSummary = `-- name: GetExchangeSummary :one
 SELECT
     e.id, e.group_id, e.organizer_id, e.name, e.state, e.round, e.draw_at, e.reveal_at, e.reminder_lead_seconds, e.dropout_policy, e.avoid_last_round, e.questions_enabled, e.draw_reminder_sent_for, e.reveal_reminder_sent_for, e.created_at, e.drawn_at, e.revealed_at, e.cancelled_at,
@@ -167,12 +198,12 @@ func (q *Queries) GetParticipant(ctx context.Context, arg GetParticipantParams) 
 
 const insertExchange = `-- name: InsertExchange :exec
 INSERT INTO giftexchange.exchanges (
-    id, group_id, organizer_id, name, state, round, reminder_lead_seconds, dropout_policy,
-    avoid_last_round, questions_enabled, created_at
+    id, group_id, organizer_id, name, state, round, draw_at, reveal_at, reminder_lead_seconds,
+    dropout_policy, avoid_last_round, questions_enabled, created_at
 )
 VALUES (
-    $1, $2, $3, $4, 'open', 0, $5, $6,
-    $7, $8, $9
+    $1, $2, $3, $4, 'open', 0, $5, $6, $7,
+    $8, $9, $10, $11
 )
 `
 
@@ -181,6 +212,8 @@ type InsertExchangeParams struct {
 	GroupID             uuid.UUID
 	OrganizerID         uuid.UUID
 	Name                string
+	DrawAt              pgtype.Timestamptz
+	RevealAt            pgtype.Timestamptz
 	ReminderLeadSeconds int32
 	DropoutPolicy       string
 	AvoidLastRound      bool
@@ -194,10 +227,35 @@ func (q *Queries) InsertExchange(ctx context.Context, arg InsertExchangeParams) 
 		arg.GroupID,
 		arg.OrganizerID,
 		arg.Name,
+		arg.DrawAt,
+		arg.RevealAt,
 		arg.ReminderLeadSeconds,
 		arg.DropoutPolicy,
 		arg.AvoidLastRound,
 		arg.QuestionsEnabled,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const insertExclusion = `-- name: InsertExclusion :exec
+INSERT INTO giftexchange.exclusions (exchange_id, giver_id, recipient_id, created_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (exchange_id, giver_id, recipient_id) DO NOTHING
+`
+
+type InsertExclusionParams struct {
+	ExchangeID  uuid.UUID
+	GiverID     uuid.UUID
+	RecipientID uuid.UUID
+	CreatedAt   pgtype.Timestamptz
+}
+
+func (q *Queries) InsertExclusion(ctx context.Context, arg InsertExclusionParams) error {
+	_, err := q.db.Exec(ctx, insertExclusion,
+		arg.ExchangeID,
+		arg.GiverID,
+		arg.RecipientID,
 		arg.CreatedAt,
 	)
 	return err
@@ -337,6 +395,38 @@ func (q *Queries) ListCallerExchanges(ctx context.Context, callerID uuid.UUID) (
 			&i.ParticipantCount,
 			&i.CallerIsParticipant,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExclusions = `-- name: ListExclusions :many
+SELECT giver_id, recipient_id
+FROM giftexchange.exclusions
+WHERE exchange_id = $1
+ORDER BY created_at, giver_id, recipient_id
+`
+
+type ListExclusionsRow struct {
+	GiverID     uuid.UUID
+	RecipientID uuid.UUID
+}
+
+func (q *Queries) ListExclusions(ctx context.Context, exchangeID uuid.UUID) ([]ListExclusionsRow, error) {
+	rows, err := q.db.Query(ctx, listExclusions, exchangeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListExclusionsRow
+	for rows.Next() {
+		var i ListExclusionsRow
+		if err := rows.Scan(&i.GiverID, &i.RecipientID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -536,5 +626,39 @@ type UpdateExchangeNameParams struct {
 
 func (q *Queries) UpdateExchangeName(ctx context.Context, arg UpdateExchangeNameParams) error {
 	_, err := q.db.Exec(ctx, updateExchangeName, arg.Name, arg.ID)
+	return err
+}
+
+const updateExchangeRules = `-- name: UpdateExchangeRules :exec
+UPDATE giftexchange.exchanges
+SET draw_at = $1,
+    reveal_at = $2,
+    reminder_lead_seconds = $3,
+    dropout_policy = $4,
+    avoid_last_round = $5,
+    questions_enabled = $6
+WHERE id = $7
+`
+
+type UpdateExchangeRulesParams struct {
+	DrawAt              pgtype.Timestamptz
+	RevealAt            pgtype.Timestamptz
+	ReminderLeadSeconds int32
+	DropoutPolicy       string
+	AvoidLastRound      bool
+	QuestionsEnabled    bool
+	ID                  uuid.UUID
+}
+
+func (q *Queries) UpdateExchangeRules(ctx context.Context, arg UpdateExchangeRulesParams) error {
+	_, err := q.db.Exec(ctx, updateExchangeRules,
+		arg.DrawAt,
+		arg.RevealAt,
+		arg.ReminderLeadSeconds,
+		arg.DropoutPolicy,
+		arg.AvoidLastRound,
+		arg.QuestionsEnabled,
+		arg.ID,
+	)
 	return err
 }

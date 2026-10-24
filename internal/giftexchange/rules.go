@@ -1,11 +1,19 @@
 package giftexchange
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/HectorVeraO/chatisimo/internal/giftexchange/internal/store/db"
 )
 
 // RuleName identifies one rule. Values are stable (clients put them in custom IDs).
@@ -84,10 +92,7 @@ func (v RuleValue) Rule() RuleName {
 func (v RuleValue) String() string {
 	switch v.kind {
 	case RuleKindTime:
-		if v.instant.IsZero() {
-			return unsetText
-		}
-		return v.instant.Format(time.RFC3339)
+		return instantText(v.instant)
 	case RuleKindDuration:
 		return formatLead(v.duration)
 	case RuleKindEnum:
@@ -317,4 +322,279 @@ func parseFlag(field, raw string) (bool, error) {
 	default:
 		return false, &InputError{Field: field, Reason: "is not on, off, true or false"}
 	}
+}
+
+// ruleSettings holds the six stored values of an exchange's configurable rules. A zero time is
+// "unset"; times are UTC.
+type ruleSettings struct {
+	drawAt           time.Time
+	revealAt         time.Time
+	reminderLead     time.Duration
+	dropoutPolicy    string
+	avoidLastRound   bool
+	questionsEnabled bool
+}
+
+func defaultSettings() ruleSettings {
+	settings := ruleSettings{
+		reminderLead:     defaultReminderLead,
+		dropoutPolicy:    string(DropoutPatch),
+		questionsEnabled: true,
+	}
+	return settings
+}
+
+func settingsOf(exchange db.GiftexchangeExchange) ruleSettings {
+	settings := ruleSettings{
+		reminderLead:     time.Duration(exchange.ReminderLeadSeconds) * time.Second,
+		dropoutPolicy:    exchange.DropoutPolicy,
+		avoidLastRound:   exchange.AvoidLastRound,
+		questionsEnabled: exchange.QuestionsEnabled,
+	}
+	if exchange.DrawAt.Valid {
+		settings.drawAt = exchange.DrawAt.Time.UTC()
+	}
+	if exchange.RevealAt.Valid {
+		settings.revealAt = exchange.RevealAt.Time.UTC()
+	}
+	return settings
+}
+
+func instantText(instant time.Time) string {
+	if instant.IsZero() {
+		return unsetText
+	}
+	return instant.UTC().Format(time.RFC3339)
+}
+
+// assign returns the settings with value stored, without checking constraints.
+func (c ruleSettings) assign(value RuleValue) ruleSettings {
+	switch value.rule {
+	case RuleDrawAt:
+		c.drawAt = value.instant
+	case RuleRevealAt:
+		c.revealAt = value.instant
+	case RuleReminderLead:
+		c.reminderLead = value.duration
+	case RuleDropoutPolicy:
+		c.dropoutPolicy = value.text
+	case RuleAvoidLastRound:
+		c.avoidLastRound = value.flag
+	case RuleQuestionsEnabled:
+		c.questionsEnabled = value.flag
+	}
+	return c
+}
+
+// check reports the constraints that depend on the clock and on the other stored times.
+func (c ruleSettings) check(value RuleValue, now time.Time) error {
+	switch value.rule {
+	case RuleDrawAt:
+		return checkTime(value, now, c.revealAt, true)
+	case RuleRevealAt:
+		return checkTime(value, now, c.drawAt, false)
+	default:
+		return nil
+	}
+}
+
+// checkTime requires a set time to be after now and on the right side of other, the stored time
+// of the sibling rule (when set): before it for draw_at, after it for reveal_at.
+func checkTime(value RuleValue, now, other time.Time, mustPrecede bool) error {
+	field := string(value.rule)
+	if value.instant.IsZero() {
+		return nil
+	}
+	isFuture := value.instant.After(now)
+	if !isFuture {
+		return &InputError{Field: field, Reason: "must be in the future"}
+	}
+	if other.IsZero() {
+		return nil
+	}
+	if mustPrecede && !value.instant.Before(other) {
+		return &InputError{Field: field, Reason: "must be before reveal_at"}
+	}
+	if !mustPrecede && !value.instant.After(other) {
+		return &InputError{Field: field, Reason: "must be after draw_at"}
+	}
+	return nil
+}
+
+func optionalTimestamptz(instant time.Time) pgtype.Timestamptz {
+	if instant.IsZero() {
+		return pgtype.Timestamptz{}
+	}
+	return timestamptz(instant)
+}
+
+// parseChange parses one client edit; a fixed rule is reported as ErrRuleFixed.
+func parseChange(change RuleChange) (RuleValue, error) {
+	name, nameErr := ParseRuleName(string(change.Name))
+	if nameErr != nil {
+		return RuleValue{}, nameErr
+	}
+	return ParseRuleValue(name, change.Raw)
+}
+
+// Rules returns every rule of the rule table, fixed ones included, with EditableNow computed
+// for the caller. Any caller in the group may read them.
+func (s *Service) Rules(ctx context.Context, a Actor, g GroupID, id ExchangeID) ([]RuleView, error) {
+	validationErr := validateScope(a, g, id)
+	if validationErr != nil {
+		return nil, validationErr
+	}
+
+	q := db.New(s.pool)
+	row, err := readRow(ctx, q, a.person, uuid.UUID(id))
+	if err != nil {
+		return nil, err
+	}
+
+	isOtherGroup := GroupID(row.exchange.GroupID) != g
+	if isOtherGroup {
+		return nil, ErrNotFound
+	}
+
+	return ruleViewsOf(ctx, q, row.exchange, a.person)
+}
+
+func ruleViewsOf(
+	ctx context.Context,
+	q *db.Queries,
+	exchange db.GiftexchangeExchange,
+	caller PersonID,
+) ([]RuleView, error) {
+	exclusionCount, err := q.CountExclusions(ctx, exchange.ID)
+	if err != nil {
+		return nil, fmt.Errorf("count exclusions of %s: %w", exchange.ID, err)
+	}
+
+	isOrganizer := PersonID(exchange.OrganizerID) == caller
+	return ruleViews(exchange, int(exclusionCount), isOrganizer), nil
+}
+
+// SetRule parses ch.Raw with ParseRuleValue, checks the caller, the rule's editable states and
+// the time constraints, stores the value and returns the new view of that rule. Setting the
+// current value again changes nothing.
+func (s *Service) SetRule(
+	ctx context.Context,
+	a Actor,
+	g GroupID,
+	id ExchangeID,
+	ch RuleChange,
+) (RuleView, error) {
+	authErr := requireActor(a)
+	if authErr != nil {
+		return RuleView{}, authErr
+	}
+
+	// A fixed rule is public knowledge, but whether the caller may touch the exchange is not,
+	// so ErrRuleFixed waits until the caller has been authorized.
+	value, parseErr := parseChange(ch)
+	isFixed := errors.Is(parseErr, ErrRuleFixed)
+	if parseErr != nil && !isFixed {
+		return RuleView{}, parseErr
+	}
+
+	scopeErr := validateScope(a, g, id)
+	if scopeErr != nil {
+		return RuleView{}, scopeErr
+	}
+
+	var view RuleView
+	txErr := s.inTx(ctx, func(q *db.Queries, _ pgx.Tx) error {
+		var setErr error
+		view, setErr = s.setRuleLocked(ctx, q, a, g, id, ch.Name, value, isFixed)
+		return setErr
+	})
+	if txErr != nil {
+		return RuleView{}, txErr
+	}
+
+	return view, nil
+}
+
+func (s *Service) setRuleLocked(
+	ctx context.Context,
+	q *db.Queries,
+	a Actor,
+	g GroupID,
+	id ExchangeID,
+	name RuleName,
+	value RuleValue,
+	isFixed bool,
+) (RuleView, error) {
+	exchange, err := lockExchange(ctx, q, g, id)
+	if err != nil {
+		return RuleView{}, err
+	}
+
+	guardErr := requireOrganizer(exchange, a)
+	if guardErr != nil {
+		return RuleView{}, guardErr
+	}
+	if isFixed {
+		return RuleView{}, ErrRuleFixed
+	}
+
+	descriptor, found := lookupRule(name)
+	if !found {
+		return RuleView{}, unknownRuleError()
+	}
+	state := State(exchange.State)
+	if !slices.Contains(descriptor.editableIn, state) {
+		return RuleView{}, &RuleLockedError{Rule: name, State: state}
+	}
+
+	before := settingsOf(exchange)
+	after := before.assign(value)
+	isSameValue := ruleValueText(before, descriptor, 0) == ruleValueText(after, descriptor, 0)
+	if !isSameValue {
+		checkErr := before.check(value, s.now())
+		if checkErr != nil {
+			return RuleView{}, checkErr
+		}
+
+		updateErr := q.UpdateExchangeRules(ctx, db.UpdateExchangeRulesParams{
+			ID:                  exchange.ID,
+			DrawAt:              optionalTimestamptz(after.drawAt),
+			RevealAt:            optionalTimestamptz(after.revealAt),
+			ReminderLeadSeconds: int32(after.reminderLead.Seconds()),
+			DropoutPolicy:       after.dropoutPolicy,
+			AvoidLastRound:      after.avoidLastRound,
+			QuestionsEnabled:    after.questionsEnabled,
+		})
+		if updateErr != nil {
+			return RuleView{}, fmt.Errorf("update rules of %s: %w", exchange.ID, updateErr)
+		}
+		s.logger.InfoContext(ctx, "rule changed", "exchange_id", id.String(), "rule", string(name))
+	}
+
+	return ruleViewOf(ctx, q, a.person, exchange.ID, name)
+}
+
+// ruleViewOf reads the exchange again and returns the view of one rule.
+func ruleViewOf(
+	ctx context.Context,
+	q *db.Queries,
+	caller PersonID,
+	id uuid.UUID,
+	name RuleName,
+) (RuleView, error) {
+	row, err := readRow(ctx, q, caller, id)
+	if err != nil {
+		return RuleView{}, err
+	}
+
+	views, viewsErr := ruleViewsOf(ctx, q, row.exchange, caller)
+	if viewsErr != nil {
+		return RuleView{}, viewsErr
+	}
+	for _, view := range views {
+		if view.Name == name {
+			return view, nil
+		}
+	}
+	panic(fmt.Sprintf("rule %q has no view: ruleViewsOf must list every validated rule", name))
 }
