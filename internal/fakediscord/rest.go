@@ -83,6 +83,7 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("POST "+restPrefix+"/channels/{channel}/messages", s.botOnly(s.faulted(routeCreateMessage, s.handleCreateMessage)))
 	s.addWebhookRoutes(mux)
 	s.addControlRoutes(mux)
+	addWebRoutes(mux)
 	mux.HandleFunc("GET "+gatewayPath, s.serveGateway)
 	mux.HandleFunc("/", handleNotFound)
 

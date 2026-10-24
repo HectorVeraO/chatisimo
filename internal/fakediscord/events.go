@@ -109,7 +109,7 @@ func mustMarshalEvent(value any) []byte {
 
 // emitMessageLocked publishes a message event to the users who can see the message.
 func (s *Server) emitMessageLocked(name string, m Message) {
-	payload := map[string]any{"message": messageToJSON(m, s.botUser())}
+	payload := map[string]any{"message": s.controlMessageLocked(m)}
 	guildID := s.guildOfChannelLocked(m.ChannelID)
 	if guildID != "" {
 		payload["guild_id"] = guildID
