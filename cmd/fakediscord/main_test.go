@@ -191,6 +191,8 @@ func TestRunRejectsBadInput(t *testing.T) {
 		{"bad duration", []string{"--heartbeat-interval", "soon"}, exitUsage},
 		{"unexpected argument", []string{"extra"}, exitUsage},
 		{"help", []string{"-h"}, exitOK},
+		{"bad callback deadline", []string{"--callback-deadline", "soon"}, exitUsage},
+		{"negative callback deadline", []string{"--listen", "127.0.0.1:0", "--callback-deadline", "-1s"}, exitFailure},
 		{"negative heartbeat", []string{"--listen", "127.0.0.1:0", "--heartbeat-interval", "-1s"}, exitFailure},
 		{"address that cannot be bound", []string{"--listen", "256.256.256.256:1"}, exitFailure},
 	}
@@ -207,5 +209,35 @@ func TestRunRejectsBadInput(t *testing.T) {
 				t.Error("nothing was written to stderr")
 			}
 		})
+	}
+}
+
+func TestRunServesTheControlAPI(t *testing.T) {
+	fake := startRun(t, "--listen", "127.0.0.1:0")
+
+	status := fake.get(t, "/_control/healthz", nil)
+
+	if status != http.StatusOK {
+		t.Errorf("GET /_control/healthz = %d, want 200", status)
+	}
+	if status := fake.get(t, "/_control/healthz?bot=1", nil); status != http.StatusServiceUnavailable {
+		t.Errorf("GET /_control/healthz?bot=1 = %d, want 503 while no bot is connected", status)
+	}
+}
+
+// The control API has no authentication, so the default address must stay on loopback.
+func TestDefaultsBindLoopbackAndGiveTheBotThreeSeconds(t *testing.T) {
+	var stderr syncBuffer
+
+	code := run(t.Context(), []string{"-h"}, io.Discard, &stderr)
+
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d", code, exitOK)
+	}
+	usage := stderr.String()
+	for _, want := range []string{`(default "127.0.0.1:10010")`, `(default 3s)`} {
+		if !strings.Contains(usage, want) {
+			t.Errorf("usage lacks %q, usage: %s", want, usage)
+		}
 	}
 }

@@ -16,11 +16,13 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"text/template"
 	"time"
 )
 
 const (
 	defaultHeartbeatInterval = 41250 * time.Millisecond
+	defaultCallbackDeadline  = 3 * time.Second
 	restPrefix               = "/api/v10"
 	gatewayPath              = "/ws"
 	readHeaderTimeout        = 5 * time.Second
@@ -33,6 +35,9 @@ var ErrClosed = errors.New("fakediscord: server closed")
 type Options struct {
 	// HeartbeatInterval is the Gateway heartbeat interval sent in Hello. Zero means 41.25 s.
 	HeartbeatInterval time.Duration
+	// CallbackDeadline is how long the bot has to answer an interaction before its token
+	// expires. Zero means 3 s, Discord's own limit.
+	CallbackDeadline time.Duration
 	// Logger receives one line per request (method, route pattern, status) and Gateway
 	// lifecycle lines. Nil discards them. Nothing logged contains a token, header or body.
 	Logger *slog.Logger
@@ -40,17 +45,29 @@ type Options struct {
 
 // Server is the fake Discord. Its methods are safe for concurrent use.
 type Server struct {
-	heartbeatMillis int64
-	logger          *slog.Logger
-	appID           string
-	token           string
-	ids             *snowflakes
-	handler         http.Handler
+	heartbeatMillis  int64
+	callbackDeadline time.Duration
+	logger           *slog.Logger
+	appID            string
+	token            string
+	ids              *snowflakes
+	templates        *template.Template
+	handler          http.Handler
 
 	mu       sync.Mutex
 	w        *world
 	sessions map[string]*session
 	conns    map[*wsConn]struct{}
+	// sessionSeq numbers sessions so an interaction goes to the newest one.
+	sessionSeq int
+	// recordSeq numbers outbound records and never restarts, so a reader's ?since= cursor
+	// stays valid across a reset.
+	recordSeq int
+	subs      map[*subscriber]struct{}
+	faults    map[string][]fault
+	botStatus string
+	// stopped is closed by Close so waits and event streams end.
+	stopped chan struct{}
 	// changed is closed and replaced on every state change WaitReady cares about.
 	changed    chan struct{}
 	closed     bool
@@ -64,22 +81,39 @@ type Server struct {
 	closeErr  error
 }
 
+// positiveDuration resolves an option that takes the fallback when zero and must otherwise
+// be at least 1ms.
+func positiveDuration(name string, value, fallback time.Duration) (time.Duration, error) {
+	if value < 0 {
+		return 0, fmt.Errorf("%s %v is negative", name, value)
+	}
+	if value == 0 {
+		return fallback, nil
+	}
+	if value < time.Millisecond {
+		return 0, fmt.Errorf("%s %v is below 1ms", name, value)
+	}
+
+	return value, nil
+}
+
 // New creates a Server with a fresh application ID and bot token.
 func New(opts Options) (*Server, error) {
-	if opts.HeartbeatInterval < 0 {
-		return nil, fmt.Errorf("new fake discord: heartbeat interval %v is negative", opts.HeartbeatInterval)
-	}
-	interval := opts.HeartbeatInterval
-	if interval == 0 {
-		interval = defaultHeartbeatInterval
-	}
-	if interval < time.Millisecond {
-		return nil, fmt.Errorf("new fake discord: heartbeat interval %v is below 1ms", interval)
+	interval, intervalErr := positiveDuration("heartbeat interval", opts.HeartbeatInterval, defaultHeartbeatInterval)
+	deadline, deadlineErr := positiveDuration("callback deadline", opts.CallbackDeadline, defaultCallbackDeadline)
+	optionsErr := errors.Join(intervalErr, deadlineErr)
+	if optionsErr != nil {
+		return nil, fmt.Errorf("new fake discord: %w", optionsErr)
 	}
 
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+
+	templates, err := loadTemplates()
+	if err != nil {
+		return nil, fmt.Errorf("new fake discord: %w", err)
 	}
 
 	ids := newSnowflakes()
@@ -90,15 +124,21 @@ func New(opts Options) (*Server, error) {
 	}
 
 	s := &Server{
-		heartbeatMillis: interval.Milliseconds(),
-		logger:          logger,
-		appID:           appID,
-		token:           token,
-		ids:             ids,
-		w:               newWorld(),
-		sessions:        map[string]*session{},
-		conns:           map[*wsConn]struct{}{},
-		changed:         make(chan struct{}),
+		heartbeatMillis:  interval.Milliseconds(),
+		callbackDeadline: deadline,
+		logger:           logger,
+		appID:            appID,
+		token:            token,
+		ids:              ids,
+		templates:        templates,
+		w:                newWorld(),
+		sessions:         map[string]*session{},
+		conns:            map[*wsConn]struct{}{},
+		changed:          make(chan struct{}),
+		subs:             map[*subscriber]struct{}{},
+		faults:           map[string][]fault{},
+		botStatus:        botAbsent,
+		stopped:          make(chan struct{}),
 	}
 	s.handler = s.buildHandler()
 
@@ -164,6 +204,7 @@ func (s *Server) Close() error {
 func (s *Server) shutdown() error {
 	s.mu.Lock()
 	s.closed = true
+	close(s.stopped)
 	live := make([]*wsConn, 0, len(s.conns))
 	for c := range s.conns {
 		live = append(live, c)
@@ -252,10 +293,12 @@ func (s *Server) readyLocked() bool {
 	return len(s.sessions) > 0 && s.w.globalSet
 }
 
-// notifyLocked wakes every WaitReady. Callers hold s.mu.
+// notifyLocked wakes every WaitReady and WaitDM, and tells event subscribers when the bot's
+// status changed. Callers hold s.mu.
 func (s *Server) notifyLocked() {
 	close(s.changed)
 	s.changed = make(chan struct{})
+	s.publishBotStatusLocked()
 }
 
 // AddUser registers a user, generating an ID when u.ID is empty, and returns it.
@@ -263,7 +306,10 @@ func (s *Server) AddUser(u User) User {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.w.upsertUser(u, s.ids)
+	stored := s.w.upsertUser(u, s.ids)
+	s.publishWorldChangedLocked()
+
+	return stored
 }
 
 // AddGuild creates a guild with one text channel and the given members, unregistered users
@@ -286,6 +332,7 @@ func (s *Server) AddGuild(g Guild, members ...User) Guild {
 	} else {
 		s.announceGuildLocked(stored.ID, "GUILD_UPDATE")
 	}
+	s.publishWorldChangedLocked()
 
 	return stored
 }
@@ -301,6 +348,7 @@ func (s *Server) AddMember(g Guild, u User) {
 	if err != nil {
 		panic("fakediscord: " + err.Error())
 	}
+	s.publishWorldChangedLocked()
 }
 
 // Visible returns the messages of a channel that as can see: public ones, and ephemeral ones

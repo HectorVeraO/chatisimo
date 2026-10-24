@@ -52,7 +52,7 @@ type botHarness struct {
 }
 
 // newBot builds a disgo client against the fake and closes it when the test ends.
-func newBot(t *testing.T, srv *fakediscord.Server, token string) *botHarness {
+func newBot(t *testing.T, srv *fakediscord.Server, token string, extra ...bot.ConfigOpt) *botHarness {
 	t.Helper()
 
 	h := &botHarness{
@@ -64,7 +64,7 @@ func newBot(t *testing.T, srv *fakediscord.Server, token string) *botHarness {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	client, err := disgo.New(token,
+	opts := []bot.ConfigOpt{
 		bot.WithLogger(quiet),
 		bot.WithRestClientConfigOpts(rest.WithURL(srv.RESTBase()), rest.WithHTTPClient(httpClient), rest.WithRateLimiter(noBucketLimiter{})),
 		bot.WithGatewayConfigOpts(
@@ -79,7 +79,8 @@ func newBot(t *testing.T, srv *fakediscord.Server, token string) *botHarness {
 		bot.WithEventListenerFunc(func(e *events.GuildReady) { h.guilds <- e.GuildID.String() }),
 		bot.WithEventListenerFunc(func(e *events.GuildJoin) { h.joined <- e.GuildID.String() }),
 		bot.WithEventListenerFunc(func(*events.Resumed) { h.resumed <- struct{}{} }),
-	)
+	}
+	client, err := disgo.New(token, append(opts, extra...)...)
 	if err != nil {
 		t.Fatalf("disgo.New: %v", err)
 	}

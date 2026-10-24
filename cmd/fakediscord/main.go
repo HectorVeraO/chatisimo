@@ -26,6 +26,7 @@ const (
 
 	defaultListen            = "127.0.0.1:10010"
 	defaultHeartbeatInterval = 41250 * time.Millisecond
+	defaultCallbackDeadline  = 3 * time.Second
 	readHeaderTimeout        = 5 * time.Second
 	shutdownTimeout          = 5 * time.Second
 )
@@ -44,6 +45,7 @@ func run(ctx context.Context, args []string, _, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	listen := flags.String("listen", defaultListen, "address to listen on")
 	heartbeat := flags.Duration("heartbeat-interval", defaultHeartbeatInterval, "Gateway heartbeat interval")
+	deadline := flags.Duration("callback-deadline", defaultCallbackDeadline, "time the bot has to answer an interaction")
 	err := flags.Parse(args)
 	if errors.Is(err, flag.ErrHelp) {
 		return exitOK
@@ -58,7 +60,7 @@ func run(ctx context.Context, args []string, _, stderr io.Writer) int {
 	}
 
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	serveErr := serve(ctx, logger, *listen, *heartbeat)
+	serveErr := serve(ctx, logger, serveConfig{listen: *listen, heartbeat: *heartbeat, callbackDeadline: *deadline})
 	if serveErr != nil {
 		logger.Error("fakediscord failed", "error", serveErr)
 		return exitFailure
@@ -67,16 +69,26 @@ func run(ctx context.Context, args []string, _, stderr io.Writer) int {
 	return exitOK
 }
 
-func serve(ctx context.Context, logger *slog.Logger, listen string, heartbeat time.Duration) error {
-	fake, err := fakediscord.New(fakediscord.Options{HeartbeatInterval: heartbeat, Logger: logger})
+type serveConfig struct {
+	listen           string
+	heartbeat        time.Duration
+	callbackDeadline time.Duration
+}
+
+func serve(ctx context.Context, logger *slog.Logger, cfg serveConfig) error {
+	fake, err := fakediscord.New(fakediscord.Options{
+		HeartbeatInterval: cfg.heartbeat,
+		CallbackDeadline:  cfg.callbackDeadline,
+		Logger:            logger,
+	})
 	if err != nil {
 		return fmt.Errorf("create fake discord: %w", err)
 	}
 
 	var lc net.ListenConfig
-	listener, err := lc.Listen(ctx, "tcp", listen)
+	listener, err := lc.Listen(ctx, "tcp", cfg.listen)
 	if err != nil {
-		return fmt.Errorf("listen on %q: %w", listen, err)
+		return fmt.Errorf("listen on %q: %w", cfg.listen, err)
 	}
 
 	server := &http.Server{Handler: fake.Handler(), ReadHeaderTimeout: readHeaderTimeout}

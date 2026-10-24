@@ -1,0 +1,13 @@
+{
+  "id": {{json .MessageID}},
+  "channel_id": {{json .ChannelID}},
+  "author": {{json .Bot}},
+  "content": {{json .Content}},
+  "timestamp": {{json .Timestamp}},
+  "type": 0,
+  "flags": {{json .Flags}},
+  "embeds": {{json .Embeds}},
+  "components": {{json .MessageComponents}},
+  "attachments": [],
+  "mentions": []
+}
