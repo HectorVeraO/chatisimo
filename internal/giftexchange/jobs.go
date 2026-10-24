@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange/internal/store/db"
+	"github.com/HectorVeraO/chatisimo/internal/platform/jobs"
 )
 
 const notifyJobKind = "giftexchange.notify"
@@ -49,6 +50,21 @@ func (s *Service) queueNotification(
 	enqueueErr := s.scheduler.EnqueueTx(ctx, tx, notifyArgs{NotificationID: id.String()})
 	if enqueueErr != nil {
 		return fmt.Errorf("queue notification %s: %w", id, enqueueErr)
+	}
+
+	return nil
+}
+
+// RegisterJobs adds the module's River workers to r. The composition root calls it once, after
+// New and before building the jobs.Runner from r.
+func (s *Service) RegisterJobs(r *jobs.Registry) error {
+	if r == nil {
+		return &InputError{Field: "registry", Reason: "is required"}
+	}
+
+	err := jobs.Register[notifyArgs](r, &notifyWorker{service: s})
+	if err != nil {
+		return fmt.Errorf("register giftexchange jobs: %w", err)
 	}
 
 	return nil

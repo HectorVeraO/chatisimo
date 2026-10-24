@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/goleak"
+
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/db"
@@ -19,7 +21,16 @@ const closeDeadline = 30 * time.Second
 var shared *pgtest.Database
 
 func TestMain(m *testing.M) {
-	os.Exit(run(m))
+	code := run(m)
+	if code == 0 {
+		leakErr := goleak.Find()
+		if leakErr != nil {
+			fmt.Fprintln(os.Stderr, leakErr)
+			code = 1
+		}
+	}
+
+	os.Exit(code)
 }
 
 func run(m *testing.M) int {

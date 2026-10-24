@@ -71,7 +71,7 @@ func TestNoPersonIDOrSubjectReachesLogsErrorsOrJobsAcrossTheLifecycle(t *testing
 	assertConfidential(t, s.h, errs, secrets)
 }
 
-func TestNothingIsDeliveredBecauseNoWorkerRunsInThisSlice(t *testing.T) {
+func TestNothingIsDeliveredWhileNoRunnerWorksTheJobs(t *testing.T) {
 	s := newScene(t)
 	joiner := s.h.newPerson(t)
 	s.h.join(t, joiner, s.group, s.exchange)
@@ -81,7 +81,7 @@ func TestNothingIsDeliveredBecauseNoWorkerRunsInThisSlice(t *testing.T) {
 	}
 
 	if got := s.h.notifier.Received(); len(got) != 0 {
-		t.Errorf("notifier received %d notifications, want 0 until a worker exists", len(got))
+		t.Errorf("notifier received %d notifications, want 0 while no Runner works the jobs", len(got))
 	}
 }
 
