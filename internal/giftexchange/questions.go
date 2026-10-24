@@ -195,7 +195,7 @@ func (s *Service) answerLocked(
 	}
 	didUpdate := updated == 1
 	if !didUpdate {
-		return fmt.Errorf("answer question %s: updated %d rows", question.ID, updated)
+		panic(fmt.Sprintf("giftexchange: answer: an unanswered question held under the exchange lock updated %d rows", updated))
 	}
 
 	return s.queueQuestionNotice(ctx, q, tx, KindAnswerReceived, question.ID, exchange, question.AskerID)
