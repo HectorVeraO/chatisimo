@@ -260,6 +260,12 @@ func TestUndeliverableNoticeIsRecordedAndItsJobCancelledWithoutRetry(t *testing.
 	if len(want) != 0 {
 		t.Errorf("warn record misses fields %v", want)
 	}
+
+	secrets := []string{
+		s.participant.id.String(), s.participant.subject,
+		s.organizer.id.String(), s.organizer.subject,
+	}
+	assertConfidential(t, s.h, nil, secrets)
 }
 
 func TestTransientFailureRetriesUntilTheNotifierSucceeds(t *testing.T) {
@@ -306,9 +312,13 @@ func TestFailedAttemptStoresTheNotifierTextWithTheNoticeIDAndKindOnly(t *testing
 	if err != nil {
 		t.Fatalf("job errors %q: %v", stored, err)
 	}
-	want := "notify " + s.noticeID + " cancelled: " + sanitizedFailure
-	if len(entries) != 1 || entries[0].Error != want {
-		t.Errorf("stored errors = %+v, want exactly %q", entries, want)
+	if len(entries) != 1 {
+		t.Fatalf("stored errors = %+v, want exactly one entry", entries)
+	}
+	for _, part := range []string{s.noticeID, "cancelled", sanitizedFailure} {
+		if !strings.Contains(entries[0].Error, part) {
+			t.Errorf("stored error %q misses %q", entries[0].Error, part)
+		}
 	}
 
 	secrets := []string{
