@@ -87,8 +87,8 @@ func (s *Service) addParticipant(
 	return nil
 }
 
-// Leave removes the caller. Only an Open exchange accepts a leave: it returns OutcomeRemoved. In
-// any other state it returns a StateError.
+// Leave removes the caller and deletes their exclusions. Only an Open exchange accepts a leave:
+// it returns OutcomeRemoved. In any other state it returns a StateError.
 func (s *Service) Leave(ctx context.Context, a Actor, g GroupID, id ExchangeID) (DropoutOutcome, error) {
 	validationErr := validateScope(a, g, id)
 	if validationErr != nil {
@@ -121,8 +121,8 @@ func (s *Service) Leave(ctx context.Context, a Actor, g GroupID, id ExchangeID) 
 	return outcome, nil
 }
 
-// RemoveParticipant removes person p on the organizer's behalf, like Leave for p. Only an
-// Open exchange accepts the removal.
+// RemoveParticipant removes person p on the organizer's behalf, like Leave for p, exclusions
+// included. Only an Open exchange accepts the removal.
 func (s *Service) RemoveParticipant(
 	ctx context.Context,
 	a Actor,
@@ -218,6 +218,14 @@ func (s *Service) removeLocked(
 	stateErr := requireOpenForDropout(op, exchange)
 	if stateErr != nil {
 		return "", stateErr
+	}
+
+	exclusionsErr := q.DeleteExclusionsOfPerson(ctx, db.DeleteExclusionsOfPersonParams{
+		ExchangeID: exchange.ID,
+		PersonID:   uuid.UUID(person),
+	})
+	if exclusionsErr != nil {
+		return "", fmt.Errorf("delete exclusions of %s: %w", exchange.ID, exclusionsErr)
 	}
 
 	leftErr := q.MarkParticipantLeft(ctx, db.MarkParticipantLeftParams{
