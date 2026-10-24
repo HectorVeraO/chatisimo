@@ -107,6 +107,9 @@ type world struct {
 	logs     *syncBuffer
 	logger   *slog.Logger
 	users    map[string]fakediscord.User
+	guild    fakediscord.Guild
+	// notifierClosed is set by a test that closed the notifier through the adapter.
+	notifierClosed bool
 }
 
 func newWorld(t testing.TB) *world {
@@ -116,7 +119,9 @@ func newWorld(t testing.TB) *world {
 	if err != nil {
 		t.Fatalf("fakediscord.New: %v", err)
 	}
-	startErr := fake.Start(t.Context())
+	// The test context ends before cleanups run and would stop the fake under a Gateway client
+	// that has not been closed yet; the cleanup below closes it after them.
+	startErr := fake.Start(context.Background())
 	if startErr != nil {
 		t.Fatalf("Start: %v", startErr)
 	}
@@ -134,7 +139,7 @@ func newWorld(t testing.TB) *world {
 		users[id] = user
 		members = append(members, user)
 	}
-	fake.AddGuild(fakediscord.Guild{ID: guildID, Name: guildName}, members...)
+	guild := fake.AddGuild(fakediscord.Guild{ID: guildID, Name: guildName}, members...)
 
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -146,9 +151,14 @@ func newWorld(t testing.TB) *world {
 		t.Fatalf("NewNotifier: %v", err)
 	}
 
-	t.Cleanup(func() { notifier.Close(context.Background()) })
+	w := &world{fake: fake, notifier: notifier, logs: logs, logger: logger, users: users, guild: guild}
+	t.Cleanup(func() {
+		if !w.notifierClosed {
+			notifier.Close(context.Background())
+		}
+	})
 
-	return &world{fake: fake, notifier: notifier, logs: logs, logger: logger, users: users}
+	return w
 }
 
 // cancelledNotice is a notification that needs no counterpart, addressed to subject.
@@ -309,12 +319,17 @@ func finishedCount(t *testing.T, x giftexchange.ExchangeID, outcome string) int 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 
-	end := time.Now().Add(deliveryDeadline)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.NewTimer(deliveryDeadline)
+	defer timeout.Stop()
+
 	for !cond() {
-		if time.Now().After(end) {
+		select {
+		case <-timeout.C:
 			t.Fatalf("timed out waiting for %s", what)
+		case <-ticker.C:
 		}
-		time.Sleep(25 * time.Millisecond)
 	}
 }
 
