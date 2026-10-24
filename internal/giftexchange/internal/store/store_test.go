@@ -231,6 +231,19 @@ func TestInsertIdentityEnforcesProviderAndSubjectBounds(t *testing.T) {
 				t.Errorf("InsertIdentity(%q, len %d) error = %v, want error: %t",
 					tc.provider, len(tc.subject), err, tc.wantErr)
 			}
+			if err != nil || tc.wantErr {
+				return
+			}
+
+			got, err := q.GetPersonByIdentity(t.Context(),
+				db.GetPersonByIdentityParams{Provider: tc.provider, Subject: tc.subject})
+			if err != nil {
+				t.Fatalf("GetPersonByIdentity after accepted insert: %v", err)
+			}
+
+			if got != person {
+				t.Errorf("stored person = %v, want %v", got, person)
+			}
 		})
 	}
 }
@@ -240,12 +253,18 @@ func TestUpsertGroupEnforcesProviderAndSubjectBounds(t *testing.T) {
 
 	for _, tc := range constraintCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := q.UpsertGroup(t.Context(), db.UpsertGroupParams{
-				ID: uuid.New(), Provider: tc.provider, Subject: tc.subject, CreatedAt: now(),
+			id := uuid.New()
+
+			got, err := q.UpsertGroup(t.Context(), db.UpsertGroupParams{
+				ID: id, Provider: tc.provider, Subject: tc.subject, CreatedAt: now(),
 			})
 			if (err != nil) != tc.wantErr {
 				t.Errorf("UpsertGroup(%q, len %d) error = %v, want error: %t",
 					tc.provider, len(tc.subject), err, tc.wantErr)
+			}
+
+			if err == nil && got != id {
+				t.Errorf("stored group = %v, want %v", got, id)
 			}
 		})
 	}
