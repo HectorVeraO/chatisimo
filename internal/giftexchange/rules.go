@@ -475,8 +475,9 @@ func ruleViewsOf(
 }
 
 // SetRule parses ch.Raw with ParseRuleValue, checks the caller, the rule's editable states and
-// the time constraints, stores the value and returns the new view of that rule. Setting the
-// current value again changes nothing.
+// the time constraints, stores the value, schedules the jobs it makes due (the deadline draw,
+// the timed reveal and their reminders, in the same transaction) and returns the new view of
+// that rule. Setting the current value again changes nothing and schedules nothing.
 func (s *Service) SetRule(
 	ctx context.Context,
 	a Actor,
@@ -503,9 +504,9 @@ func (s *Service) SetRule(
 	}
 
 	var view RuleView
-	txErr := s.inTx(ctx, func(q *db.Queries, _ pgx.Tx) error {
+	txErr := s.inTx(ctx, func(q *db.Queries, tx pgx.Tx) error {
 		var setErr error
-		view, setErr = s.setRuleLocked(ctx, q, a, g, id, ch.Name, value, isFixed)
+		view, setErr = s.setRuleLocked(ctx, q, tx, a, g, id, ch.Name, value, isFixed)
 		return setErr
 	})
 	if txErr != nil {
@@ -518,6 +519,7 @@ func (s *Service) SetRule(
 func (s *Service) setRuleLocked(
 	ctx context.Context,
 	q *db.Queries,
+	tx pgx.Tx,
 	a Actor,
 	g GroupID,
 	id ExchangeID,
@@ -567,6 +569,10 @@ func (s *Service) setRuleLocked(
 		})
 		if updateErr != nil {
 			return RuleView{}, fmt.Errorf("update rules of %s: %w", exchange.ID, updateErr)
+		}
+		scheduleErr := s.scheduleRuleJobs(ctx, tx, exchange, name, after)
+		if scheduleErr != nil {
+			return RuleView{}, scheduleErr
 		}
 		s.logger.InfoContext(ctx, "rule changed", "exchange_id", id.String(), "rule", string(name))
 	}

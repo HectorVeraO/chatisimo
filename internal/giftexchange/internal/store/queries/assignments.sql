@@ -30,3 +30,9 @@ SELECT recipient_id
 FROM giftexchange.assignments
 WHERE exchange_id = @exchange_id
 ORDER BY recipient_id;
+
+-- name: ListAssignmentGivers :many
+SELECT giver_id
+FROM giftexchange.assignments
+WHERE exchange_id = @exchange_id
+ORDER BY giver_id;

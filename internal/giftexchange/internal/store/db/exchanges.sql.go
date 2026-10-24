@@ -29,6 +29,30 @@ func (q *Queries) CancelExchange(ctx context.Context, arg CancelExchangeParams) 
 	return err
 }
 
+const clearDrawAt = `-- name: ClearDrawAt :exec
+UPDATE giftexchange.exchanges
+SET draw_at = NULL
+WHERE id = $1
+`
+
+// The deadline draw failed: the exchange stays open without a deadline.
+func (q *Queries) ClearDrawAt(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearDrawAt, id)
+	return err
+}
+
+const clearRevealAt = `-- name: ClearRevealAt :exec
+UPDATE giftexchange.exchanges
+SET reveal_at = NULL
+WHERE id = $1
+`
+
+// A draw finds reveal_at already past: the reveal can no longer be scheduled.
+func (q *Queries) ClearRevealAt(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearRevealAt, id)
+	return err
+}
+
 const countActiveParticipants = `-- name: CountActiveParticipants :one
 SELECT count(*)
 FROM giftexchange.participants
@@ -623,6 +647,24 @@ func (q *Queries) LockExchange(ctx context.Context, id uuid.UUID) (GiftexchangeE
 	return i, err
 }
 
+const markDrawReminderSent = `-- name: MarkDrawReminderSent :exec
+UPDATE giftexchange.exchanges
+SET draw_reminder_sent_for = $1
+WHERE id = $2
+`
+
+type MarkDrawReminderSentParams struct {
+	SentFor pgtype.Timestamptz
+	ID      uuid.UUID
+}
+
+// The sent-marker closes the hole where draw_at set to A, then B, then A again leaves two
+// identical current reminder jobs.
+func (q *Queries) MarkDrawReminderSent(ctx context.Context, arg MarkDrawReminderSentParams) error {
+	_, err := q.db.Exec(ctx, markDrawReminderSent, arg.SentFor, arg.ID)
+	return err
+}
+
 const markExchangeDrawn = `-- name: MarkExchangeDrawn :exec
 UPDATE giftexchange.exchanges
 SET state = 'drawn', round = $1, drawn_at = $2, draw_at = NULL
@@ -688,6 +730,22 @@ type MarkParticipantLeftParams struct {
 // joined_at.
 func (q *Queries) MarkParticipantLeft(ctx context.Context, arg MarkParticipantLeftParams) error {
 	_, err := q.db.Exec(ctx, markParticipantLeft, arg.LeftAt, arg.ExchangeID, arg.PersonID)
+	return err
+}
+
+const markRevealReminderSent = `-- name: MarkRevealReminderSent :exec
+UPDATE giftexchange.exchanges
+SET reveal_reminder_sent_for = $1
+WHERE id = $2
+`
+
+type MarkRevealReminderSentParams struct {
+	SentFor pgtype.Timestamptz
+	ID      uuid.UUID
+}
+
+func (q *Queries) MarkRevealReminderSent(ctx context.Context, arg MarkRevealReminderSentParams) error {
+	_, err := q.db.Exec(ctx, markRevealReminderSent, arg.SentFor, arg.ID)
 	return err
 }
 

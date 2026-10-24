@@ -142,8 +142,14 @@ func (s *Service) assessNotification(
 	facts := noticeFacts{exchange: exchange}
 
 	switch NotificationKind(row.Kind) {
-	case KindDrawn, KindRedrawn, KindAssignmentChanged:
+	case KindDrawn, KindRedrawn, KindAssignmentChanged, KindRevealSoon:
 		return s.assessDrawn(ctx, q, row, facts)
+	case KindDrawSoon:
+		current := facts.exchange.exchange
+		isOpen := current.State == string(StateOpen)
+		isForCurrentDraw := current.DrawAt.Valid && instantMatches(current.DrawReminderSentFor, current.DrawAt.Time)
+		isStale := !isOpen || !isForCurrentDraw
+		return facts, isStale, nil
 	case KindRevealed:
 		return s.assessRevealed(ctx, q, row, facts)
 	default:
@@ -219,7 +225,8 @@ func (s *Service) buildNotification(
 	kind := NotificationKind(row.Kind)
 
 	switch kind {
-	case KindCancelled, KindDrawn, KindRedrawn, KindAssignmentChanged, KindRoundVoided, KindRevealed:
+	case KindCancelled, KindDrawn, KindRedrawn, KindAssignmentChanged, KindRoundVoided, KindRevealed,
+		KindDrawFailed, KindDrawSoon, KindRevealSoon:
 		return s.buildNotice(ctx, q, row, facts)
 	default:
 		panic("giftexchange: notify: no delivery rule for kind " + row.Kind)
