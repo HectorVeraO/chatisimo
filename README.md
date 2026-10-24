@@ -10,12 +10,13 @@ Chatisimo is Chatolandia's platform, written in Go.
 | Tool | Version | Notes |
 |---|---|---|
 | [mise](https://mise.jdx.dev/) | Any recent release | Installs the tools below from `mise.toml`, except Docker |
-| Go | 1.27.2 | |
+| Go | 1.27.3 | |
 | golangci-lint | 2.15.0 | Lint and format |
 | gitleaks | 8.30.1 | Secret scanning |
 | lefthook | 2.2.2 | Git hooks |
 | goose | 3.29.0 | Database migrations |
 | sqlc | 1.31.1 | Query code generation |
+| govulncheck | 1.9.0 | Vulnerability scan |
 | Docker | Compose v2 | Runs Postgres 18.6 locally |
 
 Activate mise in your shell ([instructions](https://mise.jdx.dev/getting-started.html)) so the
@@ -70,14 +71,15 @@ in the database.
 | Test | `go test ./...` |
 | Test with the race detector (needs cgo) | `go test -race ./...` |
 | Lint | `golangci-lint run ./...` |
+| Vulnerability scan | `govulncheck ./...` |
 | Format | `golangci-lint fmt` |
 | Run the pre-commit checks without committing | `lefthook run pre-commit` |
 | Stop Postgres | `docker compose down` |
 
 ## Continuous integration
 
-Every push and pull request to `master` runs five jobs. All five are required before a pull request
-can merge.
+Every push and pull request to `master` runs six jobs. All six are required before a pull request
+can merge; `govulncheck` becomes required after its first green run on `master`.
 
 | Job | What it checks |
 |---|---|
@@ -86,6 +88,7 @@ can merge.
 | `lint` | `golangci-lint`, including the import rules between packages |
 | `build` | `go build ./...` |
 | `test` | `go test -race ./...` |
+| `govulncheck` | Known vulnerabilities reachable from the code (`govulncheck ./...`) |
 
 ## Repository layout
 

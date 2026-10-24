@@ -30,6 +30,7 @@ Chatisimo is Chatolandia's platform: a modular monolith in Go, one binary (`cmd/
 | Build | `go build ./...` |
 | Test | `go test ./...` |
 | Lint | `golangci-lint run ./...` |
+| Vulnerability scan | `govulncheck ./...` |
 | Format | `golangci-lint fmt` |
 
 ## Read before
@@ -105,8 +106,8 @@ or personal data is ever pushed, rotate any secret first, then clean the history
    Héctor: it fixes every mandatory finding and applies a polish finding when it improves the
    change. Every finding left unapplied goes in the pull request body with the reason.
 4. Open a pull request to `master` from the template, with `Closes #<issue>` in the body.
-5. Merge once `gitleaks`, `identity`, `lint`, `build` and `test` pass against the latest
-   `master`. Merging closes the issue; move its card to `Done`.
+5. Merge once `gitleaks`, `identity`, `lint`, `build`, `test` and `govulncheck` pass against the
+   latest `master`. Merging closes the issue; move its card to `Done`.
 
 `master` accepts changes only through pull requests: no direct pushes, no force-pushes. Agents
 commit, push and merge on their own once every required check passes and the review
@@ -204,7 +205,7 @@ Run from the repository root before pushing:
 
 | Stack | Gate |
 |---|---|
-| Go (root module) | Format `golangci-lint fmt --diff`; lint `golangci-lint run ./...`; build `go build ./...`; test `go test ./...` (CI runs it with `-race`) |
+| Go (root module) | Format `golangci-lint fmt --diff`; lint `golangci-lint run ./...`; build `go build ./...`; test `go test ./...` (CI runs it with `-race`); vulnerabilities `govulncheck ./...` |
 
 If a check fails, fix it before pushing by default. When the developer chooses to push with a failing or skipped check, push and name that check in the PR description and final report; `--no-verify` and skip-flags stay blocked (see "Blocked actions"). Failures are subject to the **Healthy Baseline Rule** below - do not silently classify them as pre-existing.
 
