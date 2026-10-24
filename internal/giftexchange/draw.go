@@ -59,6 +59,18 @@ func (s *Service) drawLocked(
 	tx pgx.Tx,
 	exchange db.GiftexchangeExchange,
 ) error {
+	return s.drawRound(ctx, q, tx, exchange, KindDrawn)
+}
+
+// drawRound assigns the active participants of a locked exchange as round + 1, with no assignment
+// rows left from an earlier round, and queues one notice of the given kind per giver.
+func (s *Service) drawRound(
+	ctx context.Context,
+	q *db.Queries,
+	tx pgx.Tx,
+	exchange db.GiftexchangeExchange,
+	kind NotificationKind,
+) error {
 	givers, err := sortedActiveParticipants(ctx, q, exchange.ID)
 	if err != nil {
 		return err
@@ -97,7 +109,7 @@ func (s *Service) drawLocked(
 	}
 
 	for _, giver := range givers {
-		queueErr := s.queueNotification(ctx, q, tx, KindDrawn, drawn, giver)
+		queueErr := s.queueNotification(ctx, q, tx, kind, drawn, giver)
 		if queueErr != nil {
 			return queueErr
 		}
@@ -124,7 +136,48 @@ func sortedActiveParticipants(ctx context.Context, q *db.Queries, exchangeID uui
 	return people, nil
 }
 
-// forbiddenPairs returns the stored exclusions as index pairs into givers. A pair that names a
+// personPair is one forbidden giver-recipient pair, by person.
+type personPair struct {
+	giver     uuid.UUID
+	recipient uuid.UUID
+}
+
+// forbiddenPersonPairs returns the stored exclusions and, when avoid_last_round is on, the pairs
+// of the group's last Revealed exchange.
+func forbiddenPersonPairs(
+	ctx context.Context,
+	q *db.Queries,
+	exchange db.GiftexchangeExchange,
+) ([]personPair, error) {
+	exclusions, err := q.ListExclusions(ctx, exchange.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list exclusions of %s: %w", exchange.ID, err)
+	}
+
+	pairs := make([]personPair, 0, len(exclusions))
+	for _, exclusion := range exclusions {
+		pairs = append(pairs, personPair{giver: exclusion.GiverID, recipient: exclusion.RecipientID})
+	}
+
+	if !exchange.AvoidLastRound {
+		return pairs, nil
+	}
+
+	lastRound, lastErr := q.ListLastRoundAssignments(ctx, db.ListLastRoundAssignmentsParams{
+		GroupID:    exchange.GroupID,
+		ExchangeID: exchange.ID,
+	})
+	if lastErr != nil {
+		return nil, fmt.Errorf("list last round of %s: %w", exchange.ID, lastErr)
+	}
+	for _, row := range lastRound {
+		pairs = append(pairs, personPair{giver: row.GiverID, recipient: row.RecipientID})
+	}
+
+	return pairs, nil
+}
+
+// forbiddenPairs returns the forbidden pairs as index pairs into givers. A pair that names a
 // person outside givers is dropped.
 func forbiddenPairs(
 	ctx context.Context,
@@ -137,21 +190,18 @@ func forbiddenPairs(
 		index[person] = position
 	}
 
+	stored, err := forbiddenPersonPairs(ctx, q, exchange)
+	if err != nil {
+		return nil, err
+	}
+
 	var pairs []draw.Pair
-	keep := func(giver, recipient uuid.UUID) {
-		giverIndex, hasGiver := index[giver]
-		recipientIndex, hasRecipient := index[recipient]
+	for _, pair := range stored {
+		giverIndex, hasGiver := index[pair.giver]
+		recipientIndex, hasRecipient := index[pair.recipient]
 		if hasGiver && hasRecipient {
 			pairs = append(pairs, draw.Pair{Giver: giverIndex, Recipient: recipientIndex})
 		}
-	}
-
-	exclusions, err := q.ListExclusions(ctx, exchange.ID)
-	if err != nil {
-		return nil, fmt.Errorf("list exclusions of %s: %w", exchange.ID, err)
-	}
-	for _, exclusion := range exclusions {
-		keep(exclusion.GiverID, exclusion.RecipientID)
 	}
 
 	return pairs, nil

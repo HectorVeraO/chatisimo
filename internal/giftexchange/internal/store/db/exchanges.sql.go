@@ -262,8 +262,8 @@ func (q *Queries) InsertExclusion(ctx context.Context, arg InsertExclusionParams
 }
 
 const insertNotification = `-- name: InsertNotification :exec
-INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, created_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, reason, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type InsertNotificationParams struct {
@@ -272,9 +272,11 @@ type InsertNotificationParams struct {
 	ExchangeID uuid.UUID
 	PersonID   uuid.UUID
 	Round      int32
+	Reason     *string
 	CreatedAt  pgtype.Timestamptz
 }
 
+// reason is set only for the kinds that carry one (notifications_reason_kinds).
 func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotificationParams) error {
 	_, err := q.db.Exec(ctx, insertNotification,
 		arg.ID,
@@ -282,6 +284,7 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		arg.ExchangeID,
 		arg.PersonID,
 		arg.Round,
+		arg.Reason,
 		arg.CreatedAt,
 	)
 	return err
@@ -542,6 +545,50 @@ func (q *Queries) ListIdentitiesOfPersons(ctx context.Context, personIds []uuid.
 	return items, nil
 }
 
+const listLastRoundAssignments = `-- name: ListLastRoundAssignments :many
+SELECT a.giver_id, a.recipient_id
+FROM giftexchange.assignments a
+WHERE a.exchange_id = (
+    SELECT e.id
+    FROM giftexchange.exchanges e
+    WHERE e.group_id = $1 AND e.id <> $2 AND e.state = 'revealed'
+    ORDER BY e.revealed_at DESC, e.id DESC
+    LIMIT 1
+)
+`
+
+type ListLastRoundAssignmentsParams struct {
+	GroupID    uuid.UUID
+	ExchangeID uuid.UUID
+}
+
+type ListLastRoundAssignmentsRow struct {
+	GiverID     uuid.UUID
+	RecipientID uuid.UUID
+}
+
+// The pairs of the most recent other Revealed exchange of the same group: the "last round" that
+// avoid_last_round forbids. No such exchange gives no rows.
+func (q *Queries) ListLastRoundAssignments(ctx context.Context, arg ListLastRoundAssignmentsParams) ([]ListLastRoundAssignmentsRow, error) {
+	rows, err := q.db.Query(ctx, listLastRoundAssignments, arg.GroupID, arg.ExchangeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLastRoundAssignmentsRow
+	for rows.Next() {
+		var i ListLastRoundAssignmentsRow
+		if err := rows.Scan(&i.GiverID, &i.RecipientID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockExchange = `-- name: LockExchange :one
 SELECT id, group_id, organizer_id, name, state, round, draw_at, reveal_at, reminder_lead_seconds, dropout_policy, avoid_last_round, questions_enabled, draw_reminder_sent_for, reveal_reminder_sent_for, created_at, drawn_at, revealed_at, cancelled_at
 FROM giftexchange.exchanges
@@ -592,6 +639,18 @@ type MarkExchangeDrawnParams struct {
 // non-null only in state open, so the draw clears it.
 func (q *Queries) MarkExchangeDrawn(ctx context.Context, arg MarkExchangeDrawnParams) error {
 	_, err := q.db.Exec(ctx, markExchangeDrawn, arg.Round, arg.DrawnAt, arg.ID)
+	return err
+}
+
+const markExchangeVoided = `-- name: MarkExchangeVoided :exec
+UPDATE giftexchange.exchanges
+SET state = 'open', drawn_at = NULL
+WHERE id = $1
+`
+
+// A void keeps round and reveal_at. draw_at is already NULL outside state open.
+func (q *Queries) MarkExchangeVoided(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markExchangeVoided, id)
 	return err
 }
 

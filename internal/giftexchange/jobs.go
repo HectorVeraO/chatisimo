@@ -34,6 +34,26 @@ func (s *Service) queueNotification(
 	exchange db.GiftexchangeExchange,
 	addressee uuid.UUID,
 ) error {
+	return s.queueNotice(ctx, q, tx, kind, exchange, addressee, nil)
+}
+
+// queueNotice is queueNotification for the kinds that carry a reason (reason is nil for the
+// others, as the notifications table requires).
+func (s *Service) queueNotice(
+	ctx context.Context,
+	q *db.Queries,
+	tx pgx.Tx,
+	kind NotificationKind,
+	exchange db.GiftexchangeExchange,
+	addressee uuid.UUID,
+	reason *Reason,
+) error {
+	var storedReason *string
+	if reason != nil {
+		text := string(*reason)
+		storedReason = &text
+	}
+
 	id := uuid.NewV7()
 	insertErr := q.InsertNotification(ctx, db.InsertNotificationParams{
 		ID:         id,
@@ -41,6 +61,7 @@ func (s *Service) queueNotification(
 		ExchangeID: exchange.ID,
 		PersonID:   addressee,
 		Round:      exchange.Round,
+		Reason:     storedReason,
 		CreatedAt:  timestamptz(s.now()),
 	})
 	if insertErr != nil {

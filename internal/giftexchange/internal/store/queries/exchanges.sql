@@ -155,9 +155,10 @@ FROM giftexchange.external_identities
 WHERE person_id = ANY(@person_ids::uuid[])
 ORDER BY person_id, provider, subject;
 
+-- reason is set only for the kinds that carry one (notifications_reason_kinds).
 -- name: InsertNotification :exec
-INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, created_at)
-VALUES (@id, @kind, @exchange_id, @person_id, @round, @created_at);
+INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, reason, created_at)
+VALUES (@id, @kind, @exchange_id, @person_id, @round, sqlc.narg('reason'), @created_at);
 
 -- One statement, because exchanges_drawn_has_round is checked per statement. draw_at is
 -- non-null only in state open, so the draw clears it.
@@ -165,3 +166,22 @@ VALUES (@id, @kind, @exchange_id, @person_id, @round, @created_at);
 UPDATE giftexchange.exchanges
 SET state = 'drawn', round = @round, drawn_at = @drawn_at, draw_at = NULL
 WHERE id = @id;
+
+-- A void keeps round and reveal_at. draw_at is already NULL outside state open.
+-- name: MarkExchangeVoided :exec
+UPDATE giftexchange.exchanges
+SET state = 'open', drawn_at = NULL
+WHERE id = @id;
+
+-- The pairs of the most recent other Revealed exchange of the same group: the "last round" that
+-- avoid_last_round forbids. No such exchange gives no rows.
+-- name: ListLastRoundAssignments :many
+SELECT a.giver_id, a.recipient_id
+FROM giftexchange.assignments a
+WHERE a.exchange_id = (
+    SELECT e.id
+    FROM giftexchange.exchanges e
+    WHERE e.group_id = @group_id AND e.id <> @exchange_id AND e.state = 'revealed'
+    ORDER BY e.revealed_at DESC, e.id DESC
+    LIMIT 1
+);
