@@ -80,11 +80,14 @@ in the database.
 | Run the pre-commit checks without committing | `lefthook run pre-commit` |
 | Stop Postgres | `docker compose --env-file .env -f .deploy/local/docker-compose.yaml down` |
 | E2E stack | `docker compose --env-file .env -f .deploy/local/docker-compose.yaml --profile e2e up -d --build --wait`; stop with `... --profile e2e down` |
+| Browser E2E (stack up) | `npm --prefix playwright ci`, `npx --prefix playwright playwright install chromium`, then `npm --prefix playwright test` |
+| Browser E2E report | `npm --prefix playwright run report` (`playwright/playwright-report/`; videos, screenshots and traces in `playwright/test-results/`) |
 
 ## Continuous integration
 
-Every push and pull request to `master` runs six jobs. All six are required before a pull request
-can merge; `govulncheck` becomes required after its first green run on `master`.
+Every push and pull request to `master` runs the jobs below. `gitleaks`, `identity`, `lint`, `build`
+and `test` are required before a pull request can merge, and `govulncheck` becomes required after
+its first green run on `master`. `playwright` is not required.
 
 | Job | What it checks |
 |---|---|
@@ -94,6 +97,7 @@ can merge; `govulncheck` becomes required after its first green run on `master`.
 | `build` | `go build ./...` |
 | `test` | `go test -race ./...` |
 | `govulncheck` | Known vulnerabilities reachable from the code (`govulncheck ./...`) |
+| `playwright` | Browser suite against the E2E stack; uploads the `playwright-report` artifact (not required) |
 
 ## Repository layout
 
@@ -103,6 +107,7 @@ cookbooks/            architecture, coding and testing rules
 .claude/              Claude Code agents, skills, hooks and settings
 .github/              CI workflow, Dependabot, issue and pull request templates
 .deploy/local/        local compose stack and E2E images
+playwright/           browser end-to-end suite
 mise.toml             pinned toolchain
 .golangci.yml         linters, formatters, import rules
 lefthook.yml          pre-commit hooks

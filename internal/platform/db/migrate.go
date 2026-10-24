@@ -25,28 +25,30 @@ type Source interface {
 	Up(ctx context.Context, pool *pgxpool.Pool) error
 }
 
-// Migrate acquires one connection, takes pg_advisory_lock(MigrateLockKey) on it, creates each
-// source's schema (CREATE SCHEMA IF NOT EXISTS with a validated, quoted identifier), runs each
-// source's Up in the given order, and releases the lock. It is idempotent and safe to run from
-// several processes at once. Duplicate schemas are an error.
+// Migrate opens a dedicated connection from the pool's own configuration, takes
+// pg_advisory_lock(MigrateLockKey) on it, creates each source's schema (CREATE SCHEMA IF NOT
+// EXISTS with a validated, quoted identifier), runs each source's Up in the given order, and
+// releases the lock. It is idempotent and safe to run from several processes at once. Duplicate
+// schemas are an error.
 //
-// The lock connection is held while Up uses others, so the pool needs MaxConns of at least 2.
+// The lock connection lives outside the pool, so callers waiting for the lock never consume pool
+// connections and cannot starve the holder, whatever the pool size.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, sources ...Source) error {
 	validationErr := validateArguments(ctx, pool, sources)
 	if validationErr != nil {
 		return validationErr
 	}
 
-	conn, err := pool.Acquire(ctx)
+	conn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig.Copy())
 	if err != nil {
-		return fmt.Errorf("migrate: acquire connection: %w", err)
+		return fmt.Errorf("migrate: open lock connection: %w", err)
 	}
 
 	_, err = conn.Exec(ctx, "SELECT pg_advisory_lock($1)", MigrateLockKey)
 	if err != nil {
-		conn.Release()
+		closeErr := conn.Close(context.WithoutCancel(ctx))
 
-		return fmt.Errorf("migrate: take advisory lock: %w", err)
+		return fmt.Errorf("migrate: take advisory lock: %w", errors.Join(err, closeErr))
 	}
 
 	runErr := runSources(ctx, pool, conn, sources)
@@ -70,8 +72,6 @@ func validateArguments(ctx context.Context, pool *pgxpool.Pool, sources []Source
 
 	if pool == nil {
 		problems = append(problems, errors.New("migrate: nil pool"))
-	} else if pool.Config().MaxConns < 2 {
-		problems = append(problems, errors.New("migrate: pool needs MaxConns >= 2 (one connection holds the lock while migrations use another)"))
 	}
 
 	sourcesErr := validateSources(sources)
@@ -87,31 +87,29 @@ func validateArguments(ctx context.Context, pool *pgxpool.Pool, sources []Source
 	return nil
 }
 
-// unlock releases the advisory lock and the connection. A connection whose lock could not be
-// released is closed instead of returned to the pool, which ends the session and the lock with it.
-func unlock(ctx context.Context, conn *pgxpool.Conn) error {
+// unlock releases the advisory lock and closes the lock connection. Closing ends the session, so
+// the lock is gone even when the explicit release failed.
+func unlock(ctx context.Context, conn *pgx.Conn) error {
 	// The caller's context may be the reason the run failed; the lock must still be released.
 	cleanupCtx := context.WithoutCancel(ctx)
 
 	var released bool
 
 	err := conn.QueryRow(cleanupCtx, "SELECT pg_advisory_unlock($1)", MigrateLockKey).Scan(&released)
-	if err == nil && released {
-		conn.Release()
+	closeErr := conn.Close(cleanupCtx)
 
+	if err == nil && released && closeErr == nil {
 		return nil
 	}
 
-	closeErr := conn.Hijack().Close(cleanupCtx)
-
-	if err == nil {
+	if err == nil && !released {
 		err = errors.New("lock was not held")
 	}
 
 	return fmt.Errorf("migrate: release advisory lock: %w", errors.Join(err, closeErr))
 }
 
-func runSources(ctx context.Context, pool *pgxpool.Pool, conn *pgxpool.Conn, sources []Source) error {
+func runSources(ctx context.Context, pool *pgxpool.Pool, conn *pgx.Conn, sources []Source) error {
 	for _, source := range sources {
 		schema := source.Schema()
 

@@ -30,6 +30,7 @@ Chatisimo is Chatolandia's platform: a modular monolith in Go, one binary (`cmd/
 | Build | `go build ./...` |
 | Test | `go test ./...` |
 | Start / stop the E2E stack | `docker compose --env-file .env -f .deploy/local/docker-compose.yaml --profile e2e up -d --build --wait` / `... --profile e2e down` |
+| Test (browser E2E, stack up) | `npm --prefix playwright test`; report: `npm --prefix playwright run report` |
 | Lint | `golangci-lint run ./...` |
 | Vulnerability scan | `govulncheck ./...` |
 | Format | `golangci-lint fmt` |
@@ -323,6 +324,8 @@ Format: see `.claude/references/code-path-parity-format.md`. Root keeps a one-li
 <!-- Add parity rows below this line. The skill never edits below. -->
 
 - **Go and Postgres versions**: `go.mod`, `mise.toml`, `.deploy/local/Dockerfile` (`golang:` tag), `.deploy/local/docker-compose.yaml` and `ci.yml` (`postgres:` tag) name the same versions. Full row: `.claude/references/code-path-parity.md`.
+- **Texts the browser specs assert**: `internal/discord/internal/giftexchangecmd/texts.go` (and the few texts the specs also read from `list.go`, `rules.go` and `internal/giftexchange/rules.go`) and `playwright/fixtures/texts.ts` carry the same strings. Full row: `.claude/references/code-path-parity.md`.
+- **Node version**: `mise.toml` (`node`) and `.github/workflows/ci.yml` (`NODE_VERSION`) name the same version. Full row: `.claude/references/code-path-parity.md`.
 
 ## Anti-degradation governance
 
