@@ -158,3 +158,10 @@ ORDER BY person_id, provider, subject;
 -- name: InsertNotification :exec
 INSERT INTO giftexchange.notifications (id, kind, exchange_id, person_id, round, created_at)
 VALUES (@id, @kind, @exchange_id, @person_id, @round, @created_at);
+
+-- One statement, because exchanges_drawn_has_round is checked per statement. draw_at is
+-- non-null only in state open, so the draw clears it.
+-- name: MarkExchangeDrawn :exec
+UPDATE giftexchange.exchanges
+SET state = 'drawn', round = @round, drawn_at = @drawn_at, draw_at = NULL
+WHERE id = @id;

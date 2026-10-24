@@ -30,6 +30,7 @@ type Service struct {
 	pool      *pgxpool.Pool
 	scheduler *jobs.Scheduler
 	clock     Clock
+	random    Random
 	notifier  Notifier
 	logger    *slog.Logger
 }
@@ -64,6 +65,7 @@ func New(deps Deps) (*Service, error) {
 		pool:      deps.Pool,
 		scheduler: deps.Scheduler,
 		clock:     deps.Clock,
+		random:    deps.Random,
 		notifier:  deps.Notifier,
 		logger:    deps.Logger,
 	}
