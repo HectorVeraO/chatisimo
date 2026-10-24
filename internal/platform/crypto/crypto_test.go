@@ -68,6 +68,7 @@ func TestParseMasterKeyRejectsBadInput(t *testing.T) {
 		{name: "rejects an all-zero key", input: encodeBytes(make([]byte, 32)), want: "all zero"},
 		{name: "rejects surrounding spaces", input: " " + valid + " ", want: "not standard padded base64"},
 		{name: "rejects unusual unicode", input: string([]rune{0x202e, 0x200b}) + strings.Repeat(string([]rune{'e', 0x301}), 20), want: "not standard padded base64"},
+		{name: "rejects emoji", input: strings.Repeat("🔑", 11), want: "not standard padded base64"},
 		{name: "rejects very long input", input: strings.Repeat("A", 1<<16), want: "bytes, want 32"},
 	}
 

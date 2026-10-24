@@ -29,6 +29,7 @@ func FuzzParseMasterKey(f *testing.F) {
 	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 33)))
 	f.Add(strings.Repeat("A", 42) + "B=")
 	f.Add(string([]rune{0x202e, 0x200b, 'e', 0x301}))
+	f.Add(strings.Repeat("🔑", 11))
 
 	f.Fuzz(func(t *testing.T, text string) {
 		key, err := crypto.ParseMasterKey(text)
