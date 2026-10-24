@@ -57,7 +57,7 @@ func runTests(m *testing.M) int {
 		return 1
 	}
 
-	err = goleak.Find()
+	err = goleak.Find(goleak.IgnoreAnyFunction(restLimiterCleanup))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 
@@ -203,7 +203,7 @@ func TestUsageErrorsExitTwoWithoutTouchingTheEnvironment(t *testing.T) {
 		{name: "unusual unicode key", args: []string{"config", "get", "k" + string(rune(0x301)) + string(rune(0x202E)) + string(rune(0x200B)) + string(rune(0x1F600))}},
 		{name: "control characters in key", args: []string{"config", "set", "discord.token\x00\n"}},
 		{name: "very long key", args: []string{"config", "get", strings.Repeat("a.", 5000)}},
-		{name: "run is not a command yet", args: []string{"run"}},
+		{name: "run takes no arguments", args: []string{"run", "extra"}},
 	}
 
 	for _, tc := range tests {
