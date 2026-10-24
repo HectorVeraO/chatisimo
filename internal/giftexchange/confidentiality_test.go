@@ -96,6 +96,13 @@ func TestStateErrorsNameTheOperationAndStateOnly(t *testing.T) {
 	if !errors.Is(err, giftexchange.ErrInvalidState) {
 		t.Fatalf("err = %v, want ErrInvalidState", err)
 	}
+	var stateErr *giftexchange.StateError
+	if !errors.As(err, &stateErr) {
+		t.Fatalf("err = %v, want a *StateError", err)
+	}
+	if stateErr.Op != "rename" || stateErr.State != giftexchange.StateCancelled {
+		t.Errorf("state error = (%q, %q), want (rename, cancelled)", stateErr.Op, stateErr.State)
+	}
 	assertNoSecrets(t, "state error", err.Error(),
 		[]string{"Secret name Z9", s.exchange.String(), s.organizer.id.String(), s.organizer.subject})
 }
