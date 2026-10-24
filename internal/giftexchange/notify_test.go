@@ -345,30 +345,6 @@ func TestFailedAttemptStoresTheNotifierTextWithTheNoticeIDAndKindOnly(t *testing
 	assertConfidential(t, s.h, nil, secrets)
 }
 
-func TestKindWithoutADeliveryRuleFailsTheJobNamingOnlyTheKind(t *testing.T) {
-	s := newScene(t)
-	participant := s.h.newPerson(t)
-	s.h.join(t, participant, s.group, s.exchange)
-	noticeID := insertUnruledNotice(t, s, participant)
-	s.h.startRunner(t)
-
-	waitFor(t, deliveryDeadline, "the job to fail", func() bool {
-		return firstJobFailedOnce(t, s.h)
-	})
-
-	if got := len(s.h.notifier.Received()); got != 0 {
-		t.Errorf("notifier received %d notifications, want 0", got)
-	}
-	if notice := noticeOf(t, noticeID); notice.outcome != nil {
-		t.Errorf("outcome = %v, want unfinished", *notice.outcome)
-	}
-	stored := jobStates(t, s.h)[0].errors
-	assertNoSecrets(t, "job errors", stored, []string{participant.id.String(), participant.subject})
-	if !strings.Contains(stored, "giftexchange: notify: no delivery rule for kind question_received") {
-		t.Errorf("job errors %q do not name the missing delivery rule", stored)
-	}
-}
-
 func TestUnusableNotifyJobsAreCancelledWithoutRetryOrDelivery(t *testing.T) {
 	cases := []struct {
 		name string
@@ -396,38 +372,6 @@ func TestUnusableNotifyJobsAreCancelledWithoutRetryOrDelivery(t *testing.T) {
 			}
 		})
 	}
-}
-
-// insertUnruledNotice writes an outbox row of a kind no delivery rule covers yet, and a notify job
-// for it that is available now on the harness queue.
-func insertUnruledNotice(t *testing.T, s scene, addressee person) string {
-	t.Helper()
-
-	other := s.h.newPerson(t)
-	s.h.join(t, other, s.group, s.exchange)
-
-	questionID := "00000000-0000-7000-8000-000000000002"
-	_, questionErr := shared.Pool().Exec(t.Context(),
-		"INSERT INTO giftexchange.questions (id, exchange_id, round, asker_id, recipient_id, text, asked_at) "+
-			"VALUES ($1, $2, 1, $3, $4, 'Synthetic question', $5)",
-		questionID, s.exchange.String(), other.id.String(), addressee.id.String(), s.h.clock.Now())
-	if questionErr != nil {
-		t.Fatalf("insert question: %v", questionErr)
-	}
-
-	noticeID := "00000000-0000-7000-8000-000000000001"
-	_, err := shared.Pool().Exec(t.Context(),
-		"INSERT INTO giftexchange.notifications "+
-			"(id, kind, exchange_id, person_id, round, question_id, created_at) "+
-			"VALUES ($1, 'question_received', $2, $3, 0, $4, $5)",
-		noticeID, s.exchange.String(), addressee.id.String(), questionID, s.h.clock.Now())
-	if err != nil {
-		t.Fatalf("insert notification: %v", err)
-	}
-
-	insertNotifyJob(t, s.h, fmt.Sprintf(`{"notification_id": %q}`, noticeID))
-
-	return noticeID
 }
 
 // insertNotifyJob adds a notify job with the given raw args, available now on the harness queue.

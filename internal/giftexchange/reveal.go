@@ -70,6 +70,11 @@ func (s *Service) revealLocked(
 		return fmt.Errorf("mark exchange %s revealed: %w", exchange.ID, markErr)
 	}
 
+	closeErr := s.closeOpenQuestions(ctx, q, exchange.ID)
+	if closeErr != nil {
+		return closeErr
+	}
+
 	revealed := exchange
 	revealed.State = string(StateRevealed)
 	for _, recipient := range recipients {
