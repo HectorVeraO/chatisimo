@@ -23,3 +23,21 @@ Format and examples: `.claude/references/code-path-parity-format.md`.
 | What duplicates | The Go version and the Postgres version are written in several files, each by hand. |
 | Check | `go.mod` `go`, `mise.toml` `go` and the `golang:<version>-alpine` tag in `.deploy/local/Dockerfile` name the same Go version; the `postgres:<version>-alpine` tag is identical in `docker-compose.yaml` (the `postgres` and `e2e-db` services) and `ci.yml`. |
 | What breaks silently | The E2E images or CI test a Go or Postgres version that production code is not built against; a feature works locally and fails in CI, or the reverse. |
+
+### Browser spec texts
+
+| Field | Value |
+|---|---|
+| Files | `internal/discord/internal/giftexchangecmd/texts.go`, `internal/discord/internal/giftexchangecmd/list.go` (`textListTitle`, `textListLine`), `internal/discord/internal/giftexchangecmd/rules.go` (`rulesBadTimeReason`, `rulesPairArrow`), `internal/giftexchange/rules.go` (`must be in the future`), `playwright/fixtures/texts.ts` |
+| What duplicates | Every text a Playwright spec asserts is written again in `texts.ts`, with the Go formatting verbs (`%s`, `%d`) left in place; the specs fill them with the plain values the page renders. |
+| Check | For each constant in `texts.ts`, `grep -F` its exact string in the Go source named in the comment above it; the string must be found unchanged (each half of a text the Go source splits over two lines). |
+| What breaks silently | A reworded bot text leaves the spec asserting the old wording, so the browser suite fails with a locator timeout instead of a clear mismatch, or an edited constant in `texts.ts` hides a regression in the bot. |
+
+### Node version
+
+| Field | Value |
+|---|---|
+| Files | `mise.toml` (`node`), `.github/workflows/ci.yml` (`NODE_VERSION`) |
+| What duplicates | The Node version is written in both files, each by hand. |
+| Check | `node` in `mise.toml` and `NODE_VERSION` in `ci.yml` are the same string. |
+| What breaks silently | The `playwright` job runs the suite on a Node release the developers do not use; a spec passes locally and fails in CI, or the reverse. |
