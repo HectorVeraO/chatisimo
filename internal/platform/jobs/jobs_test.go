@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -456,6 +457,24 @@ func TestSchedulerRejectsInvalidArguments(t *testing.T) {
 			t.Fatal("EnqueueTx(nil tx) succeeded")
 		}
 	})
+
+	t.Run("nil context", func(t *testing.T) {
+		var nilContext context.Context
+
+		env.inTx(t, false, func(tx pgx.Tx) {
+			args := echoArgs{Token: newToken(t)}
+
+			err := env.scheduler.EnqueueTx(nilContext, tx, args)
+			if err == nil {
+				t.Fatal("EnqueueTx(nil context) succeeded")
+			}
+
+			err = env.scheduler.ScheduleTx(nilContext, tx, args, time.Now().Add(time.Hour))
+			if err == nil {
+				t.Fatal("ScheduleTx(nil context) succeeded")
+			}
+		})
+	})
 }
 
 func TestRegisterRejectsDuplicatesAndNils(t *testing.T) {
@@ -518,11 +537,51 @@ func TestNewRunnerRejectsInvalidArguments(t *testing.T) {
 	}
 }
 
+func TestZeroValueOptionsWorkTheDefaultQueue(t *testing.T) {
+	token := newToken(t)
+	env := newRig(t, nil, nil)
+
+	scheduler, err := jobs.NewScheduler(env.pool, jobs.SchedulerOptions{})
+	if err != nil {
+		t.Fatalf("new scheduler: %v", err)
+	}
+
+	runner, err := jobs.NewRunner(env.pool, env.registry, jobs.RunnerOptions{})
+	if err != nil {
+		t.Fatalf("new runner: %v", err)
+	}
+
+	err = runner.Start(context.Background())
+	if err != nil {
+		t.Fatalf("start runner: %v", err)
+	}
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), stopDeadline)
+		defer cancel()
+
+		stopErr := runner.StopAndCancel(ctx)
+		if stopErr != nil {
+			t.Errorf("stop runner at cleanup: %v", stopErr)
+		}
+	})
+
+	env.queue = river.QueueDefault
+	env.scheduler = scheduler
+	env.enqueue(t, true, token)
+	env.waitRan(t, token)
+	env.waitState(t, token, "completed")
+}
+
 func TestStopDrainsAnInFlightJob(t *testing.T) {
 	token := newToken(t)
 	release := make(chan struct{})
+
+	var finished atomic.Bool
+
 	env := newRig(t, nil, func(_ context.Context, _ *river.Job[echoArgs]) error {
 		<-release
+		finished.Store(true)
 
 		return nil
 	})
@@ -548,6 +607,10 @@ func TestStopDrainsAnInFlightJob(t *testing.T) {
 		}
 	case <-time.After(stopDeadline):
 		t.Fatal("Stop did not return after the job finished")
+	}
+
+	if !finished.Load() {
+		t.Fatal("Stop returned before the in-flight job finished")
 	}
 
 	row := env.waitState(t, token, "completed")
@@ -647,19 +710,18 @@ func TestMigrationSourceIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestMigrationSourceFingerprintIsStableAndNonEmpty(t *testing.T) {
-	first, err := jobs.NewMigrationSource().Fingerprint()
+// pinnedRiverFingerprint is the digest of the River migrations of the pinned River version.
+// Upgrading River to a release with a different migration set must update it on purpose.
+const pinnedRiverFingerprint = "15901c2e337ed302d695a5f3b75a750075dfa2dacc05cd2bf99e28d59e31ed7e"
+
+func TestMigrationSourceFingerprintTracksRiverMigrations(t *testing.T) {
+	got, err := jobs.NewMigrationSource().Fingerprint()
 	if err != nil {
 		t.Fatalf("fingerprint: %v", err)
 	}
 
-	second, err := jobs.NewMigrationSource().Fingerprint()
-	if err != nil {
-		t.Fatalf("fingerprint: %v", err)
-	}
-
-	if len(first) == 0 || string(first) != string(second) {
-		t.Fatalf("fingerprints %x and %x, want equal and non-empty", first, second)
+	if hex.EncodeToString(got) != pinnedRiverFingerprint {
+		t.Fatalf("fingerprint = %x, want %s", got, pinnedRiverFingerprint)
 	}
 }
 
