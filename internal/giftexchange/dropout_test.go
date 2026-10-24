@@ -509,8 +509,8 @@ func TestOrganizerRemovingAPersonRepairsLikeThatPersonLeaving(t *testing.T) {
 
 	outcome, err := s.h.svc.RemoveParticipant(t.Context(), s.organizer.actor, s.group, s.exchange, target.id)
 
-	if err != nil || outcome == giftexchange.OutcomeRemoved || outcome == "" {
-		t.Fatalf("RemoveParticipant = %v, %v, want a Drawn outcome", outcome, err)
+	if err != nil || outcome != giftexchange.OutcomePatched {
+		t.Fatalf("RemoveParticipant = %v, %v, want patched (the default policy)", outcome, err)
 	}
 	assertRepairedRound(t, s, without(s.people, target))
 }

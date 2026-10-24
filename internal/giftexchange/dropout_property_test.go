@@ -10,6 +10,7 @@ import (
 )
 
 func TestRandomDropoutSequencesKeepAValidPermutationOrReopen(t *testing.T) {
+	checkedRuns := 0
 	rapid.Check(t, func(rt *rapid.T) {
 		n := rapid.IntRange(3, 8).Draw(rt, "participants")
 		policy := rapid.SampledFrom([]string{"patch", "redraw"}).Draw(rt, "policy")
@@ -37,6 +38,7 @@ func TestRandomDropoutSequencesKeepAValidPermutationOrReopen(t *testing.T) {
 		if drawErr != nil {
 			rt.Fatalf("Draw: %v", drawErr)
 		}
+		checkedRuns++
 
 		remaining := append([]person(nil), s.people...)
 		for len(remaining) > 0 {
@@ -68,4 +70,8 @@ func TestRandomDropoutSequencesKeepAValidPermutationOrReopen(t *testing.T) {
 			}
 		}
 	})
+
+	if checkedRuns == 0 {
+		t.Fatal("every generated draw was infeasible, so no dropout sequence was checked")
+	}
 }
