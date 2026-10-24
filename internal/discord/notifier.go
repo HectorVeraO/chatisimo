@@ -18,6 +18,7 @@ import (
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/giftexchangecmd"
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/render"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
+	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 )
 
 const (
@@ -31,6 +32,8 @@ type Notifier struct {
 	rest   rest.Rest
 	caches cache.Caches
 	logger *slog.Logger
+	// token is kept for the Gateway client that Adapter.Open builds over this notifier.
+	token config.Secret
 }
 
 // NewNotifier validates s and builds the REST client and the guild cache. It does no I/O. It
@@ -64,6 +67,7 @@ func NewNotifier(s Settings, logger *slog.Logger) (*Notifier, error) {
 		rest:   rest.New(client, rest.WithDefaultAllowedMentions(noMentions)),
 		caches: cache.New(cache.WithCaches(cache.FlagGuilds)),
 		logger: logger,
+		token:  s.Token,
 	}
 	return notifier, nil
 }
