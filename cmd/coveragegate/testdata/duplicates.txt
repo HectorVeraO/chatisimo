@@ -1,0 +1,7 @@
+mode: count
+github.com/HectorVeraO/chatisimo/internal/alpha/a.go:1.1,2.1 4 0
+github.com/HectorVeraO/chatisimo/internal/alpha/a.go:1.1,2.1 4 3
+github.com/HectorVeraO/chatisimo/internal/alpha/a.go:5.1,6.1 6 0
+github.com/HectorVeraO/chatisimo/internal/alpha/a.go:5.1,6.1 6 0
+github.com/HectorVeraO/chatisimo/internal/alpha/a.go:7.1,8.1 2 5
+github.com/HectorVeraO/chatisimo/internal/alpha/a.go:7.1,8.1 2 0
