@@ -85,3 +85,28 @@ test("unexclude removes one direction of a mutual exclusion", async ({ world }) 
   const afterView = world.messageWithEmbed(RULES_TITLE);
   await expect(exclusionsOf(world, afterView)).toHaveText(`@Carla${texts.rulesPairArrow}@Bruno`);
 });
+
+test("a draw with exclusions that leave no assignment says how many givers are stranded", async ({ world }) => {
+  await createExchangeWithTwoParticipants(world);
+
+  // Alice organizes and takes part: Alice may draw neither Bruno nor Carla, so she has nobody.
+  await world.asUser("Alice");
+  await world.clickButton(texts.buttonJoin);
+  await expect(world.messageWithContent(texts.format(texts.joined, EXCHANGE))).toBeVisible();
+  await world.slash("/ge exclude", { giver: { user: "Alice" }, recipient: { user: "Bruno" } });
+  await expect(world.messageWithContent(texts.format(texts.excluded, "@Alice", "@Bruno"))).toBeVisible();
+  await world.slash("/ge exclude", { giver: { user: "Alice" }, recipient: { user: "Carla" } });
+  await expect(world.messageWithContent(texts.format(texts.excluded, "@Alice", "@Carla"))).toBeVisible();
+
+  await world.slash("/ge draw");
+  await expect(world.messageWithContent(texts.format(texts.confirmDraw, EXCHANGE, 3))).toBeVisible();
+  await world.clickButton(texts.buttonConfirm);
+  await expect(world.messageWithContent(texts.format(texts.infeasible, 1))).toBeVisible();
+  await expect(world.messageWithContent(texts.format(texts.drawnPublic, EXCHANGE))).toHaveCount(0);
+
+  await world.slash("/ge list");
+  const list = world.messageWithEmbed(texts.listTitle);
+  await expect(list.getByTestId("embed-description")).toHaveText(
+    texts.format(texts.listLine, EXCHANGE, "open", 3, texts.roleBoth),
+  );
+});

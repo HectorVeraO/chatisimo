@@ -72,6 +72,8 @@ export interface OutboundRecord {
   visible_to: string[];
   content: string;
   embeds: FakeEmbed[];
+  allowed_mentions_effective: { parse: string[] };
+  mentions_rendered: string[];
   pings: string[];
 }
 

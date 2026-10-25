@@ -28,9 +28,9 @@ Format and examples: `.claude/references/code-path-parity-format.md`.
 
 | Field | Value |
 |---|---|
-| Files | `internal/discord/internal/giftexchangecmd/texts.go`, `internal/discord/internal/giftexchangecmd/list.go` (`textListTitle`, `textListLine`), `internal/discord/internal/giftexchangecmd/rules.go` (`rulesBadTimeReason`, `rulesPairArrow`), `internal/giftexchange/rules.go` (`must be in the future`), `playwright/fixtures/texts.ts` |
+| Files | `internal/discord/internal/giftexchangecmd/texts.go`, `internal/discord/internal/giftexchangecmd/list.go` (`textListTitle`, `textListLine`), `internal/discord/internal/giftexchangecmd/rules.go` (`rulesBadTimeReason`, `rulesPairArrow`), `internal/giftexchange/rules.go` (`must be in the future`), `internal/giftexchange/parse.go` (the `Reason` strings), `internal/fakediscord/web/slash.js` (`characters or fewer`), `playwright/fixtures/texts.ts` |
 | What duplicates | Every text a Playwright spec asserts is written again in `texts.ts`, with the Go formatting verbs (`%s`, `%d`) left in place; the specs fill them with the plain values the page renders. |
-| Check | For each constant in `texts.ts`, `grep -F` its exact string in the Go source named in the comment above it; the string must be found unchanged (each half of a text the Go source splits over two lines). |
+| Check | For each constant in `texts.ts`, `grep -F` its exact string in the Go source named in the comment above it; the string must be found unchanged (each half of a text the Go source splits over two lines). `composerTooLong` is built by `slash.js` from `': must be '`, the option's maximum and `' characters or fewer.'`: `grep -F` each of the two literal halves there. |
 | What breaks silently | A reworded bot text leaves the spec asserting the old wording, so the browser suite fails with a locator timeout instead of a clear mismatch, or an edited constant in `texts.ts` hides a regression in the bot. |
 
 ### Node version

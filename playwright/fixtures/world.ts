@@ -1,6 +1,7 @@
 import { expect, test as base, type Locator, type Page } from "@playwright/test";
 
-import { Control, type FakeGuild, type FakeUser } from "./control";
+import { Control, type FakeGuild, type FakeUser, type OutboundRecord } from "./control";
+import * as texts from "./texts";
 
 export { expect } from "@playwright/test";
 
@@ -10,8 +11,33 @@ export { expect } from "@playwright/test";
 export type SlashValue = string | boolean | { user: string } | { choose: string };
 
 const DEFAULT_CAST = ["Alice", "Bruno", "Carla"];
-const GUILD_NAME = "Test server";
+export const GUILD_NAME = "Test server";
 const SYNC_BUDGET_MS = 10_000;
+
+// A direct message goes through a queued job: River picks it up within a few seconds.
+export const DM_BUDGET_MS = 25_000;
+
+// How long a spec waits before it asserts that a direct message never arrived.
+const ABSENCE_WINDOW_MS = 3_000;
+
+export const PAIR_MARKER_TITLES = [texts.titleRecipient, texts.titleNewRecipient, texts.titleGiver];
+
+// One embed that names a counterpart, as the page shows it.
+export interface PairMarker {
+  title: string;
+  mentionIds: string[];
+  isEphemeral: boolean;
+}
+
+// One outbound record with such an embed.
+export interface PairRecord {
+  record: OutboundRecord;
+  title: string;
+  namedId: string;
+}
+
+// Who gives to whom in one round: giver name to recipient name.
+export type Round = ReadonlyMap<string, string>;
 
 type View = "channel" | "dm";
 
@@ -26,6 +52,8 @@ function exactly(text: string): RegExp {
 export class World {
   private viewer: FakeUser;
   private view: View = "channel";
+  // The newest outbound record before the test began; records at or below it are not the test's.
+  private outboundBaseline = 0;
 
   constructor(
     readonly page: Page,
@@ -42,6 +70,7 @@ export class World {
 
   // Loads the page as the first user of the cast.
   async start(): Promise<void> {
+    this.outboundBaseline = await this.control.latestOutboundSeq();
     await this.page.goto("/");
     await this.asUser(this.viewer.name);
   }
@@ -134,6 +163,253 @@ export class World {
     }
     await this.page.getByTestId("modal-submit").click();
     await expect(modal).toBeHidden();
+  }
+
+  // The ids of every user of the cast.
+  private get castIds(): Set<string> {
+    return new Set(Object.values(this.cast).map((user) => user.id));
+  }
+
+  // The name of a cast member, from the id a mention or a record carries.
+  nameOf(userId: string): string {
+    const found = Object.values(this.cast).find((user) => user.id === userId);
+    if (found === undefined) {
+      throw new Error("a mention or record names a user outside the cast");
+    }
+    return found.name;
+  }
+
+  // The message whose content contains this text.
+  messageWithContentContaining(text: string): Locator {
+    return this.messages.filter({ has: this.page.getByTestId("message-content").filter({ hasText: text }) });
+  }
+
+  // The public card of an exchange; open the channel first.
+  card(exchangeName: string): Locator {
+    return this.messageWithEmbed(exchangeName);
+  }
+
+  // The id of an exchange, read from the custom ID of the Join button of its card.
+  async exchangeId(exchangeName: string): Promise<string> {
+    await this.openChannel();
+    const join = this.card(exchangeName).locator('[data-testid="component-button"][data-custom-id^="/gx/join/"]');
+    const customId = await join.first().getAttribute("data-custom-id");
+    if (customId === null) {
+      throw new Error("the card has no Join button");
+    }
+    return customId.slice("/gx/join/".length);
+  }
+
+  // The id of the message that holds the card of an exchange.
+  async cardMessageId(exchangeName: string): Promise<string> {
+    await this.openChannel();
+    const id = await this.card(exchangeName).first().getAttribute("data-message-id");
+    if (id === null) {
+      throw new Error("the card has no message id");
+    }
+    return id;
+  }
+
+  // The organizer creates an exchange and each joiner joins it by the card button.
+  async createExchange(organizer: string, exchangeName: string, joiners: string[] = []): Promise<void> {
+    await this.asUser(organizer);
+    await this.slash("/ge create", { name: exchangeName });
+    await expect(this.card(exchangeName)).toBeVisible();
+    for (const joiner of joiners) {
+      await this.join(joiner, exchangeName);
+    }
+  }
+
+  async join(user: string, exchangeName: string): Promise<void> {
+    await this.asUser(user);
+    await this.card(exchangeName).getByRole("button", { name: texts.buttonJoin, exact: true }).click();
+    await expect(this.messageWithContent(texts.format(texts.joined, exchangeName))).toBeVisible();
+  }
+
+  // Runs an organizer command that asks for a confirmation, confirms it and waits for every
+  // text in `results`.
+  async runConfirmed(
+    organizer: string,
+    command: string,
+    exchangeName: string,
+    prompt: string,
+    results: string[],
+  ): Promise<void> {
+    await this.asUser(organizer);
+    await this.slash(command, { exchange: { choose: exchangeName } });
+    await expect(this.messageWithContent(prompt)).toBeVisible();
+    await this.clickButton(texts.buttonConfirm);
+    for (const result of results) {
+      await expect(this.messageWithContent(result)).toBeVisible();
+    }
+  }
+
+  async draw(organizer: string, exchangeName: string, participants: number): Promise<void> {
+    const prompt = texts.format(texts.confirmDraw, exchangeName, participants);
+    await this.runConfirmed(organizer, "/ge draw", exchangeName, prompt, [
+      texts.format(texts.drawn, exchangeName),
+      texts.format(texts.drawnPublic, exchangeName),
+    ]);
+  }
+
+  async reveal(organizer: string, exchangeName: string): Promise<void> {
+    const prompt = texts.format(texts.confirmReveal, exchangeName);
+    await this.runConfirmed(organizer, "/ge reveal", exchangeName, prompt, [
+      texts.format(texts.revealed, exchangeName),
+      texts.format(texts.revealedPublic, exchangeName),
+    ]);
+  }
+
+  // The names offered by the autocomplete of one option of a command.
+  async autocompleteChoices(path: string, option: string, typed = ""): Promise<string[]> {
+    const input = this.page.getByTestId("slash-input");
+    await input.fill(path);
+    const control = this.page.locator(`[data-testid="slash-option"][data-option="${option}"]`);
+    if (typed === "") {
+      await control.focus();
+    } else {
+      await control.fill(typed);
+    }
+    const choices = this.page.getByTestId("autocomplete-choice");
+    await expect(choices.first()).toBeVisible();
+    const names = (await choices.allTextContents()).map((name) => name.trim());
+    await input.fill("");
+    return names;
+  }
+
+  // The pair markers the page shows in the current view, in page order.
+  async pairMarkers(): Promise<PairMarker[]> {
+    return this.messages.evaluateAll((nodes, titles) => {
+      const found: { title: string; mentionIds: string[]; isEphemeral: boolean }[] = [];
+      for (const node of nodes) {
+        for (const embed of Array.from(node.querySelectorAll('[data-testid="embed"]'))) {
+          const title = (embed.querySelector('[data-testid="embed-title"]')?.textContent ?? "").trim();
+          if (!titles.includes(title)) {
+            continue;
+          }
+          const mentions = Array.from(
+            embed.querySelectorAll('[data-testid="embed-description"] [data-testid="mention"]'),
+          );
+          found.push({
+            title,
+            mentionIds: mentions.map((mention) => mention.getAttribute("data-user-id") ?? ""),
+            isEphemeral: node.getAttribute("data-ephemeral") === "true",
+          });
+        }
+      }
+      return found;
+    }, PAIR_MARKER_TITLES);
+  }
+
+  // Gives a direct message that must not exist time to arrive, so an absence check that follows
+  // can fail on a late one.
+  async letLateDmsArrive(): Promise<void> {
+    await this.page.waitForTimeout(ABSENCE_WINDOW_MS);
+  }
+
+  // The pair markers in a user's bot DM, once at least `atLeast` of them are there.
+  async dmMarkers(user: string, atLeast = 0): Promise<PairMarker[]> {
+    await this.asUser(user);
+    await this.openDirectMessages();
+    await expect
+      .poll(async () => (await this.pairMarkers()).length, {
+        message: `the DM of ${user} never held ${atLeast} pair markers`,
+        timeout: DM_BUDGET_MS,
+      })
+      .toBeGreaterThanOrEqual(atLeast);
+    return this.pairMarkers();
+  }
+
+  // Reads each giver's current recipient from the latest "Your recipient" or "Your new
+  // recipient" DM.
+  async recipientsFromDms(givers: string[]): Promise<Map<string, string>> {
+    const round = new Map<string, string>();
+    for (const giver of givers) {
+      const markers = (await this.dmMarkers(giver, 1)).filter((marker) => marker.title !== texts.titleGiver);
+      const latest = markers[markers.length - 1];
+      if (latest === undefined || latest.mentionIds.length !== 1) {
+        throw new Error(`${giver} has no single recipient in the DM`);
+      }
+      round.set(giver, this.nameOf(latest.mentionIds[0] ?? ""));
+    }
+    return round;
+  }
+
+  // Every outbound record of this test, from the cast's point of view, with a pair marker.
+  async pairRecords(): Promise<PairRecord[]> {
+    const records = await this.control.outbound(this.outboundBaseline);
+    const ids = this.castIds;
+    const found: PairRecord[] = [];
+    for (const record of records) {
+      if (!record.visible_to.some((id) => ids.has(id))) {
+        continue;
+      }
+      for (const embed of record.embeds) {
+        const title = embed.title ?? "";
+        if (PAIR_MARKER_TITLES.includes(title)) {
+          const named = /<@!?(\d+)>/.exec(embed.description ?? "");
+          found.push({ record, title, namedId: named?.[1] ?? "" });
+        }
+      }
+    }
+    return found;
+  }
+
+  // Every outbound record of this test that is visible to a cast member.
+  async castRecords(): Promise<OutboundRecord[]> {
+    const records = await this.control.outbound(this.outboundBaseline);
+    const ids = this.castIds;
+    return records.filter((record) => record.visible_to.some((id) => ids.has(id)));
+  }
+
+  // Whether `named` is the counterpart a marker with this title may show to `viewer` in one of
+  // the rounds: the recipient of the viewer, or for "Your giver" the giver of the viewer.
+  private namesOwnCounterpart(viewer: string, title: string, named: string, rounds: Round[]): boolean {
+    return rounds.some((round) =>
+      title === texts.titleGiver ? round.get(named) === viewer : round.get(viewer) === named,
+    );
+  }
+
+  // Walks a user's channel and DM and checks every pair marker there names the user's own
+  // counterpart; an outsider (in no round) must see none.
+  private async expectOwnMarkersOnly(user: string, rounds: Round[]): Promise<void> {
+    await this.asUser(user);
+    const inChannel = await this.pairMarkers();
+    await this.openDirectMessages();
+    const inDm = await this.pairMarkers();
+
+    for (const marker of inChannel) {
+      expect(marker.isEphemeral, `${user} sees a public ${marker.title}`).toBe(true);
+    }
+    for (const marker of [...inChannel, ...inDm]) {
+      expect(marker.mentionIds, `${user}: ${marker.title} must name one user`).toHaveLength(1);
+      const named = this.nameOf(marker.mentionIds[0] ?? "");
+      const isOwn = this.namesOwnCounterpart(user, marker.title, named, rounds);
+      expect(isOwn, `${user} sees ${marker.title} naming ${named}, who is not their counterpart`).toBe(true);
+    }
+  }
+
+  // The confidentiality check: the UI walk of every user, then the outbound records.
+  async expectConfidential(rounds: Round[], outsiders: string[], participants: string[]): Promise<void> {
+    for (const outsider of outsiders) {
+      await this.expectOwnMarkersOnly(outsider, []);
+    }
+    for (const participant of participants) {
+      await this.expectOwnMarkersOnly(participant, rounds);
+    }
+
+    const outsiderIds = new Set(outsiders.map((name) => this.user(name).id));
+    for (const { record, title, namedId } of await this.pairRecords()) {
+      expect(record.visible_to, `a ${title} record must have one reader`).toHaveLength(1);
+      const readerId = record.visible_to[0] ?? "";
+      const reader = this.nameOf(readerId);
+      expect(outsiderIds.has(readerId), `${reader} is an outsider and got a ${title}`).toBe(false);
+      const isPrivate = record.ephemeral || record.source === "dm";
+      expect(isPrivate, `a ${title} record is public`).toBe(true);
+      const named = this.nameOf(namedId);
+      const isOwn = this.namesOwnCounterpart(reader, title, named, rounds);
+      expect(isOwn, `${reader} got ${title} naming ${named}, who is not their counterpart`).toBe(true);
+    }
   }
 
   private async fillOption(name: string, value: SlashValue): Promise<void> {
