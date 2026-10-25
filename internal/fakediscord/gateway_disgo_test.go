@@ -163,27 +163,31 @@ func TestBotReachesReady(t *testing.T) {
 
 func TestHeartbeatsAreAcknowledged(t *testing.T) {
 	t.Parallel()
-	const interval = 100 * time.Millisecond
+	const (
+		interval         = 250 * time.Millisecond
+		wantAcknowledged = 4
+	)
 	srv := startFake(t, fakediscord.Options{HeartbeatInterval: interval})
 	srv.AddGuild(fakediscord.Guild{ID: winterGuildID, Name: "Winter guild"})
 	h := newBot(t, srv, srv.Token())
 	h.open(t)
 	waitChan(t, h.guilds, gatewayTimeout, "GuildReady")
 
-	waitFor(t, gatewayTimeout, "a heartbeat ACK", func() bool {
-		return h.client.Gateway.Latency() > 0
+	// Wait on the condition, never on a window: the session must have been acknowledged
+	// several times, however slowly the machine runs.
+	waitFor(t, gatewayTimeout, "several heartbeat ACKs", func() bool {
+		return srv.HeartbeatAcks() >= wantAcknowledged
 	})
 
-	// Observing that the session survives needs real time: several intervals must pass, in
-	// which an unacknowledged heartbeat would have made the client reconnect.
-	held := time.NewTimer(6 * interval)
-	defer held.Stop()
 	select {
-	case <-held.C:
 	case <-h.resumed:
 		t.Fatal("the client reconnected although heartbeats were acknowledged")
 	case err := <-h.closed:
 		t.Fatalf("the client's gateway closed: %v", err)
+	default:
+	}
+	if resumes := srv.Resumes(); resumes != 0 {
+		t.Errorf("Resumes() = %d, want 0", resumes)
 	}
 	if status := h.client.Gateway.Status(); status != gateway.StatusReady {
 		t.Errorf("gateway status = %v, want ready", status)

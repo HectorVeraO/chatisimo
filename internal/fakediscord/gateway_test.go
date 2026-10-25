@@ -407,8 +407,11 @@ func TestHeartbeatIsAcknowledged(t *testing.T) {
 	for {
 		frame := g.read(t)
 		if frame.Op == 11 {
-			return
+			break
 		}
+	}
+	if got := srv.HeartbeatAcks(); got != 1 {
+		t.Errorf("HeartbeatAcks() = %d, want 1", got)
 	}
 }
 
