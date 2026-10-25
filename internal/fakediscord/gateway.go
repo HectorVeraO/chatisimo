@@ -274,6 +274,10 @@ func (s *Server) readLoop(c *wsConn) {
 func (s *Server) handleFrame(c *wsConn, in frame) {
 	switch in.Op {
 	case opHeartbeat:
+		// Count before sending, so a reader that has seen the ACK sees the count too.
+		s.mu.Lock()
+		s.heartbeatAcks++
+		s.mu.Unlock()
 		c.enqueue(mustMarshalFrame(frame{Op: opHeartbeatACK}))
 	case opIdentify:
 		s.handleIdentify(c, in.D)
