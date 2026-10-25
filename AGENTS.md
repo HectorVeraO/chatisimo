@@ -120,6 +120,16 @@ left no mandatory finding. A change that touches `.github/`, `AGENTS.md`, `cookb
 `.claude/`, `lefthook.yml`, `.gitleaks.toml` or the GitHub ruleset still needs Héctor's explicit
 approval before merging. Design notes, research and decisions stay out of this repository.
 
+**Dependabot PRs** (`.github/dependabot.yml`). An agent merges one on green, with no issue and no
+review rounds, when it is a minor or patch update (from a version group or a security update; a
+major one never qualifies, security or not), every required check passes, it changes only
+`go.mod`/`go.sum`, `playwright/package.json`/`package-lock.json` or the pinned action references
+in `.github/workflows/` (a standing exception to the protected-path rule, approved by Héctor), and
+it leaves the `go` and `toolchain` lines and every Code Path Parity file untouched. Before merging, read the release notes of each bumped dependency and stop on a stated
+breaking change. A major update gets an issue and a normal track built on the Dependabot branch.
+Docker image tags, `mise.toml`, the Go toolchain and Node are bumped by hand, one PR per parity row.
+Bot PRs are exempt from the PR template and from the `Refs:` and `Co-Authored-By` trailers.
+
 ## Branch types
 
 - **`feature/<slug>`**: new work, an improvement, a task. Base: `master`; merges back via PR.

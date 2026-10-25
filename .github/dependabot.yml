@@ -1,14 +1,62 @@
+# Merge rules for these PRs: AGENTS.md, "Dependabot PRs". Docker image tags, mise.toml, the Go
+# toolchain and Node are not managed here; they are bumped by hand, one PR per parity row.
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Santiago
+    # Version updates wait until a release is two weeks old; security updates are not delayed.
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+    groups:
+      gomod-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: chore(deps)
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Santiago
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: chore(deps)
   - package-ecosystem: npm
     directory: /playwright
     schedule:
       interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Santiago
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+    groups:
+      playwright-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: chore(deps)
