@@ -1,0 +1,9 @@
+mode: set
+github.com/HectorVeraO/chatisimo/internal/alpha/a.go:1.1,2.1 8 1
+github.com/HectorVeraO/chatisimo/internal/alpha/a.go:3.1,4.1 2 0
+github.com/HectorVeraO/chatisimo/internal/beta/b.go:1.1,2.1 10 1
+github.com/HectorVeraO/chatisimo/internal/fakediscord/f.go:1.1,2.1 50 0
+github.com/HectorVeraO/chatisimo/internal/fakediscord/sub/g.go:1.1,2.1 5 0
+github.com/HectorVeraO/chatisimo/cmd/fakediscord/main.go:1.1,2.1 7 0
+github.com/HectorVeraO/chatisimo/cmd/coveragegate/main.go:1.1,2.1 9 0
+github.com/HectorVeraO/chatisimo/e2e/world.go:1.1,2.1 11 0
