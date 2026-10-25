@@ -127,7 +127,7 @@ can merge: `gitleaks`, `identity`, `lint`, `build`, `test`, `govulncheck`, `e2e`
 
 A separate `mutation` workflow runs nightly (07:00 UTC) and on demand through `workflow_dispatch`.
 It runs [gremlins](https://github.com/go-gremlins/gremlins) on `internal/giftexchange` to find tests
-that pass without checking anything, and publishes the killed, lived, not covered and timed out
+that pass without checking anything, and publishes the killed, lived and not covered
 counts and the test efficacy as the job summary, with the JSON report attached as an artifact. It is
 a report, not a required check.
 

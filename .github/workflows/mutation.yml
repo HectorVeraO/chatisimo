@@ -48,12 +48,16 @@ jobs:
             echo "gremlins produced no report; see the job log." >> "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
+          if ! jq -e '[.mutants_killed, .mutants_lived, .mutants_not_covered, .test_efficacy, .mutations_coverage] | all(type == "number")' "${report}" > /dev/null; then
+            echo "gremlins report lacks the expected fields; see the job log and the artifact." >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
           {
             echo "## Mutation testing: internal/giftexchange"
             echo
-            echo "| Killed | Lived | Not covered | Timed out | Test efficacy | Mutator coverage |"
-            echo "|---:|---:|---:|---:|---:|---:|"
-            jq -r '"| \(.mutants_killed // 0) | \(.mutants_lived // 0) | \(.mutants_not_covered // 0) | \(.mutants_timed_out // 0) | \(.test_efficacy // 0 | . * 100 | round / 100)% | \(.mutations_coverage // 0 | . * 100 | round / 100)% |"' "${report}"
+            echo "| Killed | Lived | Not covered | Test efficacy | Mutator coverage |"
+            echo "|---:|---:|---:|---:|---:|"
+            jq -r '"| \(.mutants_killed) | \(.mutants_lived) | \(.mutants_not_covered) | \(.test_efficacy * 100 | round / 100)% | \(.mutations_coverage * 100 | round / 100)% |"' "${report}"
             lived="$(jq -r '[.files[]? | .file_name as $f | .mutations[]? | select(.status == "LIVED") | "- `\($f):\(.line):\(.column)` \(.type)"] | .[]' "${report}")"
             if [ -n "${lived}" ]; then
               echo
