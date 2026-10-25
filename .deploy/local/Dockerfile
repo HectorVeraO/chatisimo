@@ -5,7 +5,8 @@ ENV CGO_ENABLED=0
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -cover -coverpkg=./... -o /out/chatisimo ./cmd/chatisimo \
+# atomic matches the unit coverage run, so every coverage directory can be merged.
+RUN go build -cover -covermode=atomic -coverpkg=./... -o /out/chatisimo ./cmd/chatisimo \
  && go build -o /out/fakediscord ./cmd/fakediscord
 
 FROM alpine:3.24.2 AS fakediscord

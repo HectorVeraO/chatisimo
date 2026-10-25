@@ -74,6 +74,7 @@ in the database.
 | Build | `go build ./...` |
 | Test | `go test ./...` |
 | Test with the race detector (needs cgo) | `go test -race ./...` |
+| Go E2E (needs Postgres) | `go test -tags e2e -count=1 ./e2e/...` |
 | Lint | `golangci-lint run ./...` |
 | Vulnerability scan | `govulncheck ./...` |
 | Format | `golangci-lint fmt` |
@@ -83,11 +84,34 @@ in the database.
 | Browser E2E (stack up) | `npm --prefix playwright ci`, `npx --prefix playwright playwright install chromium`, then `npm --prefix playwright test` |
 | Browser E2E report | `npm --prefix playwright run report` (`playwright/playwright-report/`; videos, screenshots and traces in `playwright/test-results/`) |
 
+## Coverage
+
+Unit, integration and Go E2E coverage are merged with `go tool covdata`, and `cmd/coveragegate`
+compares the merged total with `.coverage-floor`. `.coverage-floor` holds the minimum merged
+coverage as one number with one decimal. The pull request that improves coverage raises it; it is
+never lowered, and CI fails when a pull request lowers it below the floor on `master`. Packages
+that are test infrastructure (`internal/fakediscord`, `cmd/fakediscord`, `cmd/coveragegate`, `e2e`)
+do not count. Postgres must be up for the first two commands (`DATABASE_URL`, `MASTER_KEY` and
+`CHATISIMO_ENV` set).
+
+```bash
+mkdir -p .cover/unit .cover/e2e .cover/merged
+go test -cover -coverpkg=./... ./... -args -test.gocoverdir="$PWD/.cover/unit"
+go test -tags e2e -count=1 -timeout 15m ./e2e/... -args -coverdir="$PWD/.cover/e2e"
+go tool covdata merge -i=.cover/unit,.cover/e2e -o .cover/merged
+go tool covdata textfmt -i=.cover/merged -o .cover/coverage.out
+go run ./cmd/coveragegate -profile .cover/coverage.out -floor .coverage-floor
+```
+
+CI adds `-race` to the unit run. Without `-floor`, `coveragegate` only measures: it prints the
+total and a suggested floor. Exit codes: 0 pass, 1 total below the floor, 2 bad input, 3 floor
+lowered against `master`. The Playwright suite uploads its coverage but is not part of the gate.
+
 ## Continuous integration
 
-Every push and pull request to `master` runs the jobs below. `gitleaks`, `identity`, `lint`, `build`
-and `test` are required before a pull request can merge, and `govulncheck` becomes required after
-its first green run on `master`. `playwright` is not required.
+Every push and pull request to `master` runs nine jobs. Eight are required before a pull request
+can merge: `gitleaks`, `identity`, `lint`, `build`, `test`, `govulncheck`, `e2e` and `coverage`.
+`playwright` is not required.
 
 | Job | What it checks |
 |---|---|
@@ -95,8 +119,10 @@ its first green run on `master`. `playwright` is not required.
 | `identity` | Every commit author and committer email is a GitHub noreply address |
 | `lint` | `golangci-lint`, including the import rules between packages |
 | `build` | `go build ./...` |
-| `test` | `go test -race ./...` |
+| `test` | `go test -race -cover -coverpkg=./... ./...`; uploads the `cover-unit` coverage data |
+| `e2e` | `go test -tags e2e` against the `-cover` build of the bot and the fake Discord; uploads `cover-e2e` |
 | `govulncheck` | Known vulnerabilities reachable from the code (`govulncheck ./...`) |
+| `coverage` | Merged unit, integration and E2E coverage against `.coverage-floor`; fails if the floor was lowered |
 | `playwright` | Browser suite against the E2E stack; uploads the `playwright-report` artifact (not required) |
 
 ## Repository layout
@@ -108,6 +134,7 @@ cookbooks/            architecture, coding and testing rules
 .github/              CI workflow, Dependabot, issue and pull request templates
 .deploy/local/        local compose stack and E2E images
 playwright/           browser end-to-end suite
+.coverage-floor       minimum merged coverage
 mise.toml             pinned toolchain
 .golangci.yml         linters, formatters, import rules
 lefthook.yml          pre-commit hooks

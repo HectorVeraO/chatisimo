@@ -110,8 +110,9 @@ func buildBinary(ctx context.Context, dir string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, buildTimeout)
 	defer cancel()
 
+	// atomic matches the unit run, which -race forces to atomic; covdata merge rejects mixed modes.
 	//nolint:gosec // fixed arguments; out is a path this harness chose
-	cmd := exec.CommandContext(ctx, "go", "build", "-cover", "-coverpkg=./...", "-o", out, "./cmd/chatisimo")
+	cmd := exec.CommandContext(ctx, "go", "build", "-cover", "-covermode=atomic", "-coverpkg=./...", "-o", out, "./cmd/chatisimo")
 	cmd.Dir = root
 	output, err := cmd.CombinedOutput()
 	if err != nil {
