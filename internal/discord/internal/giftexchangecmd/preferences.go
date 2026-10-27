@@ -83,8 +83,9 @@ func (h *Handlers) preferencesCommand(data discord.SlashCommandInteractionData, 
 		return nameErr
 	}
 
-	content := fmt.Sprintf(textPreferencesSaved, render.Bold(name))
-	embed := withPreferences(render.Embed(fmt.Sprintf(textTitlePreferences, render.Text(name)), ""), saved)
+	c := h.catalog(LocaleEN)
+	content := c.Format(textPreferencesSaved, render.Bold(name))
+	embed := withPreferences(c, render.Embed(c.Format(textTitlePreferences, render.Text(name)), ""), saved)
 	embeds := []discord.Embed{embed}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &content, Embeds: &embeds})
 	if editErr != nil {
@@ -110,7 +111,8 @@ func (h *Handlers) clearPreferences(
 		return nameErr
 	}
 
-	content := fmt.Sprintf(textPreferencesCleared, render.Bold(name))
+	c := h.catalog(LocaleEN)
+	content := c.Format(textPreferencesCleared, render.Bold(name))
 	embeds := []discord.Embed{}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &content, Embeds: &embeds})
 	if editErr != nil {
@@ -136,8 +138,9 @@ func (h *Handlers) viewPreferences(
 		return nameErr
 	}
 
+	c := h.catalog(LocaleEN)
 	if prefs.IsEmpty() {
-		content := fmt.Sprintf(textPreferencesNone, render.Bold(name))
+		content := c.Format(textPreferencesNone, render.Bold(name))
 		editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &content})
 		if editErr != nil {
 			return editErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -145,7 +148,7 @@ func (h *Handlers) viewPreferences(
 		return nil
 	}
 
-	embed := withPreferences(render.Embed(fmt.Sprintf(textTitlePreferences, render.Text(name)), ""), prefs)
+	embed := withPreferences(c, render.Embed(c.Format(textTitlePreferences, render.Text(name)), ""), prefs)
 	embeds := []discord.Embed{embed}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
 	if editErr != nil {
@@ -156,15 +159,15 @@ func (h *Handlers) viewPreferences(
 }
 
 // withPreferences appends the non-empty preference fields to embed with their values escaped.
-func withPreferences(embed discord.Embed, prefs giftexchange.Preferences) discord.Embed {
+func withPreferences(c Catalog, embed discord.Embed, prefs giftexchange.Preferences) discord.Embed {
 	if prefs.Likes != "" {
-		embed = render.WithField(embed, textFieldLikes, render.Text(prefs.Likes))
+		embed = render.WithField(embed, c.Get(textFieldLikes), render.Text(prefs.Likes))
 	}
 	if prefs.Dislikes != "" {
-		embed = render.WithField(embed, textFieldDislikes, render.Text(prefs.Dislikes))
+		embed = render.WithField(embed, c.Get(textFieldDislikes), render.Text(prefs.Dislikes))
 	}
 	if prefs.Details != "" {
-		embed = render.WithField(embed, textFieldDetails, render.Text(prefs.Details))
+		embed = render.WithField(embed, c.Get(textFieldDetails), render.Text(prefs.Details))
 	}
 	return embed
 }

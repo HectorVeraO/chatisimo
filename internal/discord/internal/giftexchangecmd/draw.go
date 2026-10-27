@@ -21,13 +21,13 @@ type drawStep struct {
 	// needState is the only state the action starts from.
 	needState giftexchange.State
 	// prompt returns the confirmation text for the exchange.
-	prompt func(view giftexchange.ExchangeView) string
+	prompt func(c Catalog, view giftexchange.ExchangeView) string
 	run    func(
 		ctx context.Context, a giftexchange.Actor, g giftexchange.GroupID, id giftexchange.ExchangeID,
 	) error
 	// doneText and publicText take the exchange name in bold.
-	doneText   string
-	publicText string
+	doneText   MsgID
+	publicText MsgID
 }
 
 func (h *Handlers) registerDraw(r *router.Router) {
@@ -45,8 +45,8 @@ func (h *Handlers) drawStepOf(verb string) drawStep {
 			verb:      "draw",
 			confirm:   actionDrawConfirm,
 			needState: giftexchange.StateOpen,
-			prompt: func(view giftexchange.ExchangeView) string {
-				return fmt.Sprintf(textConfirmDraw, render.Bold(view.Name), view.ParticipantCount)
+			prompt: func(c Catalog, view giftexchange.ExchangeView) string {
+				return c.Format(textConfirmDraw, render.Bold(view.Name), view.ParticipantCount)
 			},
 			run:        h.svc.Draw,
 			doneText:   textDrawn,
@@ -57,8 +57,8 @@ func (h *Handlers) drawStepOf(verb string) drawStep {
 			verb:      "reveal",
 			confirm:   actionRevealConfirm,
 			needState: giftexchange.StateDrawn,
-			prompt: func(view giftexchange.ExchangeView) string {
-				return fmt.Sprintf(textConfirmReveal, render.Bold(view.Name))
+			prompt: func(c Catalog, view giftexchange.ExchangeView) string {
+				return c.Format(textConfirmReveal, render.Bold(view.Name))
 			},
 			run:        h.svc.Reveal,
 			doneText:   textRevealed,
@@ -124,12 +124,13 @@ func (h *Handlers) drawAsk(
 		return guardErr
 	}
 
-	text := step.prompt(view)
+	c := h.catalog(LocaleEN)
+	text := step.prompt(c, view)
 	confirmID := formatCustomID(customID{Action: step.confirm, Exchange: id})
 	backID := formatCustomID(customID{Action: actionDismiss, Exchange: id})
 	row := discord.NewActionRow(
-		discord.NewPrimaryButton(textButtonConfirm, confirmID),
-		discord.NewSecondaryButton(textButtonBack, backID),
+		discord.NewPrimaryButton(c.Get(textButtonConfirm), confirmID),
+		discord.NewSecondaryButton(c.Get(textButtonBack), backID),
 	)
 	components := []discord.LayoutComponent{row}
 
@@ -188,7 +189,8 @@ func (h *Handlers) drawConfirm(e *handler.ComponentEvent, step drawStep) error {
 		return fmt.Errorf("%s exchange: %w", step.verb, runErr)
 	}
 
-	h.drawAnnounce(e.Ctx, req, step, view.Name)
+	c := h.catalog(LocaleEN)
+	h.drawAnnounce(e.Ctx, req, c, step, view.Name)
 
 	return nil
 }
@@ -196,14 +198,14 @@ func (h *Handlers) drawConfirm(e *handler.ComponentEvent, step drawStep) error {
 // drawAnnounce edits the prompt into the done text and posts the public followup. The change
 // already happened, so a failure of either call is logged and never reported as a failed
 // confirm: the organizer would retry against an exchange that is already drawn.
-func (h *Handlers) drawAnnounce(ctx context.Context, req *router.Request, step drawStep, name string) {
+func (h *Handlers) drawAnnounce(ctx context.Context, req *router.Request, c Catalog, step drawStep, name string) {
 	bold := render.Bold(name)
-	done := fmt.Sprintf(step.doneText, bold)
+	done := c.Format(step.doneText, bold)
 	embeds := []discord.Embed{}
 	components := []discord.LayoutComponent{}
 
 	editErr := req.EditOriginal(ctx, discord.MessageUpdate{Content: &done, Embeds: &embeds, Components: &components})
-	followupErr := req.FollowupPublic(ctx, discord.MessageCreate{Content: fmt.Sprintf(step.publicText, bold)})
+	followupErr := req.FollowupPublic(ctx, discord.MessageCreate{Content: c.Format(step.publicText, bold)})
 
 	failed := errors.Join(editErr, followupErr)
 	if failed != nil {

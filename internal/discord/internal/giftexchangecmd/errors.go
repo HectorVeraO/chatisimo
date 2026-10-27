@@ -48,9 +48,16 @@ func rejected(reason, text string) router.Rejection {
 	return router.Rejection{Text: text, Outcome: outcomeRejectedPrefix + reason}
 }
 
-// MapError turns an error a handler returned into the reply and the log outcome. The first
-// match wins. requestID is the reference shown for unexpected failures.
+// MapError turns an error a handler returned into the English reply and the log outcome.
+// The first match wins. requestID is the reference shown for unexpected failures.
 func MapError(requestID string, err error) router.Rejection {
+	return MapErrorIn(LocaleEN, requestID, err)
+}
+
+// MapErrorIn turns an error a handler returned into the reply in loc (falling back to
+// LocaleEN) and the log outcome.
+func MapErrorIn(loc Locale, requestID string, err error) router.Rejection {
+	c := CatalogFor(loc)
 	var (
 		infeasible *giftexchange.InfeasibleError
 		locked     *giftexchange.RuleLockedError
@@ -60,58 +67,58 @@ func MapError(requestID string, err error) router.Rejection {
 
 	switch {
 	case errors.Is(err, giftexchange.ErrNotFound):
-		return rejected("not_found", textNotFound)
+		return rejected("not_found", c.Get(textNotFound))
 	case errors.Is(err, errOwnRecipient):
-		return rejected("forbidden", textOwnRecipient)
+		return rejected("forbidden", c.Get(textOwnRecipient))
 	case errors.Is(err, giftexchange.ErrForbidden):
-		return rejected("forbidden", textForbidden)
+		return rejected("forbidden", c.Get(textForbidden))
 	// ParseRuleName joins ErrUnknownRule with ErrInvalidInput, so this case must come first.
 	case errors.Is(err, giftexchange.ErrUnknownRule):
-		return rejected("rule", textUnknownRule)
+		return rejected("rule", c.Get(textUnknownRule))
 	case errors.Is(err, giftexchange.ErrInvalidInput):
-		return rejected("invalid_input", invalidInputText(err))
+		return rejected("invalid_input", invalidInputText(c, err))
 	case errors.Is(err, giftexchange.ErrAlreadyParticipant):
-		return rejected("already_participant", textAlreadyParticipant)
+		return rejected("already_participant", c.Get(textAlreadyParticipant))
 	case errors.Is(err, giftexchange.ErrNotParticipant):
-		return rejected("not_participant", textNotParticipant)
+		return rejected("not_participant", c.Get(textNotParticipant))
 	case errors.Is(err, giftexchange.ErrExchangeFull):
-		return rejected("full", fmt.Sprintf(textFull, giftexchange.MaxParticipants))
+		return rejected("full", c.Format(textFull, giftexchange.MaxParticipants))
 	case errors.Is(err, giftexchange.ErrTooFewParticipants):
-		return rejected("too_few", fmt.Sprintf(textTooFew, giftexchange.MinParticipants))
+		return rejected("too_few", c.Format(textTooFew, giftexchange.MinParticipants))
 	case errors.As(err, &infeasible):
-		return rejected("infeasible", fmt.Sprintf(textInfeasible, infeasible.Stranded))
+		return rejected("infeasible", c.Format(textInfeasible, infeasible.Stranded))
 	case errors.Is(err, giftexchange.ErrRuleFixed):
-		return rejected("rule", textRuleFixed)
+		return rejected("rule", c.Get(textRuleFixed))
 	case errors.As(err, &locked):
-		return rejected("rule", fmt.Sprintf(textRuleLocked, locked.State))
+		return rejected("rule", c.Format(textRuleLocked, stateText(c, locked.State)))
 	case errors.Is(err, giftexchange.ErrQuestionsDisabled):
-		return rejected("questions_off", textQuestionsOff)
+		return rejected("questions_off", c.Get(textQuestionsOff))
 	case errors.Is(err, giftexchange.ErrRateLimited):
-		return rejected("rate_limited", textRateLimited)
+		return rejected("rate_limited", c.Get(textRateLimited))
 	case errors.Is(err, giftexchange.ErrRephraseUnavailable):
-		return rejected("rephrase_unavailable", textRephraseFailed)
+		return rejected("rephrase_unavailable", c.Get(textRephraseFailed))
 	case errors.Is(err, giftexchange.ErrQuestionClosed):
-		return rejected("question", textQuestionClosed)
+		return rejected("question", c.Get(textQuestionClosed))
 	case errors.Is(err, giftexchange.ErrAlreadyAnswered):
-		return rejected("question", textAlreadyAnswered)
+		return rejected("question", c.Get(textAlreadyAnswered))
 	case errors.As(err, &state):
-		return rejected("state", fmt.Sprintf(textInvalidState, state.State))
+		return rejected("state", c.Format(textInvalidState, stateText(c, state.State)))
 	case errors.Is(err, errBadTime):
-		return rejected("bad_input", textBadTime)
+		return rejected("bad_input", c.Get(textBadTime))
 	case errors.Is(err, errNoMatch):
-		return rejected("bad_input", textNoMatch)
+		return rejected("bad_input", c.Get(textNoMatch))
 	case errors.Is(err, errBadCustomID):
-		return rejected("bad_input", textNotFound)
+		return rejected("bad_input", c.Get(textNotFound))
 	case errors.Is(err, errGuildOnly):
-		return rejected("bad_input", textGuildOnly)
+		return rejected("bad_input", c.Get(textGuildOnly))
 	case errors.Is(err, errNoCandidates):
-		return rejected("bad_input", textNoCandidates)
+		return rejected("bad_input", c.Get(textNoCandidates))
 	case errors.As(err, &choose):
-		return rejected("bad_input", chooseExchangeText(choose.Names))
+		return rejected("bad_input", chooseExchangeText(c, choose.Names))
 	}
 
 	internal := router.Rejection{
-		Text:     fmt.Sprintf(textInternal, requestID),
+		Text:     c.Format(textInternal, requestID),
 		Outcome:  outcomeError,
 		Internal: true,
 	}
@@ -120,15 +127,15 @@ func MapError(requestID string, err error) router.Rejection {
 
 // invalidInputText lists every invalid field under the Not saved line. Fields and reasons are
 // fixed phrases of the module, never user input.
-func invalidInputText(err error) string {
+func invalidInputText(c Catalog, err error) string {
 	var lines []string
-	collectLeaves(err, &lines, 0)
+	collectLeaves(c, err, &lines, 0)
 
-	text := listText(textNotSaved, lines)
+	text := listText(c, c.Get(textNotSaved), lines)
 	return text
 }
 
-func collectLeaves(err error, lines *[]string, depth int) {
+func collectLeaves(c Catalog, err error, lines *[]string, depth int) {
 	if depth > maxLeafDepth {
 		return
 	}
@@ -136,7 +143,7 @@ func collectLeaves(err error, lines *[]string, depth int) {
 	joined, isJoined := err.(interface{ Unwrap() []error })
 	if isJoined {
 		for _, child := range joined.Unwrap() {
-			collectLeaves(child, lines, depth+1)
+			collectLeaves(c, child, lines, depth+1)
 		}
 		return
 	}
@@ -147,42 +154,48 @@ func collectLeaves(err error, lines *[]string, depth int) {
 		return
 	}
 
-	*lines = append(*lines, "invalid input")
+	*lines = append(*lines, c.Get(textInvalidInput))
 }
 
-func chooseExchangeText(names []string) string {
+func chooseExchangeText(c Catalog, names []string) string {
 	lines := make([]string, 0, len(names))
 	for _, name := range names {
 		lines = append(lines, render.Text(name))
 	}
 
-	text := listText(textChooseExchange, lines)
+	text := listText(c, c.Get(textChooseExchange), lines)
 	return text
 }
 
 // listText joins a lead line and bullet lines, shows at most maxListedLines of them and
 // keeps the whole under Discord's limit.
-func listText(lead string, lines []string) string {
+func listText(c Catalog, lead string, lines []string) string {
 	var b strings.Builder
 	b.WriteString(lead)
 
 	for i, line := range lines {
 		if i == maxListedLines {
-			b.WriteString("\n" + fmt.Sprintf(textAndMore, len(lines)-maxListedLines))
+			b.WriteString("\n" + c.Format(textAndMore, len(lines)-maxListedLines))
 			break
 		}
-		b.WriteString("\n" + fmt.Sprintf(textNotSavedLine, line))
+		b.WriteString("\n" + c.Format(textNotSavedLine, line))
 	}
 
 	text := render.Truncate(b.String(), maxReplyRunes, "...")
 	return text
 }
 
-// GuildNameOrUnknown returns the guild name, or the text shown when the Gateway has not
-// reported the guild.
+// GuildNameOrUnknown returns the guild name, or the English text shown when the Gateway has
+// not reported the guild.
 func GuildNameOrUnknown(name string) string {
+	return GuildNameOrUnknownIn(LocaleEN, name)
+}
+
+// GuildNameOrUnknownIn returns the guild name, or the text in loc shown when the Gateway has
+// not reported the guild.
+func GuildNameOrUnknownIn(loc Locale, name string) string {
 	if name == "" {
-		return textUnknownServer
+		return CatalogFor(loc).Get(textUnknownServer)
 	}
 
 	return name

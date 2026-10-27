@@ -95,7 +95,8 @@ func (h *Handlers) join(ctx context.Context, req *router.Request, id giftexchang
 		return fmt.Errorf("join exchange: %w", joinErr)
 	}
 
-	text := fmt.Sprintf(textJoined, render.Bold(view.Name))
+	c := h.catalog(LocaleEN)
+	text := c.Format(textJoined, render.Bold(view.Name))
 	editErr := req.EditOriginal(ctx, discord.MessageUpdate{Content: &text})
 	if editErr != nil {
 		return editErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -129,11 +130,13 @@ func membershipEdit(ctx context.Context, req *router.Request, text string) error
 
 // membershipEditWithButtons replaces the deferred reply with text and a Confirm and a Back
 // button; confirm is the custom ID of Confirm.
-func membershipEditWithButtons(ctx context.Context, req *router.Request, text string, confirm customID) error {
+func membershipEditWithButtons(
+	ctx context.Context, req *router.Request, c Catalog, text string, confirm customID,
+) error {
 	back := customID{Action: actionDismiss, Exchange: confirm.Exchange}
 	row := discord.NewActionRow(
-		discord.NewDangerButton(textButtonConfirm, formatCustomID(confirm)),
-		discord.NewSecondaryButton(textButtonBack, formatCustomID(back)),
+		discord.NewDangerButton(c.Get(textButtonConfirm), formatCustomID(confirm)),
+		discord.NewSecondaryButton(c.Get(textButtonBack), formatCustomID(back)),
 	)
 	components := []discord.LayoutComponent{row}
 	embeds := []discord.Embed{}
@@ -233,8 +236,9 @@ func (h *Handlers) membershipLeave(ctx context.Context, req *router.Request, id 
 		return giftexchange.ErrNotParticipant
 	}
 
-	text := fmt.Sprintf(textConfirmLeave, render.Bold(view.Name))
-	return membershipEditWithButtons(ctx, req, text, customID{Action: actionLeaveConfirm, Exchange: id})
+	c := h.catalog(LocaleEN)
+	text := c.Format(textConfirmLeave, render.Bold(view.Name))
+	return membershipEditWithButtons(ctx, req, c, text, customID{Action: actionLeaveConfirm, Exchange: id})
 }
 
 // leaveConfirmButton handles Confirm of the leave question. The module checks the caller and
@@ -261,7 +265,8 @@ func (h *Handlers) membershipLeaveNow(ctx context.Context, req *router.Request, 
 		return fmt.Errorf("leave exchange: %w", err)
 	}
 
-	return membershipEdit(ctx, req, fmt.Sprintf(textLeft, render.Bold(view.Name)))
+	c := h.catalog(LocaleEN)
+	return membershipEdit(ctx, req, c.Format(textLeft, render.Bold(view.Name)))
 }
 
 // removeCommand handles /ge remove. In Open it acts; in Drawn it asks first.
@@ -313,7 +318,8 @@ func (h *Handlers) removeCommand(data discord.SlashCommandInteractionData, e *ha
 		return fmt.Errorf("remove participant: %w", removeErr)
 	}
 
-	return membershipEdit(e.Ctx, req, fmt.Sprintf(textRemoved, mention, render.Bold(view.Name)))
+	c := h.catalog(LocaleEN)
+	return membershipEdit(e.Ctx, req, c.Format(textRemoved, mention, render.Bold(view.Name)))
 }
 
 // membershipAskRemove shows the confirmation of a removal after the draw. Only the organizer
@@ -328,9 +334,10 @@ func (h *Handlers) membershipAskRemove(
 		return giftexchange.ErrNotParticipant
 	}
 
-	text := fmt.Sprintf(textConfirmRemove, render.Bold(view.Name), mention)
+	c := h.catalog(LocaleEN)
+	text := c.Format(textConfirmRemove, render.Bold(view.Name), mention)
 	confirm := customID{Action: actionRemoveConfirm, Exchange: view.ID, Person: target}
-	return membershipEditWithButtons(ctx, req, text, confirm)
+	return membershipEditWithButtons(ctx, req, c, text, confirm)
 }
 
 // removeConfirmButton handles Confirm of the removal question. An organizer who is a
@@ -358,20 +365,21 @@ func (h *Handlers) removeConfirmButton(e *handler.ComponentEvent) error {
 		return fmt.Errorf("remove participant: %w", err)
 	}
 
-	return membershipEdit(e.Ctx, req, membershipOutcomeText(outcome, view.Name))
+	c := h.catalog(LocaleEN)
+	return membershipEdit(e.Ctx, req, membershipOutcomeText(c, outcome, view.Name))
 }
 
 // membershipOutcomeText is the organizer's reply after a removal in Drawn. It names no one.
-func membershipOutcomeText(outcome giftexchange.DropoutOutcome, name string) string {
+func membershipOutcomeText(c Catalog, outcome giftexchange.DropoutOutcome, name string) string {
 	switch outcome {
 	case giftexchange.OutcomeRemoved:
-		return textOutcomeRemoved
+		return c.Get(textOutcomeRemoved)
 	case giftexchange.OutcomePatched:
-		return textOutcomePatched
+		return c.Get(textOutcomePatched)
 	case giftexchange.OutcomeRedrawn:
-		return textOutcomeRedrawn
+		return c.Get(textOutcomeRedrawn)
 	case giftexchange.OutcomeReopened:
-		return fmt.Sprintf(textOutcomeReopened, render.Bold(name))
+		return c.Format(textOutcomeReopened, render.Bold(name))
 	default:
 		panic(fmt.Sprintf("giftexchangecmd: RemoveParticipant returned the unknown dropout outcome %q", outcome))
 	}
@@ -389,7 +397,8 @@ func (h *Handlers) dismissButton(e *handler.ComponentEvent) error {
 	}
 	req.SetExchange(parsed.Exchange)
 
-	text := textNothingChanged
+	c := h.catalog(LocaleEN)
+	text := c.Get(textNothingChanged)
 	embeds := []discord.Embed{}
 	components := []discord.LayoutComponent{}
 	replyErr := req.UpdateMessage(e.Ctx, discord.MessageUpdate{Content: &text, Embeds: &embeds, Components: &components})

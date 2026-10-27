@@ -317,6 +317,22 @@ func TestRenderUsesUnknownServerWhenGuildNameIsEmpty(t *testing.T) {
 	if !strings.Contains(got.Content, "(unknown server)") {
 		t.Errorf("content = %q, want unknown server", got.Content)
 	}
+
+	gotES, err := RenderNotificationIn(LocaleES419, notification(giftexchange.KindCancelled), "")
+	if err != nil {
+		t.Fatalf("RenderNotificationIn(es-419): %v", err)
+	}
+	if !strings.Contains(gotES.Content, "(servidor desconocido)") {
+		t.Errorf("es-419 content = %q, want servidor desconocido", gotES.Content)
+	}
+
+	gotFallback, err := RenderNotificationIn("fr", notification(giftexchange.KindCancelled), "")
+	if err != nil {
+		t.Fatalf("RenderNotificationIn(fr): %v", err)
+	}
+	if gotFallback.Content != got.Content {
+		t.Errorf("fallback content = %q, want %q", gotFallback.Content, got.Content)
+	}
 }
 
 func TestRenderEscapesUserSuppliedText(t *testing.T) {

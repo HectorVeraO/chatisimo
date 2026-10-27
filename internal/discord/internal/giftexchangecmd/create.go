@@ -51,10 +51,12 @@ func (h *Handlers) createCommand(data discord.SlashCommandInteractionData, e *ha
 	}
 	req.SetExchange(view.ID)
 
-	// The exchange exists from here on, so a failed confirmation must not skip the public card.
-	editErr := membershipEdit(e.Ctx, req, fmt.Sprintf(textCreated, render.Bold(view.Name)))
+	c := h.catalog(LocaleEN)
 
-	card, err := membershipCard(req, view)
+	// The exchange exists from here on, so a failed confirmation must not skip the public card.
+	editErr := membershipEdit(e.Ctx, req, c.Format(textCreated, render.Bold(view.Name)))
+
+	card, err := membershipCard(c, req, view)
 	if err != nil {
 		return err
 	}
@@ -102,20 +104,20 @@ func (h *Handlers) membershipTimeRules(data discord.SlashCommandInteractionData)
 }
 
 // membershipCard builds the public card of a new exchange.
-func membershipCard(req *router.Request, view giftexchange.ExchangeView) (discord.MessageCreate, error) {
+func membershipCard(c Catalog, req *router.Request, view giftexchange.ExchangeView) (discord.MessageCreate, error) {
 	organizer, err := render.Mention(req.UserID().String())
 	if err != nil {
 		return discord.MessageCreate{}, fmt.Errorf("mention organizer: %w", err)
 	}
 
-	embed := render.Embed(view.Name, fmt.Sprintf(textCardBody, organizer))
-	embed = render.WithField(embed, textFieldDraw, membershipWhenText(view.DrawAt))
-	embed = render.WithField(embed, textFieldReveal, membershipWhenText(view.RevealAt))
+	embed := render.Embed(view.Name, c.Format(textCardBody, organizer))
+	embed = render.WithField(embed, c.Get(textFieldDraw), membershipWhenText(c, view.DrawAt))
+	embed = render.WithField(embed, c.Get(textFieldReveal), membershipWhenText(c, view.RevealAt))
 
 	row := discord.NewActionRow(
-		discord.NewPrimaryButton(textButtonJoin, formatCustomID(customID{Action: actionJoin, Exchange: view.ID})),
-		discord.NewSecondaryButton(textButtonLeave, formatCustomID(customID{Action: actionLeave, Exchange: view.ID})),
-		discord.NewSecondaryButton(textButtonRules, formatCustomID(customID{Action: actionRules, Exchange: view.ID})),
+		discord.NewPrimaryButton(c.Get(textButtonJoin), formatCustomID(customID{Action: actionJoin, Exchange: view.ID})),
+		discord.NewSecondaryButton(c.Get(textButtonLeave), formatCustomID(customID{Action: actionLeave, Exchange: view.ID})),
+		discord.NewSecondaryButton(c.Get(textButtonRules), formatCustomID(customID{Action: actionRules, Exchange: view.ID})),
 	)
 
 	none := render.NoMentions()
@@ -127,9 +129,9 @@ func membershipCard(req *router.Request, view giftexchange.ExchangeView) (discor
 	return card, nil
 }
 
-func membershipWhenText(t *time.Time) string {
+func membershipWhenText(c Catalog, t *time.Time) string {
 	if t == nil {
-		return textManual
+		return c.Get(textManual)
 	}
 
 	return render.TimestampFull(*t)

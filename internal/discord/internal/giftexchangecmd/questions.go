@@ -18,9 +18,6 @@ const (
 	questionOptionName = "question"
 	// questionAnswerInput is the custom ID of the text input of the answer modal.
 	questionAnswerInput = "answer"
-	questionModalTitle  = "Answer the question"
-	questionModalHint   = "Your answer"
-	questionListTitle   = "Your questions"
 
 	// questionEntryRunes is how much of each question or answer the listing shows.
 	questionEntryRunes = 200
@@ -72,7 +69,8 @@ func (h *Handlers) askCommand(data discord.SlashCommandInteractionData, e *handl
 		return fmt.Errorf("ask question: %w", askErr)
 	}
 
-	reply := fmt.Sprintf(textAsked, render.Bold(name))
+	c := h.catalog(LocaleEN)
+	reply := c.Format(textAsked, render.Bold(name))
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &reply})
 	if editErr != nil {
 		return editErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -121,17 +119,19 @@ func (h *Handlers) answerButton(e *handler.ComponentEvent) error {
 		return errBadCustomID
 	}
 
+	c := h.catalog(LocaleEN)
+	hint := c.Get(textQuestionModalHint)
 	input := discord.NewParagraphTextInput(questionAnswerInput)
 	input.MinLength = intPtr(1)
 	input.MaxLength = giftexchange.MaxQuestionRunes
 	input.Required = true
-	input.Placeholder = questionModalHint
+	input.Placeholder = hint
 
 	modalID := formatCustomID(customID{Action: actionAnswerModal, Question: parsed.Question})
 	modal := discord.ModalCreate{
 		CustomID: modalID,
-		Title:    questionModalTitle,
-	}.AddLabel(questionModalHint, input)
+		Title:    c.Get(textQuestionModalTitle),
+	}.AddLabel(hint, input)
 	modalErr := req.Modal(e.Ctx, modal)
 	if modalErr != nil {
 		return modalErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -170,8 +170,9 @@ func (h *Handlers) answerModal(e *handler.ModalEvent) error {
 
 	// The answer goes in an embed, whose room (4096) holds any answer (at most 1000 runes,
 	// at most doubled by escaping), so the question text of the DM is never cut for it.
+	c := h.catalog(LocaleEN)
 	shown := render.Truncate(strings.TrimSpace(text), giftexchange.MaxQuestionRunes, truncationMark)
-	embeds := []discord.Embed{render.Embed("", textYourAnswer+"\n"+render.Quote(shown))}
+	embeds := []discord.Embed{render.Embed("", c.Get(textYourAnswer)+"\n"+render.Quote(shown))}
 	components := []discord.LayoutComponent{}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds, Components: &components})
 	if editErr != nil {
@@ -209,9 +210,10 @@ func (h *Handlers) questionsCommand(data discord.SlashCommandInteractionData, e 
 		return fmt.Errorf("list received questions: %w", err)
 	}
 
-	embed := render.Embed(questionListTitle, "")
-	embed = render.WithField(embed, textQuestionsAskedField, questionField(questionAskedEntries(asked)))
-	embed = render.WithField(embed, textQuestionsReceivedField, questionField(questionReceivedEntries(received)))
+	c := h.catalog(LocaleEN)
+	embed := render.Embed(c.Get(textQuestionListTitle), "")
+	embed = render.WithField(embed, c.Get(textQuestionsAskedField), questionField(c, questionAskedEntries(c, asked)))
+	embed = render.WithField(embed, c.Get(textQuestionsReceivedField), questionField(c, questionReceivedEntries(c, received)))
 
 	embeds := []discord.Embed{embed}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
@@ -222,19 +224,19 @@ func (h *Handlers) questionsCommand(data discord.SlashCommandInteractionData, e 
 	return nil
 }
 
-func questionAskedEntries(asked []giftexchange.AskedQuestion) []string {
+func questionAskedEntries(c Catalog, asked []giftexchange.AskedQuestion) []string {
 	entries := make([]string, 0, len(asked))
 	for _, question := range asked {
-		entries = append(entries, questionEntry(question.Text, question.Answer, question.ClosedAt != nil))
+		entries = append(entries, questionEntry(c, question.Text, question.Answer, question.ClosedAt != nil))
 	}
 
 	return entries
 }
 
-func questionReceivedEntries(received []giftexchange.ReceivedQuestion) []string {
+func questionReceivedEntries(c Catalog, received []giftexchange.ReceivedQuestion) []string {
 	entries := make([]string, 0, len(received))
 	for _, question := range received {
-		entries = append(entries, questionEntry(question.Text, question.Answer, question.ClosedAt != nil))
+		entries = append(entries, questionEntry(c, question.Text, question.Answer, question.ClosedAt != nil))
 	}
 
 	return entries
@@ -242,12 +244,12 @@ func questionReceivedEntries(received []giftexchange.ReceivedQuestion) []string 
 
 // questionEntry renders one question: its text cut and escaped, the closed marker, and the
 // answer on quoted lines when there is one.
-func questionEntry(text, answer string, isClosed bool) string {
+func questionEntry(c Catalog, text, answer string, isClosed bool) string {
 	var b strings.Builder
 	b.WriteString("- ")
 	b.WriteString(render.Text(render.Truncate(text, questionEntryRunes, truncationMark)))
 	if isClosed {
-		b.WriteString(textClosedMarker)
+		b.WriteString(c.Get(textClosedMarker))
 	}
 	if answer != "" {
 		cut := render.Truncate(answer, questionEntryRunes, truncationMark)
@@ -262,9 +264,9 @@ func questionEntry(text, answer string, isClosed bool) string {
 // questionField joins entries into the value of one embed field. It keeps whole entries while
 // they fit with the closing "and n more" line, and ends with that line for the rest. An empty
 // list reads "None yet.". The first entry always fits: it is at most two cut and escaped texts.
-func questionField(entries []string) string {
+func questionField(c Catalog, entries []string) string {
 	if len(entries) == 0 {
-		return textNoneYet
+		return c.Get(textNoneYet)
 	}
 
 	kept := make([]string, 0, len(entries))
@@ -274,12 +276,12 @@ func questionField(entries []string) string {
 		remaining := len(entries) - i - 1
 		reserve := 0
 		if remaining > 0 {
-			reserve = utf8.RuneCountInString(fmt.Sprintf(textAndMore, remaining)) + 1
+			reserve = utf8.RuneCountInString(c.Format(textAndMore, remaining)) + 1
 		}
 
 		fits := used+cost+reserve <= questionFieldRunes
 		if !fits && i > 0 {
-			kept = append(kept, fmt.Sprintf(textAndMore, len(entries)-i))
+			kept = append(kept, c.Format(textAndMore, len(entries)-i))
 			break
 		}
 
