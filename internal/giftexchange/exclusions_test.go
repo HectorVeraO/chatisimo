@@ -169,8 +169,9 @@ func TestAddExclusionRejectsTheSamePersonTwiceAndZeroIDs(t *testing.T) {
 	before := takeSnapshot(t, s.h, s.exchange)
 
 	sameErr := s.add(t, s.organizer, p[0], p[0], false)
-	if !slices.Equal(inputFields(sameErr), []string{"recipient"}) {
-		t.Errorf("same person: err = %v, want *InputError for recipient", sameErr)
+	var sameInputErr *giftexchange.InputError
+	if !errors.As(sameErr, &sameInputErr) || sameInputErr.Field != "recipient" || sameInputErr.Code != giftexchange.InputCodeSameAsGiver {
+		t.Errorf("same person: err = %v, want *InputError for recipient with code %q", sameErr, giftexchange.InputCodeSameAsGiver)
 	}
 
 	var zero giftexchange.PersonID

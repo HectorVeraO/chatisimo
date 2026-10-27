@@ -183,7 +183,7 @@ func lookupRule(name RuleName) (ruleDescriptor, bool) {
 }
 
 func unknownRuleError() error {
-	return errors.Join(&InputError{Field: "rule", Reason: "is unknown"}, ErrUnknownRule) //nolint:wrapcheck // joins this function's own errors
+	return errors.Join(&InputError{Field: "rule", Code: InputCodeUnknown, Reason: "is unknown"}, ErrUnknownRule) //nolint:wrapcheck // joins this function's own errors
 }
 
 // ParseRuleName parses a rule name, exact match. Unknown names return an error wrapping both
@@ -222,7 +222,7 @@ func ParseRuleValue(name RuleName, raw string) (RuleValue, error) {
 	case RuleKindBool:
 		value.flag, err = parseFlag(field, raw)
 	default:
-		err = &InputError{Field: "rule", Reason: "is edited through the exclusion methods"}
+		err = &InputError{Field: "rule", Code: InputCodeEditedViaExclusions, Reason: "is edited through the exclusion methods"}
 	}
 	if err != nil {
 		return RuleValue{}, err
@@ -237,19 +237,25 @@ func parseInstant(field, raw string) (time.Time, error) {
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, raw)
 	if err != nil {
-		return time.Time{}, &InputError{Field: field, Reason: "is not unset or an RFC 3339 time with an offset"}
+		return time.Time{}, &InputError{Field: field, Code: InputCodeInvalidInstant, Reason: "is not unset or an RFC 3339 time with an offset"}
 	}
 	instant := parsed.UTC().Truncate(time.Second)
 	isInRange := instant.Year() >= minYear && instant.Year() <= maxYear
 	if !isInRange {
-		return time.Time{}, &InputError{Field: field, Reason: "is outside the years 2000 to 9999"}
+		return time.Time{}, &InputError{
+			Field:  field,
+			Code:   InputCodeYearOutOfRange,
+			Reason: "is outside the years 2000 to 9999",
+			Min:    minYear,
+			Max:    maxYear,
+		}
 	}
 	return instant, nil
 }
 
 func parseLead(field, raw string) (time.Duration, error) {
-	badForm := &InputError{Field: field, Reason: "is not a duration such as 0, 36h, 90m, 3d or 1d12h"}
-	outOfRange := &InputError{Field: field, Reason: "is outside 0 to 14 days in whole seconds"}
+	badForm := &InputError{Field: field, Code: InputCodeInvalidDuration, Reason: "is not a duration such as 0, 36h, 90m, 3d or 1d12h"}
+	outOfRange := &InputError{Field: field, Code: InputCodeDurationOutOfRange, Reason: "is outside 0 to 14 days in whole seconds"}
 
 	if raw == "0" {
 		return 0, nil
@@ -308,7 +314,12 @@ func formatLead(d time.Duration) string {
 
 func parseOption(field, raw string, options []string) (string, error) {
 	if !slices.Contains(options, raw) {
-		return "", &InputError{Field: field, Reason: "is not one of " + strings.Join(options, ", ")}
+		return "", &InputError{
+			Field:   field,
+			Code:    InputCodeNotOneOf,
+			Reason:  "is not one of " + strings.Join(options, ", "),
+			Allowed: slices.Clone(options),
+		}
 	}
 	return raw, nil
 }
@@ -320,7 +331,7 @@ func parseFlag(field, raw string) (bool, error) {
 	case "off", "false":
 		return false, nil
 	default:
-		return false, &InputError{Field: field, Reason: "is not on, off, true or false"}
+		return false, &InputError{Field: field, Code: InputCodeInvalidBool, Reason: "is not on, off, true or false"}
 	}
 }
 
@@ -407,16 +418,16 @@ func checkTime(value RuleValue, now, other time.Time, mustPrecede bool) error {
 	}
 	isFuture := value.instant.After(now)
 	if !isFuture {
-		return &InputError{Field: field, Reason: "must be in the future"}
+		return &InputError{Field: field, Code: InputCodeMustBeFuture, Reason: "must be in the future"}
 	}
 	if other.IsZero() {
 		return nil
 	}
 	if mustPrecede && !value.instant.Before(other) {
-		return &InputError{Field: field, Reason: "must be before reveal_at"}
+		return &InputError{Field: field, Code: InputCodeBeforeRevealAt, Reason: "must be before reveal_at"}
 	}
 	if !mustPrecede && !value.instant.After(other) {
-		return &InputError{Field: field, Reason: "must be after draw_at"}
+		return &InputError{Field: field, Code: InputCodeAfterDrawAt, Reason: "must be after draw_at"}
 	}
 	return nil
 }

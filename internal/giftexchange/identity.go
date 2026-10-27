@@ -120,17 +120,17 @@ func (s *Service) createPerson(
 func validateProviderRef(kind string, provider Provider, subject string) error {
 	var problems []error
 	if provider != ProviderDiscord {
-		problems = append(problems, &InputError{Field: kind + ".provider", Reason: "is unknown"})
+		problems = append(problems, &InputError{Field: kind + ".provider", Code: InputCodeUnknown, Reason: "is unknown"})
 	}
 	if subject == "" {
-		problems = append(problems, &InputError{Field: kind + ".subject", Reason: "is empty"})
+		problems = append(problems, &InputError{Field: kind + ".subject", Code: InputCodeEmpty, Reason: "is empty"})
 	}
 	if len(subject) > maxSubjectBytes {
-		problems = append(problems, &InputError{Field: kind + ".subject", Reason: "is too long"})
+		problems = append(problems, &InputError{Field: kind + ".subject", Code: InputCodeTooLong, Reason: "is too long", Max: maxSubjectBytes})
 	}
 	isText := utf8.ValidString(subject) && !strings.ContainsRune(subject, 0)
 	if !isText {
-		problems = append(problems, &InputError{Field: kind + ".subject", Reason: "is not valid text"})
+		problems = append(problems, &InputError{Field: kind + ".subject", Code: InputCodeInvalidText, Reason: "is not valid text"})
 	}
 	if len(problems) > 0 {
 		return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors

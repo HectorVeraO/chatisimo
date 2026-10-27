@@ -2,6 +2,7 @@ package giftexchange_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
@@ -40,6 +41,10 @@ func TestParseRuleNameRejectsUnknown(t *testing.T) {
 			_, err := giftexchange.ParseRuleName(raw)
 			if !errors.Is(err, giftexchange.ErrInvalidInput) || !errors.Is(err, giftexchange.ErrUnknownRule) {
 				t.Fatalf("err = %v, want ErrInvalidInput and ErrUnknownRule", err)
+			}
+			var inputErr *giftexchange.InputError
+			if !errors.As(err, &inputErr) || inputErr.Code != giftexchange.InputCodeUnknown {
+				t.Fatalf("err = %v, want *InputError with code %q", err, giftexchange.InputCodeUnknown)
 			}
 		})
 	}
@@ -93,38 +98,43 @@ func TestParseRuleValueCanonicalForms(t *testing.T) {
 }
 
 func TestParseRuleValueRejectsBadForms(t *testing.T) {
+	dropoutAllowed := []string{string(giftexchange.DropoutPatch), string(giftexchange.DropoutRedraw)}
 	tests := []struct {
-		name string
-		rule giftexchange.RuleName
-		in   string
+		name        string
+		rule        giftexchange.RuleName
+		in          string
+		wantCode    giftexchange.InputErrorCode
+		wantMin     int
+		wantMax     int
+		wantAllowed []string
 	}{
-		{"time empty", giftexchange.RuleDrawAt, ""},
-		{"time without offset", giftexchange.RuleDrawAt, "2026-12-24T23:00:00"},
-		{"time date only", giftexchange.RuleDrawAt, "2026-12-24"},
-		{"time relative", giftexchange.RuleDrawAt, "tomorrow"},
-		{"time upper case unset", giftexchange.RuleDrawAt, "UNSET"},
-		{"time year 1999", giftexchange.RuleDrawAt, "1999-12-31T23:59:59Z"},
-		{"time year 10000", giftexchange.RuleDrawAt, "10000-01-01T00:00:00Z"},
-		{"time lands in 10000 by offset", giftexchange.RuleDrawAt, "9999-12-31T23:00:00-03:00"},
-		{"duration empty", giftexchange.RuleReminderLead, ""},
-		{"duration above maximum by a second", giftexchange.RuleReminderLead, "14d1s"},
-		{"duration 15 days", giftexchange.RuleReminderLead, "15d"},
-		{"duration huge days", giftexchange.RuleReminderLead, "99999999999d"},
-		{"duration negative", giftexchange.RuleReminderLead, "-1h"},
-		{"duration negative after days", giftexchange.RuleReminderLead, "1d-1h"},
-		{"duration sub-second", giftexchange.RuleReminderLead, "1.5s"},
-		{"duration milliseconds", giftexchange.RuleReminderLead, "500ms"},
-		{"duration bare number", giftexchange.RuleReminderLead, "5"},
-		{"duration only d", giftexchange.RuleReminderLead, "d"},
-		{"duration upper case d", giftexchange.RuleReminderLead, "3D"},
-		{"duration trailing garbage", giftexchange.RuleReminderLead, "3dx"},
-		{"duration overflow", giftexchange.RuleReminderLead, "9999999999999999h"},
-		{"enum unknown", giftexchange.RuleDropoutPolicy, "random"},
-		{"enum upper case", giftexchange.RuleDropoutPolicy, "Patch"},
-		{"enum empty", giftexchange.RuleDropoutPolicy, ""},
-		{"bool upper case", giftexchange.RuleAvoidLastRound, "ON"},
-		{"bool yes", giftexchange.RuleAvoidLastRound, "yes"},
-		{"bool empty", giftexchange.RuleQuestionsEnabled, ""},
+		{"time empty", giftexchange.RuleDrawAt, "", giftexchange.InputCodeInvalidInstant, 0, 0, nil},
+		{"time without offset", giftexchange.RuleDrawAt, "2026-12-24T23:00:00", giftexchange.InputCodeInvalidInstant, 0, 0, nil},
+		{"time date only", giftexchange.RuleDrawAt, "2026-12-24", giftexchange.InputCodeInvalidInstant, 0, 0, nil},
+		{"time relative", giftexchange.RuleDrawAt, "tomorrow", giftexchange.InputCodeInvalidInstant, 0, 0, nil},
+		{"time upper case unset", giftexchange.RuleDrawAt, "UNSET", giftexchange.InputCodeInvalidInstant, 0, 0, nil},
+		{"time year 1999", giftexchange.RuleDrawAt, "1999-12-31T23:59:59Z", giftexchange.InputCodeYearOutOfRange, 2000, 9999, nil},
+		{"time year 10000", giftexchange.RuleDrawAt, "10000-01-01T00:00:00Z", giftexchange.InputCodeInvalidInstant, 0, 0, nil},
+		{"time lands in 10000 by offset", giftexchange.RuleDrawAt, "9999-12-31T23:00:00-03:00", giftexchange.InputCodeYearOutOfRange, 2000, 9999, nil},
+		{"duration empty", giftexchange.RuleReminderLead, "", giftexchange.InputCodeInvalidDuration, 0, 0, nil},
+		{"duration above maximum by a second", giftexchange.RuleReminderLead, "14d1s", giftexchange.InputCodeDurationOutOfRange, 0, 0, nil},
+		{"duration 15 days", giftexchange.RuleReminderLead, "15d", giftexchange.InputCodeDurationOutOfRange, 0, 0, nil},
+		{"duration huge days", giftexchange.RuleReminderLead, "99999999999d", giftexchange.InputCodeDurationOutOfRange, 0, 0, nil},
+		{"duration negative", giftexchange.RuleReminderLead, "-1h", giftexchange.InputCodeInvalidDuration, 0, 0, nil},
+		{"duration negative after days", giftexchange.RuleReminderLead, "1d-1h", giftexchange.InputCodeInvalidDuration, 0, 0, nil},
+		{"duration sub-second", giftexchange.RuleReminderLead, "1.5s", giftexchange.InputCodeDurationOutOfRange, 0, 0, nil},
+		{"duration milliseconds", giftexchange.RuleReminderLead, "500ms", giftexchange.InputCodeDurationOutOfRange, 0, 0, nil},
+		{"duration bare number", giftexchange.RuleReminderLead, "5", giftexchange.InputCodeInvalidDuration, 0, 0, nil},
+		{"duration only d", giftexchange.RuleReminderLead, "d", giftexchange.InputCodeInvalidDuration, 0, 0, nil},
+		{"duration upper case d", giftexchange.RuleReminderLead, "3D", giftexchange.InputCodeInvalidDuration, 0, 0, nil},
+		{"duration trailing garbage", giftexchange.RuleReminderLead, "3dx", giftexchange.InputCodeInvalidDuration, 0, 0, nil},
+		{"duration overflow", giftexchange.RuleReminderLead, "9999999999999999h", giftexchange.InputCodeInvalidDuration, 0, 0, nil},
+		{"enum unknown", giftexchange.RuleDropoutPolicy, "random", giftexchange.InputCodeNotOneOf, 0, 0, dropoutAllowed},
+		{"enum upper case", giftexchange.RuleDropoutPolicy, "Patch", giftexchange.InputCodeNotOneOf, 0, 0, dropoutAllowed},
+		{"enum empty", giftexchange.RuleDropoutPolicy, "", giftexchange.InputCodeNotOneOf, 0, 0, dropoutAllowed},
+		{"bool upper case", giftexchange.RuleAvoidLastRound, "ON", giftexchange.InputCodeInvalidBool, 0, 0, nil},
+		{"bool yes", giftexchange.RuleAvoidLastRound, "yes", giftexchange.InputCodeInvalidBool, 0, 0, nil},
+		{"bool empty", giftexchange.RuleQuestionsEnabled, "", giftexchange.InputCodeInvalidBool, 0, 0, nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -135,6 +145,15 @@ func TestParseRuleValueRejectsBadForms(t *testing.T) {
 			}
 			if inputErr.Field != string(tc.rule) {
 				t.Fatalf("Field = %q, want %q", inputErr.Field, tc.rule)
+			}
+			if inputErr.Code != tc.wantCode {
+				t.Errorf("Code = %q, want %q", inputErr.Code, tc.wantCode)
+			}
+			if inputErr.Min != tc.wantMin || inputErr.Max != tc.wantMax {
+				t.Errorf("Min, Max = %d, %d; want %d, %d", inputErr.Min, inputErr.Max, tc.wantMin, tc.wantMax)
+			}
+			if !slices.Equal(inputErr.Allowed, tc.wantAllowed) {
+				t.Errorf("Allowed = %v, want %v", inputErr.Allowed, tc.wantAllowed)
 			}
 		})
 	}
@@ -165,8 +184,8 @@ func TestParseRuleValueFixedRules(t *testing.T) {
 func TestParseRuleValueExclusionsIsEditedElsewhere(t *testing.T) {
 	_, err := giftexchange.ParseRuleValue(giftexchange.RuleExclusions, "0")
 	var inputErr *giftexchange.InputError
-	if !errors.As(err, &inputErr) || inputErr.Field != "rule" {
-		t.Fatalf("err = %v, want *InputError{Field: rule}", err)
+	if !errors.As(err, &inputErr) || inputErr.Field != "rule" || inputErr.Code != giftexchange.InputCodeEditedViaExclusions {
+		t.Fatalf("err = %v, want *InputError{Field: rule, Code: %q}", err, giftexchange.InputCodeEditedViaExclusions)
 	}
 }
 

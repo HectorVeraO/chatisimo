@@ -87,3 +87,21 @@ func TestSentinelsAreDistinct(t *testing.T) {
 		}
 	}
 }
+
+func TestAllInputErrorCodesAreNonEmptyAndUnique(t *testing.T) {
+	codes := giftexchange.AllInputErrorCodes()
+	if len(codes) == 0 {
+		t.Fatal("AllInputErrorCodes returned no codes")
+	}
+
+	seen := make(map[giftexchange.InputErrorCode]bool, len(codes))
+	for _, code := range codes {
+		if code == "" {
+			t.Error("AllInputErrorCodes contains an empty code")
+		}
+		if seen[code] {
+			t.Errorf("AllInputErrorCodes contains duplicate code %q", code)
+		}
+		seen[code] = true
+	}
+}

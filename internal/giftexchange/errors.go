@@ -31,11 +31,75 @@ var (
 	ErrUndeliverable = errors.New("giftexchange: notification undeliverable")
 )
 
+// InputErrorCode identifies one validation reason returned by InputError.
+type InputErrorCode string
+
+// Validation error codes returned by InputError.
+const (
+	InputCodeRequired            InputErrorCode = "required"
+	InputCodeUnknown             InputErrorCode = "unknown"
+	InputCodeEmpty               InputErrorCode = "empty"
+	InputCodeTooLong             InputErrorCode = "too_long"
+	InputCodeInvalidUTF8         InputErrorCode = "invalid_utf8"
+	InputCodeInvalidText         InputErrorCode = "invalid_text"
+	InputCodeControlChars        InputErrorCode = "control_chars"
+	InputCodeLineBreaks          InputErrorCode = "line_breaks"
+	InputCodeBidiChars           InputErrorCode = "bidi_chars"
+	InputCodeNoVisibleChar       InputErrorCode = "no_visible_char"
+	InputCodeNotCanonicalUUID    InputErrorCode = "not_canonical_uuid"
+	InputCodeZeroUUID            InputErrorCode = "zero_uuid"
+	InputCodeEditedViaExclusions InputErrorCode = "edited_via_exclusions"
+	InputCodeInvalidInstant      InputErrorCode = "invalid_instant"
+	InputCodeYearOutOfRange      InputErrorCode = "year_out_of_range"
+	InputCodeInvalidDuration     InputErrorCode = "invalid_duration"
+	InputCodeDurationOutOfRange  InputErrorCode = "duration_out_of_range"
+	InputCodeNotOneOf            InputErrorCode = "not_one_of"
+	InputCodeInvalidBool         InputErrorCode = "invalid_bool"
+	InputCodeMustBeFuture        InputErrorCode = "must_be_future"
+	InputCodeBeforeRevealAt      InputErrorCode = "before_reveal_at"
+	InputCodeAfterDrawAt         InputErrorCode = "after_draw_at"
+	InputCodeSameAsGiver         InputErrorCode = "same_as_giver"
+)
+
+// AllInputErrorCodes returns every validation error code the module can return.
+func AllInputErrorCodes() []InputErrorCode {
+	return []InputErrorCode{
+		InputCodeRequired,
+		InputCodeUnknown,
+		InputCodeEmpty,
+		InputCodeTooLong,
+		InputCodeInvalidUTF8,
+		InputCodeInvalidText,
+		InputCodeControlChars,
+		InputCodeLineBreaks,
+		InputCodeBidiChars,
+		InputCodeNoVisibleChar,
+		InputCodeNotCanonicalUUID,
+		InputCodeZeroUUID,
+		InputCodeEditedViaExclusions,
+		InputCodeInvalidInstant,
+		InputCodeYearOutOfRange,
+		InputCodeInvalidDuration,
+		InputCodeDurationOutOfRange,
+		InputCodeNotOneOf,
+		InputCodeInvalidBool,
+		InputCodeMustBeFuture,
+		InputCodeBeforeRevealAt,
+		InputCodeAfterDrawAt,
+		InputCodeSameAsGiver,
+	}
+}
+
 // InputError reports one invalid field. It matches ErrInvalidInput with errors.Is. Field is a
-// fixed name ("name", "text", "rule", "draw_at", "deps.Pool", ...); Reason is a fixed phrase.
+// fixed name ("name", "text", "rule", "draw_at", "deps.Pool", ...); Code is a machine-readable
+// InputErrorCode, with Min, Max and Allowed holding any bounds; Reason is a fixed phrase.
 type InputError struct {
-	Field  string
-	Reason string
+	Field   string
+	Code    InputErrorCode
+	Reason  string
+	Min     int
+	Max     int
+	Allowed []string
 }
 
 // Error returns the field and the reason, never the rejected input.
