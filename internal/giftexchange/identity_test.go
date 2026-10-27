@@ -18,7 +18,7 @@ func TestNewReportsEveryMissingDependencyAtOnce(t *testing.T) {
 	}
 
 	got := inputFields(err)
-	want := []string{"deps.Pool", "deps.Scheduler", "deps.Clock", "deps.Random", "deps.Notifier", "deps.Logger"}
+	want := []string{"deps.Pool", "deps.Scheduler", "deps.Clock", "deps.Random", "deps.Notifier", "deps.Rephraser", "deps.Logger"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("fields = %v, want %v", got, want)
 	}
@@ -31,7 +31,7 @@ func TestNewReportsOnlyTheMissingDependencies(t *testing.T) {
 	}
 
 	got := inputFields(err)
-	want := []string{"deps.Scheduler", "deps.Random", "deps.Notifier", "deps.Logger"}
+	want := []string{"deps.Scheduler", "deps.Random", "deps.Notifier", "deps.Rephraser", "deps.Logger"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("fields = %v, want %v", got, want)
 	}

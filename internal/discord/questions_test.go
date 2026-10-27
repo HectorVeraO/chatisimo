@@ -8,6 +8,7 @@ package discord_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -828,6 +829,63 @@ func TestQuestionTheAskerStaysHiddenFromTheRecipientThroughEveryReply(t *testing
 			t.Errorf("a log message holds the question: %q", msg)
 		}
 	}
+}
+
+func TestQuestionAskDeliversRephrasedTextAndHidesRawText(t *testing.T) {
+	q := newQuestionScene(t)
+	recipient := q.recipientOf(t, q.a)
+	const (
+		rawText       = "yo buddy u into dark roast coffee or nah?!"
+		rephrasedText = "Do you enjoy dark roast coffee?"
+	)
+	q.rephraser.SetTransform(func(string) string { return rephrasedText })
+	q.secrets = append(q.secrets, rawText, rephrasedText)
+
+	got := replyTo(t, q.harness, q.ask(t, q.a, true, rawText))
+	if got.content != questionTextAsked || got.ephemeralTo != q.a {
+		t.Errorf("reply = %+v, want %q ephemeral to %q", got, questionTextAsked, q.a)
+	}
+
+	dm := q.questionDM(t, recipient, rephrasedText)
+	dmText := questionTextOf(dm)
+	if !strings.Contains(dmText, rephrasedText) {
+		t.Errorf("recipient DM %q does not contain rephrased text %q", dmText, rephrasedText)
+	}
+	if strings.Contains(dmText, rawText) {
+		t.Errorf("recipient DM %q leaked raw question text %q", dmText, rawText)
+	}
+
+	listingRecord := q.outcome(t, slashOrFail(t, q.harness, recipient, q.ge("questions", false, nil)))
+	receivedField := questionFields(t, listingRecord)["Questions you received"]
+	if !strings.Contains(receivedField, rephrasedText) {
+		t.Errorf("/ge questions %q does not contain rephrased text %q", receivedField, rephrasedText)
+	}
+	if strings.Contains(receivedField, rawText) {
+		t.Errorf("/ge questions %q leaked raw question text %q", receivedField, rawText)
+	}
+	q.assertLogsClean(t, rawText, rephrasedText)
+}
+
+func TestQuestionAskRephraseFailureRepliesEphemeralAndSendsNoDM(t *testing.T) {
+	q := newQuestionScene(t)
+	recipient := q.recipientOf(t, q.a)
+	const rawText = "distinctive-question-when-llm-down"
+	q.rephraser.FailWith(errors.New("llm unavailable"))
+	q.secrets = append(q.secrets, rawText)
+	dmsBefore := len(q.fake.DMs(q.users[recipient]))
+
+	got := replyTo(t, q.harness, q.ask(t, q.a, true, rawText))
+	if got.ephemeralTo != q.a {
+		t.Errorf("rephrase failure reply ephemeralTo = %q, want %q", got.ephemeralTo, q.a)
+	}
+	wantReply := "Could not rephrase your question right now. Your question was not sent; please try again."
+	if got.content != wantReply {
+		t.Errorf("reply = %q, want %q", got.content, wantReply)
+	}
+	if gotDMs := len(q.fake.DMs(q.users[recipient])); gotDMs != dmsBefore {
+		t.Errorf("recipient DMs = %d, want %d (no DM when rephrase fails)", gotDMs, dmsBefore)
+	}
+	q.assertLogsClean(t, rawText)
 }
 
 // Characters that linters flag as literals are built at run time.

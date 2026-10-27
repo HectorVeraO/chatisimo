@@ -208,3 +208,9 @@ func (CryptoSource) Uint64() uint64 {
 type Notifier interface {
 	Notify(ctx context.Context, n Notification) error
 }
+
+// Rephraser rewrites an anonymous question into neutral wording before it is stored or delivered
+// to the recipient, so the giver's phrasing cannot identify them.
+type Rephraser interface {
+	Rephrase(ctx context.Context, text string) (string, error)
+}

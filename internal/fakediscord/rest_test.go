@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -503,4 +504,71 @@ func TestNewReportsEveryInvalidOption(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "heartbeat interval") || !strings.Contains(err.Error(), "callback deadline") {
 		t.Errorf("New = %v, want one error naming both options", err)
 	}
+}
+
+func TestGenerateContentEndpoint(t *testing.T) {
+	t.Parallel()
+	srv := startFake(t, fakediscord.Options{})
+	if got := srv.LLMBase(); !strings.HasSuffix(got, "/v1/publishers/google/models") {
+		t.Fatalf("LLMBase() = %q, want suffix /v1/publishers/google/models", got)
+	}
+
+	const path = "/v1/publishers/google/models/gemini-3.5-flash-lite:generateContent"
+	srv.SetRephrased("raw question", "Rephrased question?")
+
+	t.Run("rejects missing or invalid api key", func(t *testing.T) {
+		got := callHeader(t, srv, http.MethodPost, path, "x-goog-api-key", "wrong-key",
+			`{"contents":[{"parts":[{"text":"raw question"}]}]}`)
+		if got.status != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", got.status)
+		}
+	})
+
+	t.Run("returns mapped rephrased text or echoes unmapped text", func(t *testing.T) {
+		mapped := callHeader(t, srv, http.MethodPost, path, "x-goog-api-key", srv.Token(),
+			`{"contents":[{"parts":[{"text":"  raw question  "}]}]}`)
+		if mapped.status != http.StatusOK {
+			t.Fatalf("status = %d, body %s", mapped.status, mapped.body)
+		}
+		if !strings.Contains(string(mapped.body), "Rephrased question?") {
+			t.Errorf("mapped body = %s, want Rephrased question?", mapped.body)
+		}
+
+		unmapped := callHeader(t, srv, http.MethodPost, path, "x-goog-api-key", srv.Token(),
+			`{"contents":[{"parts":[{"text":"  Do you like tea?  "}]}]}`)
+		if unmapped.status != http.StatusOK {
+			t.Fatalf("status = %d, body %s", unmapped.status, unmapped.body)
+		}
+		if !strings.Contains(string(unmapped.body), "Do you like tea?") {
+			t.Errorf("unmapped body = %s, want Do you like tea?", unmapped.body)
+		}
+	})
+
+	t.Run("supports FailNext fault injection", func(t *testing.T) {
+		if err := srv.FailNext("POST /v1/publishers/google/models/{model}", http.StatusServiceUnavailable, 0); err != nil {
+			t.Fatalf("FailNext: %v", err)
+		}
+		faulted := callHeader(t, srv, http.MethodPost, path, "x-goog-api-key", srv.Token(),
+			`{"contents":[{"parts":[{"text":"raw question"}]}]}`)
+		if faulted.status != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503", faulted.status)
+		}
+	})
+}
+
+func callHeader(t testing.TB, srv *fakediscord.Server, method, path, headerName, headerVal, body string) reply {
+	t.Helper()
+
+	req := httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
+	if headerVal != "" {
+		req.Header.Set(headerName, headerVal)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	recorder := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recorder, req)
+
+	return reply{status: recorder.Code, header: recorder.Header(), body: recorder.Body.Bytes()}
 }

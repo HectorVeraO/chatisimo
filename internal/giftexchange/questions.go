@@ -14,10 +14,12 @@ import (
 
 const questionRateWindow = 24 * time.Hour
 
-// Ask sends text (ParseQuestionText) anonymously from the caller to the caller's current
-// recipient and queues a QuestionReceived notification. Active participant with an assignment;
-// Drawn only; questions_enabled; at most QuestionsPerDay per caller per exchange in any rolling
-// 24 hours (ErrRateLimited). A person with no tie to the exchange gets ErrNotFound.
+// Ask rephrases text with the configured Rephraser, stores only the rephrased text, and sends it
+// anonymously from the caller to the caller's current recipient via a QuestionReceived
+// notification. Active participant with an assignment; Drawn only; questions_enabled; at most
+// QuestionsPerDay per caller per exchange in any rolling 24 hours (ErrRateLimited). A person with
+// no tie to the exchange gets ErrNotFound. If rephrasing fails or returns invalid text, Ask
+// returns ErrRephraseUnavailable without storing a question or consuming rate-limit quota.
 func (s *Service) Ask(ctx context.Context, a Actor, id ExchangeID, text string) (QuestionID, error) {
 	authErr := requireActor(a)
 	if authErr != nil {
@@ -31,10 +33,27 @@ func (s *Service) Ask(ctx context.Context, a Actor, id ExchangeID, text string) 
 		return QuestionID{}, validationErr //nolint:wrapcheck // joins this function's own validation errors
 	}
 
+	precheckErr := s.askPrecheck(ctx, a, id)
+	if precheckErr != nil {
+		return QuestionID{}, precheckErr
+	}
+
+	rephrasedRaw, rephraseErr := s.rephraser.Rephrase(ctx, parsed)
+	if rephraseErr != nil {
+		s.logger.WarnContext(ctx, "question rephrase failed", "exchange_id", id.String())
+		return QuestionID{}, fmt.Errorf("rephrase question: %w", ErrRephraseUnavailable)
+	}
+
+	rephrased, rephraseParseErr := ParseQuestionText(rephrasedRaw)
+	if rephraseParseErr != nil {
+		s.logger.WarnContext(ctx, "question rephrase returned invalid text", "exchange_id", id.String())
+		return QuestionID{}, fmt.Errorf("rephrase question output invalid: %w", ErrRephraseUnavailable)
+	}
+
 	var asked QuestionID
 	txErr := s.inTx(ctx, func(q *db.Queries, tx pgx.Tx) error {
 		var err error
-		asked, err = s.askLocked(ctx, q, tx, a, id, parsed)
+		asked, err = s.askLocked(ctx, q, tx, a, id, rephrased)
 		return err
 	})
 	if txErr != nil {
@@ -44,6 +63,52 @@ func (s *Service) Ask(ctx context.Context, a Actor, id ExchangeID, text string) 
 	s.logger.InfoContext(ctx, "question asked", "question_id", asked.String())
 
 	return asked, nil
+}
+
+// askPrecheck verifies that the caller may ask a question before invoking the external Rephraser
+// boundary, without holding a database row lock across the network call.
+func (s *Service) askPrecheck(ctx context.Context, a Actor, id ExchangeID) error {
+	q := db.New(s.pool)
+
+	exchange, err := activeParticipantExchange(ctx, q, a, id)
+	if err != nil {
+		return err
+	}
+
+	isDrawn := exchange.State == string(StateDrawn)
+	if !isDrawn {
+		return &StateError{Op: "ask", State: State(exchange.State)}
+	}
+	if !exchange.QuestionsEnabled {
+		return ErrQuestionsDisabled
+	}
+
+	now := s.now()
+	recent, countErr := q.CountQuestionsAskedSince(ctx, db.CountQuestionsAskedSinceParams{
+		ExchangeID: exchange.ID,
+		AskerID:    uuid.UUID(a.person),
+		Since:      timestamptz(now.Add(-questionRateWindow)),
+	})
+	if countErr != nil {
+		return fmt.Errorf("count questions of %s: %w", exchange.ID, countErr)
+	}
+	isOverLimit := recent >= QuestionsPerDay
+	if isOverLimit {
+		return ErrRateLimited
+	}
+
+	_, lookupErr := q.GetAssignmentOfGiver(ctx, db.GetAssignmentOfGiverParams{
+		ExchangeID: exchange.ID,
+		GiverID:    uuid.UUID(a.person),
+	})
+	if errors.Is(lookupErr, pgx.ErrNoRows) {
+		return &StateError{Op: "ask", State: State(exchange.State)}
+	}
+	if lookupErr != nil {
+		return fmt.Errorf("get assignment in %s: %w", exchange.ID, lookupErr)
+	}
+
+	return nil
 }
 
 // askLocked runs the checks of Ask in order under the exchange row lock, which also serializes

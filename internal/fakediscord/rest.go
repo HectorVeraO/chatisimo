@@ -81,6 +81,7 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("PUT "+restPrefix+"/applications/{app}/guilds/{guild}/commands", s.botOnly(s.faulted(routePutGuildCommands, s.handlePutGuildCommands)))
 	mux.HandleFunc("POST "+restPrefix+"/users/@me/channels", s.botOnly(s.faulted(routeCreateDM, s.handleCreateDM)))
 	mux.HandleFunc("POST "+restPrefix+"/channels/{channel}/messages", s.botOnly(s.faulted(routeCreateMessage, s.handleCreateMessage)))
+	mux.HandleFunc("POST "+llmPrefix+"/{model}", s.apiKeyOnly(s.faulted(routeGenerateContent, s.handleGenerateContent)))
 	s.addWebhookRoutes(mux)
 	s.addControlRoutes(mux)
 	addWebRoutes(mux)
@@ -174,6 +175,72 @@ func (s *Server) botOnly(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// apiKeyOnly requires the x-goog-api-key header to match the fake's token.
+func (s *Server) apiKeyOnly(next http.HandlerFunc) http.HandlerFunc {
+	want := s.token
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		got := r.Header.Get("x-goog-api-key")
+		if !tokensEqual(got, want) {
+			writeError(w, http.StatusUnauthorized, codeGeneric, "401: Unauthorized")
+			return
+		}
+		next(w, r)
+	}
+}
+
+type generateContentBody struct {
+	Contents []struct {
+		Parts []struct {
+			Text string `json:"text"`
+		} `json:"parts"`
+	} `json:"contents"`
+}
+
+func (s *Server) handleGenerateContent(w http.ResponseWriter, r *http.Request) {
+	if !strings.HasSuffix(r.PathValue("model"), ":generateContent") {
+		handleNotFound(w, r)
+		return
+	}
+
+	var body generateContentBody
+	if !decodeBody(w, r, &body) {
+		return
+	}
+
+	var promptBuilder strings.Builder
+	for _, content := range body.Contents {
+		for _, part := range content.Parts {
+			promptBuilder.WriteString(part.Text)
+		}
+	}
+
+	prompt := strings.TrimSpace(promptBuilder.String())
+	if prompt == "" {
+		writeError(w, http.StatusBadRequest, codeInvalidFormBody, "Invalid Form Body")
+		return
+	}
+
+	s.mu.Lock()
+	rephrased, found := s.rephrases[prompt]
+	s.mu.Unlock()
+	if !found {
+		rephrased = prompt
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"candidates": []map[string]any{
+			{
+				"content": map[string]any{
+					"parts": []map[string]string{
+						{"text": rephrased},
+					},
+				},
+			},
+		},
+	})
 }
 
 // decodeBody reads a JSON request body of bounded size into target. It answers the client

@@ -572,6 +572,7 @@ func (s *Server) handleControlReset(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	s.w.reset()
 	s.faults = map[string][]fault{}
+	s.rephrases = map[string]string{}
 	s.publishWorldChangedLocked()
 	s.notifyLocked()
 	s.mu.Unlock()

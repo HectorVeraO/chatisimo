@@ -101,3 +101,40 @@ func FuzzValidateDiscordAPIBaseURL(f *testing.F) {
 		}
 	})
 }
+
+func FuzzValidateLLMModel(f *testing.F) {
+	seeds := []string{
+		"",
+		defaultLLMModel,
+		"gemini-3.5-flash",
+		strings.Repeat("a", maxLLMModelBytes),
+		strings.Repeat("a", maxLLMModelBytes+1),
+		"bad/model",
+		"bad\\model",
+		"bad?model",
+		"bad#model",
+		"bad:model",
+		"bad model",
+		"model\n",
+		"m\u00e9del",
+		"model\x00",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, value string) {
+		err := validateLLMModel(value, config.EnvLocal)
+		if err != nil {
+			return
+		}
+
+		if len(value) < 1 || len(value) > maxLLMModelBytes {
+			t.Errorf("accepted a model of %d bytes", len(value))
+		}
+
+		if strings.ContainsAny(value, "/\\?#: \t\r\n") {
+			t.Errorf("accepted model %q with forbidden delimiter", value)
+		}
+	})
+}
