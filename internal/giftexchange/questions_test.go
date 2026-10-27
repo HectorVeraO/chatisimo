@@ -709,8 +709,10 @@ func TestPendingQuestionNoticeIsStaleOnceClosedButTheAnswerNoticeIsDelivered(t *
 func TestNoQuestionOrAnswerTextReachesLogsErrorsOrJobs(t *testing.T) {
 	s := cycleDrawn(t, 4)
 	questionText := "NEEDLE-question-" + newSubject()
+	rephrasedText := "NEEDLE-rephrased-" + newSubject()
 	answerText := "NEEDLE-answer-" + newSubject()
-	secrets := []string{questionText, answerText}
+	s.h.rephraser.SetTransform(func(string) string { return rephrasedText })
+	secrets := []string{questionText, rephrasedText, answerText}
 	for _, p := range s.people {
 		secrets = append(secrets, p.id.String(), p.subject)
 	}
@@ -720,6 +722,17 @@ func TestNoQuestionOrAnswerTextReachesLogsErrorsOrJobs(t *testing.T) {
 	errs = append(errs, s.answer(t, s.people[1], id, answerText))
 	errs = append(errs, s.answer(t, s.people[1], id, answerText))
 	errs = append(errs, s.answer(t, s.people[2], id, answerText))
+
+	s.h.rephraser.FailWith(errors.New("upstream error: " + questionText))
+	_, rephraseFailed := s.h.svc.Ask(t.Context(), s.people[0].actor, s.exchange, questionText)
+	errs = append(errs, rephraseFailed)
+	s.h.rephraser.FailWith(nil)
+
+	s.h.rephraser.SetTransform(func(string) string { return "   " })
+	_, rephraseEmpty := s.h.svc.Ask(t.Context(), s.people[0].actor, s.exchange, questionText)
+	errs = append(errs, rephraseEmpty)
+	s.h.rephraser.SetTransform(func(string) string { return rephrasedText })
+
 	for range giftexchange.QuestionsPerDay {
 		_, err := s.h.svc.Ask(t.Context(), s.people[0].actor, s.exchange, questionText)
 		errs = append(errs, err)
@@ -736,6 +749,149 @@ func TestNoQuestionOrAnswerTextReachesLogsErrorsOrJobs(t *testing.T) {
 	})
 
 	assertConfidential(t, s.h, errs, secrets)
+}
+
+func TestAskRephrasesQuestionBeforeStoringAndNotifying(t *testing.T) {
+	s := cycleDrawn(t, 4)
+	const (
+		rawText       = "yo bro do u like green tea or nah???"
+		rephrasedText = "Do you enjoy drinking green tea?"
+	)
+	s.h.rephraser.SetTransform(func(got string) string {
+		if got != rawText {
+			return "unexpected input: " + got
+		}
+		return "  " + rephrasedText + "\n"
+	})
+
+	qid := s.ask(t, s.people[0], "  "+rawText+"  ")
+	if err := s.answer(t, s.people[1], qid, "Yes, every morning"); err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+
+	s.h.startRunner(t)
+	waitForFinished(t, s.exchange, len(s.people)+2)
+
+	inputs := s.h.rephraser.Inputs()
+	if len(inputs) != 1 || inputs[0] != rawText {
+		t.Fatalf("rephraser inputs = %v, want [%q]", inputs, rawText)
+	}
+
+	asked := s.asked(t, s.people[0])
+	if len(asked) != 1 || asked[0].Text != rephrasedText {
+		t.Fatalf("AskedQuestions = %+v, want Text %q", asked, rephrasedText)
+	}
+
+	received := s.received(t, s.people[1])
+	if len(received) != 1 || received[0].Text != rephrasedText {
+		t.Fatalf("ReceivedQuestions = %+v, want Text %q", received, rephrasedText)
+	}
+
+	questionNotices := receivedOfKind(s.h.notifier.Received(), giftexchange.KindQuestionReceived)
+	if len(questionNotices) != 1 || questionNotices[0].Question == nil || questionNotices[0].Question.Text != rephrasedText {
+		t.Fatalf("question notices = %+v, want Text %q", questionNotices, rephrasedText)
+	}
+
+	answerNotices := receivedOfKind(s.h.notifier.Received(), giftexchange.KindAnswerReceived)
+	if len(answerNotices) != 1 || answerNotices[0].Question == nil || answerNotices[0].Question.Text != rephrasedText {
+		t.Fatalf("answer notices = %+v, want Text %q", answerNotices, rephrasedText)
+	}
+
+	for _, notice := range s.h.notifier.Received() {
+		if strings.Contains(formatAll(notice), rawText) {
+			t.Errorf("notification %+v leaked raw question text %q", notice, rawText)
+		}
+	}
+}
+
+func TestAskRephraseFailureReturnsErrRephraseUnavailableAndStoresNothing(t *testing.T) {
+	s := cycleDrawn(t, 4)
+
+	cases := []struct {
+		name      string
+		configure func(*recordingRephraser)
+	}{
+		{
+			name: "upstream error",
+			configure: func(r *recordingRephraser) {
+				r.FailWith(errors.New("llm timeout"))
+				r.SetTransform(nil)
+			},
+		},
+		{
+			name: "empty output",
+			configure: func(r *recordingRephraser) {
+				r.FailWith(nil)
+				r.SetTransform(func(string) string { return "   \n\t  " })
+			},
+		},
+		{
+			name: "overlong output",
+			configure: func(r *recordingRephraser) {
+				r.FailWith(nil)
+				r.SetTransform(func(string) string {
+					return strings.Repeat("q", giftexchange.MaxQuestionRunes+1)
+				})
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.configure(s.h.rephraser)
+
+			id, err := s.h.svc.Ask(t.Context(), s.people[0].actor, s.exchange, "What size shirt do you wear?")
+			if !errors.Is(err, giftexchange.ErrRephraseUnavailable) {
+				t.Fatalf("Ask err = %v (id = %v), want ErrRephraseUnavailable", err, id)
+			}
+			if errors.Is(err, giftexchange.ErrInvalidInput) {
+				t.Fatalf("Ask err = %v must not match ErrInvalidInput", err)
+			}
+		})
+	}
+
+	if got := s.asked(t, s.people[0]); len(got) != 0 {
+		t.Fatalf("AskedQuestions = %+v, want empty after failed rephrases", got)
+	}
+	if got := s.received(t, s.people[1]); len(got) != 0 {
+		t.Fatalf("ReceivedQuestions = %+v, want empty after failed rephrases", got)
+	}
+
+	s.h.rephraser.FailWith(nil)
+	s.h.rephraser.SetTransform(func(text string) string { return "Rephrased: " + text })
+	for range giftexchange.QuestionsPerDay {
+		s.ask(t, s.people[0], "Does failed rephrase count toward rate limit?")
+	}
+}
+
+func TestAskPrecheckFailuresDoNotCallRephraser(t *testing.T) {
+	s := cycleDrawn(t, 4)
+
+	_, _ = s.h.svc.Ask(t.Context(), giftexchange.Actor{}, s.exchange, "Unauthenticated?")
+	_, _ = s.h.svc.Ask(t.Context(), s.people[0].actor, s.exchange, "   ")
+	outsider := s.h.newPerson(t)
+	_, _ = s.h.svc.Ask(t.Context(), outsider.actor, s.exchange, "Outsider?")
+
+	s.setQuestions(t, "off")
+	_, _ = s.h.svc.Ask(t.Context(), s.people[0].actor, s.exchange, "Disabled?")
+	s.setQuestions(t, "on")
+
+	if got := s.h.rephraser.Inputs(); len(got) != 0 {
+		t.Fatalf("rephraser called on rejected prechecks: %v, want empty", got)
+	}
+
+	for range giftexchange.QuestionsPerDay {
+		s.ask(t, s.people[0], "Count toward limit")
+	}
+	beforeRateLimit := len(s.h.rephraser.Inputs())
+
+	_, err := s.h.svc.Ask(t.Context(), s.people[0].actor, s.exchange, "Over limit?")
+	if !errors.Is(err, giftexchange.ErrRateLimited) {
+		t.Fatalf("Ask over limit = %v, want ErrRateLimited", err)
+	}
+	if afterRateLimit := len(s.h.rephraser.Inputs()); afterRateLimit != beforeRateLimit {
+		t.Fatalf("rephraser calls after rate limit = %d, want %d", afterRateLimit, beforeRateLimit)
+	}
 }
 
 func TestReceivedQuestionsAndNoticesHaveNoAskerField(t *testing.T) {

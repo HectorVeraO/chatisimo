@@ -123,6 +123,53 @@ func (n *recordingNotifier) Received() []giftexchange.Notification {
 	return slices.Clone(n.received)
 }
 
+// recordingRephraser captures every input passed to Rephrase and returns either the transformed
+// text (when transform is set) or the input text, or failWith when configured.
+type recordingRephraser struct {
+	mu        sync.Mutex
+	inputs    []string
+	transform func(string) string
+	failWith  error
+}
+
+func (r *recordingRephraser) Rephrase(_ context.Context, text string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.inputs = append(r.inputs, text)
+
+	if r.failWith != nil {
+		return "", r.failWith
+	}
+
+	if r.transform != nil {
+		return r.transform(text), nil
+	}
+
+	return text, nil
+}
+
+func (r *recordingRephraser) SetTransform(fn func(string) string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.transform = fn
+}
+
+func (r *recordingRephraser) FailWith(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.failWith = err
+}
+
+func (r *recordingRephraser) Inputs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return slices.Clone(r.inputs)
+}
+
 // syncBuffer is a bytes.Buffer safe for concurrent writes, the sink of the JSON log handler.
 type syncBuffer struct {
 	mu  sync.Mutex
@@ -150,12 +197,13 @@ func (b *syncBuffer) String() string {
 
 // harness is one test's Service and the doubles around it.
 type harness struct {
-	svc      *giftexchange.Service
-	clock    *fakeClock
-	random   *lockedRandom
-	notifier *recordingNotifier
-	logs     *syncBuffer
-	queue    string
+	svc       *giftexchange.Service
+	clock     *fakeClock
+	random    *lockedRandom
+	notifier  *recordingNotifier
+	rephraser *recordingRephraser
+	logs      *syncBuffer
+	queue     string
 }
 
 // newService builds a Service over the shared database with its own queue name, so the jobs it
@@ -166,6 +214,7 @@ func newService(t testing.TB) *harness {
 	clock := newFakeClock()
 	random := newLockedRandom([32]byte{1})
 	notifier := &recordingNotifier{}
+	rephraser := &recordingRephraser{}
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	queue := newQueueName(t)
@@ -185,13 +234,22 @@ func newService(t testing.TB) *harness {
 		Clock:     clock,
 		Random:    random,
 		Notifier:  notifier,
+		Rephraser: rephraser,
 		Logger:    logger,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	return &harness{svc: svc, clock: clock, random: random, notifier: notifier, logs: logs, queue: queue}
+	return &harness{
+		svc:       svc,
+		clock:     clock,
+		random:    random,
+		notifier:  notifier,
+		rephraser: rephraser,
+		logs:      logs,
+		queue:     queue,
+	}
 }
 
 func newQueueName(t testing.TB) string {

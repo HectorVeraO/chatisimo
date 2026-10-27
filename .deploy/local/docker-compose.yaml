@@ -83,6 +83,8 @@ services:
       - |
         wget -qO- http://fakediscord:10010/_control/token | chatisimo config set discord.token
         printf '%s' 'http://fakediscord:10010/api/v10' | chatisimo config set discord.api_base_url
+        wget -qO- http://fakediscord:10010/_control/token | chatisimo config set llm.api_key
+        printf '%s' 'http://fakediscord:10010/v1/publishers/google/models' | chatisimo config set llm.base_url
     restart: "no"
 
   chatisimo:

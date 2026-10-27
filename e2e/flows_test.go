@@ -979,6 +979,61 @@ func TestQuestionInputIsDeliveredIntact(t *testing.T) {
 	}
 }
 
+func TestQuestionRephrasedByFakeLLM(t *testing.T) {
+	t.Parallel()
+
+	s := newGuild(t, 4)
+	organizer, givers := s.members[0], s.members[1:]
+	exchange, _ := s.setup(t, organizer, givers)
+	s.draw(t, organizer, exchange.id)
+	pairs := s.pairsAfterDraw(t, givers)
+	asker := givers[0]
+	recipient, found := userIn(givers, pairs[asker.ID])
+	if !found {
+		t.Fatal("the recipient of the asker is not a participant")
+	}
+
+	const (
+		rawQuestion       = "yo bro u wear wool socks or nah???"
+		rephrasedQuestion = "Do you like wearing wool socks?"
+	)
+	created.add("raw question text", rawQuestion)
+	created.add("rephrased question text", rephrasedQuestion)
+	s.fake.SetRephrased(rawQuestion, rephrasedQuestion)
+
+	asked := s.slash(t, asker, "/ge/ask", map[string]any{"question": rawQuestion, "exchange": exchange.id})
+	if !strings.Contains(asked.text, "sent anonymously") {
+		t.Fatalf("ask = %q, want the anonymous confirmation", asked.text)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), waitDeadline)
+	defer cancel()
+	received, err := s.fake.WaitDM(ctx, recipient, func(m fakediscord.Message) bool {
+		return strings.Contains(textOf(t, m), rephrasedQuestion)
+	})
+	if err != nil {
+		t.Fatalf("the recipient got no rephrased question: %v", err)
+	}
+	if strings.Contains(textOf(t, received), rawQuestion) {
+		t.Errorf("recipient DM leaked raw question: %q", textOf(t, received))
+	}
+
+	options := map[string]any{"exchange": exchange.id}
+	askedList := s.slash(t, asker, "/ge/questions", options)
+	receivedList := s.slash(t, recipient, "/ge/questions", options)
+	for side, got := range map[string]string{
+		"asked":    fieldValue(t, askedList.message, "Questions you asked"),
+		"received": fieldValue(t, receivedList.message, "Questions you received"),
+	} {
+		if !strings.Contains(got, rephrasedQuestion) {
+			t.Errorf("%s list = %q, want rephrased question %q", side, got, rephrasedQuestion)
+		}
+		if strings.Contains(got, rawQuestion) {
+			t.Errorf("%s list = %q leaked raw question %q", side, got, rawQuestion)
+		}
+	}
+}
+
 func userIn(users []fakediscord.User, id string) (fakediscord.User, bool) {
 	for _, user := range users {
 		if user.ID == id {

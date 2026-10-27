@@ -177,14 +177,51 @@ func cancelledNotice(subject string) giftexchange.Notification {
 	return n
 }
 
+// fakeRephraser is an in-process giftexchange.Rephraser double for adapter tests.
+type fakeRephraser struct {
+	mu        sync.Mutex
+	transform func(string) string
+	failWith  error
+}
+
+func (r *fakeRephraser) Rephrase(_ context.Context, text string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.failWith != nil {
+		return "", r.failWith
+	}
+
+	if r.transform != nil {
+		return r.transform(text), nil
+	}
+
+	return text, nil
+}
+
+func (r *fakeRephraser) SetTransform(fn func(string) string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.transform = fn
+}
+
+func (r *fakeRephraser) FailWith(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.failWith = err
+}
+
 // service is a giftexchange.Service over the shared database that delivers through the
 // world's notifier, with its own River queue.
 type service struct {
-	svc    *giftexchange.Service
-	clock  *fakeClock
-	queue  string
-	people map[string]person
-	group  giftexchange.GroupID
+	svc       *giftexchange.Service
+	clock     *fakeClock
+	rephraser *fakeRephraser
+	queue     string
+	people    map[string]person
+	group     giftexchange.GroupID
 }
 
 type person struct {
@@ -197,6 +234,7 @@ func newService(t *testing.T, w *world) *service {
 
 	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Microsecond)}
 	random := &lockedRandom{rng: rand.New(rand.NewPCG(1, 2))} //nolint:gosec // seeded test randomness
+	rephraser := &fakeRephraser{}
 
 	var raw [8]byte
 	_, readErr := cryptorand.Read(raw[:])
@@ -216,6 +254,7 @@ func newService(t *testing.T, w *world) *service {
 		Clock:     clock,
 		Random:    random,
 		Notifier:  w.notifier,
+		Rephraser: rephraser,
 		Logger:    w.logger,
 	})
 	if err != nil {
@@ -228,7 +267,7 @@ func newService(t *testing.T, w *world) *service {
 		t.Fatalf("ResolveGroup: %v", err)
 	}
 
-	s := &service{svc: svc, clock: clock, queue: queue, people: map[string]person{}, group: group}
+	s := &service{svc: svc, clock: clock, rephraser: rephraser, queue: queue, people: map[string]person{}, group: group}
 	for _, subject := range []string{userA, userB, userC} {
 		ref := giftexchange.IdentityRef{Provider: giftexchange.ProviderDiscord, Subject: subject}
 		actor, resolveErr := svc.ResolveActor(t.Context(), ref)

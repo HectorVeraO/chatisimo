@@ -234,11 +234,13 @@ func (b *backend) runCLI(ctx context.Context, stdin string, args ...string) (cli
 }
 
 // configure stores the fake's token and REST base URL through the CLI, which reads each from
-// stdin. Both commands must succeed and print nothing of the token.
+// stdin. All commands must succeed and print nothing of the token.
 func (b *backend) configure(ctx context.Context) error {
 	settings := []struct{ key, value string }{
 		{"discord.token", b.fake.Token()},
 		{"discord.api_base_url", b.fake.RESTBase()},
+		{"llm.api_key", b.fake.Token()},
+		{"llm.base_url", b.fake.LLMBase()},
 	}
 
 	var problems []error

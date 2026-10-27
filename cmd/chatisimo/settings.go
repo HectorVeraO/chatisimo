@@ -8,15 +8,22 @@ import (
 	"unicode"
 
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
+	"github.com/HectorVeraO/chatisimo/internal/platform/llm"
 )
 
 const (
 	settingDiscordToken      = "discord.token"
 	settingDiscordAPIBaseURL = "discord.api_base_url"
+	settingLLMKey            = "llm.api_key"
+	settingLLMModel          = "llm.model"
+	settingLLMBaseURL        = "llm.base_url"
 
 	defaultDiscordAPIBaseURL = "https://discord.com/api/v10"
+	defaultLLMModel          = llm.DefaultModel
+	defaultLLMBaseURL        = llm.DefaultBaseURL
 
 	maxDiscordTokenBytes = 256
+	maxLLMModelBytes     = 128
 )
 
 // settingKeys declares every setting the process knows. Owners of a setting read it through
@@ -34,6 +41,24 @@ func settingKeys() []config.Key {
 			Default:  defaultDiscordAPIBaseURL,
 			Validate: validateDiscordAPIBaseURL,
 			Doc:      "Discord REST base URL",
+		},
+		{
+			Name:     settingLLMKey,
+			Secret:   true,
+			Validate: validateDiscordToken,
+			Doc:      "Vertex AI API key",
+		},
+		{
+			Name:     settingLLMModel,
+			Default:  defaultLLMModel,
+			Validate: validateLLMModel,
+			Doc:      "Vertex AI model",
+		},
+		{
+			Name:     settingLLMBaseURL,
+			Default:  defaultLLMBaseURL,
+			Validate: validateLLMBaseURL,
+			Doc:      "Vertex AI publisher models base URL",
 		},
 	}
 
@@ -75,11 +100,47 @@ func validateDiscordToken(value string, _ config.Environment) error {
 // query, fragment or trailing slash. Production accepts only the default. Its errors never carry
 // the value.
 func validateDiscordAPIBaseURL(value string, env config.Environment) error {
+	return validateAPIBaseURL(value, env, defaultDiscordAPIBaseURL)
+}
+
+// validateLLMBaseURL accepts an absolute http or https URL with a host, no user info, query,
+// fragment or trailing slash. Production accepts only defaultLLMBaseURL. Its errors never carry
+// the value.
+func validateLLMBaseURL(value string, env config.Environment) error {
+	return validateAPIBaseURL(value, env, defaultLLMBaseURL)
+}
+
+// validateLLMModel accepts a 1-128 byte printable ASCII model identifier without URL path or
+// query characters. Its errors never carry the value.
+func validateLLMModel(value string, _ config.Environment) error {
+	var problems []error
+
+	if len(value) < 1 || len(value) > maxLLMModelBytes {
+		problems = append(problems, fmt.Errorf("must be 1-%d bytes", maxLLMModelBytes))
+	}
+
+	for i := range len(value) {
+		isPrintable := value[i] >= 0x21 && value[i] <= 0x7E
+		if !isPrintable {
+			problems = append(problems, errors.New("must be printable ASCII without white space"))
+
+			break
+		}
+	}
+
+	if strings.ContainsAny(value, "/\\?#:") {
+		problems = append(problems, errors.New("must not contain URL path or query characters"))
+	}
+
+	return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+}
+
+func validateAPIBaseURL(value string, env config.Environment, prodDefault string) error {
 	var problems []error
 
 	isProduction := env == config.EnvProduction
-	if isProduction && value != defaultDiscordAPIBaseURL {
-		problems = append(problems, fmt.Errorf("must be %s in production", defaultDiscordAPIBaseURL))
+	if isProduction && value != prodDefault {
+		problems = append(problems, fmt.Errorf("must be %s in production", prodDefault))
 	}
 
 	hasSpace := strings.ContainsFunc(value, unicode.IsSpace)

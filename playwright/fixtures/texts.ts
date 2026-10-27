@@ -78,6 +78,8 @@ export const outcomeReopened =
   "Removed. Too few participants or no valid draw remained, so the draw was undone and %s is open again.";
 export const ownRecipient = "You can't remove your own recipient. They can leave, or you can cancel the exchange.";
 export const asked = "Your question was sent anonymously to your recipient in %s.";
+export const rephraseFailed =
+  "Could not rephrase your question right now. Your question was not sent; please try again.";
 export const yourAnswer = "Your answer:";
 export const forbidden = "You are not allowed to do that in this exchange.";
 export const notParticipant = "You are not in this exchange.";

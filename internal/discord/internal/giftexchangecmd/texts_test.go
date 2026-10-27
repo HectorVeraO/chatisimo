@@ -91,6 +91,7 @@ func allTexts() map[string]string {
 		"textUnknownRule":              textUnknownRule,
 		"textQuestionsOff":             textQuestionsOff,
 		"textRateLimited":              textRateLimited,
+		"textRephraseFailed":           textRephraseFailed,
 		"textInvalidState":             textInvalidState,
 		"textInternal":                 textInternal,
 		"textQuestionClosed":           textQuestionClosed,

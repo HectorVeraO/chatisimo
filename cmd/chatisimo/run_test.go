@@ -69,6 +69,10 @@ func TestRunWithoutTokenFailsNamingTheSettingCommand(t *testing.T) {
 		t.Errorf("stderr = %q, want the command that sets the token", got.stderr)
 	}
 
+	if !strings.Contains(got.stderr, "run chatisimo config set llm.api_key") {
+		t.Errorf("stderr = %q, want the command that sets llm.api_key", got.stderr)
+	}
+
 	assertNoneOf(t, got, masterKey, database.URL().Reveal())
 }
 
@@ -82,6 +86,7 @@ func TestRunRejectsAnAPIBaseURLThatProductionForbids(t *testing.T) {
 	token := syntheticToken(t, 48)
 
 	storeSetting(t, local, "discord.token", token)
+	storeSetting(t, local, "llm.api_key", token)
 	storeSetting(t, local, "discord.api_base_url", storedURL)
 
 	got := invoke(t, envFor(database, "production"), strings.NewReader(""), "run")
@@ -95,6 +100,32 @@ func TestRunRejectsAnAPIBaseURLThatProductionForbids(t *testing.T) {
 	}
 
 	assertNoneOf(t, got, storedURL, token, masterKey, database.URL().Reveal())
+}
+
+func TestRunRejectsAnLLMBaseURLThatProductionForbids(t *testing.T) {
+	noLeaks(t)
+
+	const storedLLMURL = "http://127.0.0.1:10010/v1/publishers/google/models"
+
+	database := newClone(t)
+	local := envFor(database, "local")
+	token := syntheticToken(t, 48)
+
+	storeSetting(t, local, "discord.token", token)
+	storeSetting(t, local, "llm.api_key", token)
+	storeSetting(t, local, "llm.base_url", storedLLMURL)
+
+	got := invoke(t, envFor(database, "production"), strings.NewReader(""), "run")
+
+	if got.code != 1 || got.stdout != "" {
+		t.Fatalf("got code %d and stdout %q, want exit 1 and empty stdout", got.code, got.stdout)
+	}
+
+	if !strings.Contains(got.stderr, "llm.base_url") {
+		t.Errorf("stderr = %q, want the name of the invalid setting", got.stderr)
+	}
+
+	assertNoneOf(t, got, storedLLMURL, token, masterKey, database.URL().Reveal())
 }
 
 func TestRunReportsEveryEnvironmentErrorWithoutValues(t *testing.T) {

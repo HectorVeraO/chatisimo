@@ -220,7 +220,10 @@ func TestConfigListFormat(t *testing.T) {
 	before := invoke(t, env, strings.NewReader(""), "config", "list")
 
 	wantBefore := "discord.api_base_url\tplain\t" + defaultDiscordAPIBaseURL + " (default)\tDiscord REST base URL\n" +
-		"discord.token\tsecret\t(unset)\tDiscord bot token\n"
+		"discord.token\tsecret\t(unset)\tDiscord bot token\n" +
+		"llm.api_key\tsecret\t(unset)\tVertex AI API key\n" +
+		"llm.base_url\tplain\t" + defaultLLMBaseURL + " (default)\tVertex AI publisher models base URL\n" +
+		"llm.model\tplain\t" + defaultLLMModel + " (default)\tVertex AI model\n"
 	if before.code != 0 || before.stdout != wantBefore {
 		t.Errorf("before = %+v, want stdout %q", before, wantBefore)
 	}
@@ -233,9 +236,52 @@ func TestConfigListFormat(t *testing.T) {
 	after := invoke(t, env, strings.NewReader(""), "config", "list")
 
 	wantAfter := "discord.api_base_url\tplain\thttp://127.0.0.1:10010/api/v10\tDiscord REST base URL\n" +
-		"discord.token\tsecret\t(unset)\tDiscord bot token\n"
+		"discord.token\tsecret\t(unset)\tDiscord bot token\n" +
+		"llm.api_key\tsecret\t(unset)\tVertex AI API key\n" +
+		"llm.base_url\tplain\t" + defaultLLMBaseURL + " (default)\tVertex AI publisher models base URL\n" +
+		"llm.model\tplain\t" + defaultLLMModel + " (default)\tVertex AI model\n"
 	if after.stdout != wantAfter {
 		t.Errorf("after stdout = %q, want %q", after.stdout, wantAfter)
+	}
+}
+
+func TestConfigLLMSettings(t *testing.T) {
+	database := newClone(t)
+	local := envFor(database, "local")
+	prod := envFor(database, "production")
+	apiKey := syntheticToken(t, 48)
+
+	setKey := invoke(t, local, strings.NewReader(apiKey+"\n"), "config", "set", "llm.api_key")
+	getKey := invoke(t, local, strings.NewReader(""), "config", "get", "llm.api_key")
+	if setKey.code != 0 || setKey.stdout != "llm.api_key set\n" {
+		t.Errorf("set llm.api_key = %+v, want exit 0", setKey)
+	}
+	if getKey.code != 0 || getKey.stdout != "[redacted]\n" {
+		t.Errorf("get llm.api_key = %+v, want [redacted]", getKey)
+	}
+	if strings.Contains(setKey.all()+getKey.all(), apiKey) {
+		t.Error("llm.api_key output leaked the secret")
+	}
+
+	setModel := invoke(t, local, strings.NewReader("gemini-3.5-flash\n"), "config", "set", "llm.model")
+	getModel := invoke(t, local, strings.NewReader(""), "config", "get", "llm.model")
+	if setModel.code != 0 || getModel.stdout != "gemini-3.5-flash\n" {
+		t.Errorf("llm.model set/get = %+v / %+v", setModel, getModel)
+	}
+
+	for _, badModel := range []string{"", "bad/model", "bad?model", "bad:model", "bad model", strings.Repeat("m", 129)} {
+		got := invoke(t, local, strings.NewReader(badModel+"\n"), "config", "set", "llm.model")
+		if got.code != 1 {
+			t.Errorf("bad llm.model %q accepted: %+v", badModel, got)
+		}
+	}
+
+	const localLLMURL = "http://127.0.0.1:10010/v1/publishers/google/models"
+	if got := invoke(t, prod, strings.NewReader(localLLMURL+"\n"), "config", "set", "llm.base_url"); got.code != 1 {
+		t.Errorf("llm.base_url override in production = %+v, want exit 1", got)
+	}
+	if got := invoke(t, local, strings.NewReader(localLLMURL+"\n"), "config", "set", "llm.base_url"); got.code != 0 {
+		t.Errorf("llm.base_url override in local = %+v, want exit 0", got)
 	}
 }
 

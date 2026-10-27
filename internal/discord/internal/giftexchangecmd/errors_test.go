@@ -39,6 +39,7 @@ func TestMapErrorShowsTheTextAndOutcomeOfEveryModuleError(t *testing.T) {
 		},
 		{"questions off", giftexchange.ErrQuestionsDisabled, "rejected:questions_off", "The organizer turned off questions for this exchange."},
 		{"rate limited", giftexchange.ErrRateLimited, "rejected:rate_limited", "You reached the limit of 20 questions per day for this exchange."},
+		{"rephrase unavailable", giftexchange.ErrRephraseUnavailable, "rejected:rephrase_unavailable", "Could not rephrase your question right now. Your question was not sent; please try again."},
 		{"question closed", giftexchange.ErrQuestionClosed, "rejected:question", "This question is closed and can no longer be answered."},
 		{"already answered", giftexchange.ErrAlreadyAnswered, "rejected:question", "You already answered this question."},
 		{

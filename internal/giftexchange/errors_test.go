@@ -76,7 +76,8 @@ func TestSentinelsAreDistinct(t *testing.T) {
 		giftexchange.ErrNotParticipant, giftexchange.ErrExchangeFull, giftexchange.ErrTooFewParticipants,
 		giftexchange.ErrNoValidAssignment, giftexchange.ErrUnknownRule, giftexchange.ErrRuleFixed,
 		giftexchange.ErrRuleLocked, giftexchange.ErrQuestionsDisabled, giftexchange.ErrQuestionClosed,
-		giftexchange.ErrAlreadyAnswered, giftexchange.ErrRateLimited, giftexchange.ErrUndeliverable,
+		giftexchange.ErrAlreadyAnswered, giftexchange.ErrRateLimited, giftexchange.ErrRephraseUnavailable,
+		giftexchange.ErrUndeliverable,
 	}
 	for i, a := range all {
 		for j, b := range all {

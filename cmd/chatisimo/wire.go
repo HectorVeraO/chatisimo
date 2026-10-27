@@ -17,6 +17,7 @@ import (
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/db"
 	"github.com/HectorVeraO/chatisimo/internal/platform/jobs"
+	"github.com/HectorVeraO/chatisimo/internal/platform/llm"
 	"github.com/HectorVeraO/chatisimo/internal/platform/logging"
 )
 
@@ -171,6 +172,12 @@ func runServer(ctx context.Context, stop context.CancelFunc, env config.Env, log
 	return errors.Join(serveErr, s.shutdown(shutdownCtx)) //nolint:wrapcheck // joins this function's own errors
 }
 
+// runtimeSettings holds the settings read from storage at startup.
+type runtimeSettings struct {
+	discord discord.Settings
+	llm     llm.Config
+}
+
 // build runs the startup steps in order. On error the caller shuts down what was built.
 func (s *server) build(ctx context.Context, env config.Env) error {
 	settings, err := s.openStorage(ctx, env)
@@ -195,44 +202,69 @@ func (s *server) build(ctx context.Context, env config.Env) error {
 	return nil
 }
 
-// openStorage opens the migrated database and reads the Discord settings from it.
-func (s *server) openStorage(ctx context.Context, env config.Env) (discord.Settings, error) {
+// openStorage opens the migrated database and reads the Discord and LLM settings from it.
+func (s *server) openStorage(ctx context.Context, env config.Env) (runtimeSettings, error) {
 	pool, err := openDatabase(ctx, env, s.logger)
 	if err != nil {
-		return discord.Settings{}, err
+		return runtimeSettings{}, err
 	}
 
 	s.pool = pool
 
 	store, err := config.NewStore(ctx, pool, env.MasterKey, env.Environment, settingKeys())
 	if err != nil {
-		return discord.Settings{}, fmt.Errorf("open settings: %w", err)
+		return runtimeSettings{}, fmt.Errorf("open settings: %w", err)
 	}
 
-	err = store.Require(ctx, settingDiscordToken)
+	err = store.Require(ctx, settingDiscordToken, settingLLMKey)
 	if err != nil {
-		return discord.Settings{}, fmt.Errorf("check settings: %w", err)
+		return runtimeSettings{}, fmt.Errorf("check settings: %w", err)
 	}
 
 	token, err := store.Secret(ctx, settingDiscordToken)
 	if err != nil {
-		return discord.Settings{}, fmt.Errorf("read settings: %w", err)
+		return runtimeSettings{}, fmt.Errorf("read settings: %w", err)
 	}
 
 	baseURL, err := store.Get(ctx, settingDiscordAPIBaseURL)
 	if err != nil {
-		return discord.Settings{}, fmt.Errorf("read settings: %w", err)
+		return runtimeSettings{}, fmt.Errorf("read settings: %w", err)
 	}
 
-	return discord.Settings{Token: token, APIBaseURL: baseURL}, nil
+	llmKey, err := store.Secret(ctx, settingLLMKey)
+	if err != nil {
+		return runtimeSettings{}, fmt.Errorf("read settings: %w", err)
+	}
+
+	llmModel, err := store.Get(ctx, settingLLMModel)
+	if err != nil {
+		return runtimeSettings{}, fmt.Errorf("read settings: %w", err)
+	}
+
+	llmBaseURL, err := store.Get(ctx, settingLLMBaseURL)
+	if err != nil {
+		return runtimeSettings{}, fmt.Errorf("read settings: %w", err)
+	}
+
+	out := runtimeSettings{
+		discord: discord.Settings{Token: token, APIBaseURL: baseURL},
+		llm: llm.Config{
+			APIKey:  llmKey.Reveal(),
+			Model:   llmModel,
+			BaseURL: llmBaseURL,
+			Logger:  s.logger,
+		},
+	}
+
+	return out, nil
 }
 
-// construct builds the notifier, the scheduler, the module, the runner and the adapter. Every
-// constructor receives all it needs: the notifier exists before the module, the adapter after
-// it, and the module registers its jobs before the runner is built because River fixes its
-// workers at construction.
-func (s *server) construct(settings discord.Settings) error {
-	notifier, err := discord.NewNotifier(settings, s.logger)
+// construct builds the notifier, the scheduler, the LLM client, the module, the runner and the
+// adapter. Every constructor receives all it needs: the notifier exists before the module, the
+// adapter after it, and the module registers its jobs before the runner is built because River
+// fixes its workers at construction.
+func (s *server) construct(settings runtimeSettings) error {
+	notifier, err := discord.NewNotifier(settings.discord, s.logger)
 	if err != nil {
 		return fmt.Errorf("create notifier: %w", err)
 	}
@@ -244,12 +276,18 @@ func (s *server) construct(settings discord.Settings) error {
 		return fmt.Errorf("create scheduler: %w", err)
 	}
 
+	rephraser, err := llm.New(settings.llm)
+	if err != nil {
+		return fmt.Errorf("create llm client: %w", err)
+	}
+
 	exchanges, err := giftexchange.New(giftexchange.Deps{
 		Pool:      s.pool,
 		Scheduler: scheduler,
 		Clock:     systemClock{},
 		Random:    rand.New(giftexchange.CryptoSource{}), //nolint:gosec // the source reads crypto/rand
 		Notifier:  notifier,
+		Rephraser: rephraser,
 		Logger:    s.logger,
 	})
 	if err != nil {

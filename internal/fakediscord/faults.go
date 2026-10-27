@@ -23,6 +23,7 @@ const (
 	routeEditMessage       = "PATCH /webhooks/{app}/{token}/messages/{id}"
 	routeGetMessage        = "GET /webhooks/{app}/{token}/messages/{id}"
 	routeDeleteMessage     = "DELETE /webhooks/{app}/{token}/messages/{id}"
+	routeGenerateContent   = "POST /v1/publishers/google/models/{model}"
 	routeGatewayIdentify   = "GATEWAY identify"
 	rateLimitRetryAfter    = "0.2"
 	rateLimitBucket        = "fake"
@@ -39,7 +40,7 @@ const (
 var knownRoutes = []string{
 	routeGetGateway, routePutCommands, routePutGuildCommands, routeCreateDM, routeCreateMessage,
 	routeCallback, routeEditOriginal, routeGetOriginal, routeDeleteOriginal, routeFollowup,
-	routeEditMessage, routeGetMessage, routeDeleteMessage, routeGatewayIdentify,
+	routeEditMessage, routeGetMessage, routeDeleteMessage, routeGenerateContent, routeGatewayIdentify,
 }
 
 var routeParam = regexp.MustCompile(`\{[^}]*\}`)

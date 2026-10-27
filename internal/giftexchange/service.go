@@ -22,6 +22,7 @@ type Deps struct {
 	Clock     Clock
 	Random    Random
 	Notifier  Notifier
+	Rephraser Rephraser
 	Logger    *slog.Logger
 }
 
@@ -32,6 +33,7 @@ type Service struct {
 	clock     Clock
 	random    Random
 	notifier  Notifier
+	rephraser Rephraser
 	logger    *slog.Logger
 }
 
@@ -54,6 +56,9 @@ func New(deps Deps) (*Service, error) {
 	if deps.Notifier == nil {
 		problems = append(problems, missingDep("deps.Notifier"))
 	}
+	if deps.Rephraser == nil {
+		problems = append(problems, missingDep("deps.Rephraser"))
+	}
 	if deps.Logger == nil {
 		problems = append(problems, missingDep("deps.Logger"))
 	}
@@ -67,6 +72,7 @@ func New(deps Deps) (*Service, error) {
 		clock:     deps.Clock,
 		random:    deps.Random,
 		notifier:  deps.Notifier,
+		rephraser: deps.Rephraser,
 		logger:    deps.Logger,
 	}
 

@@ -88,6 +88,8 @@ func MapError(requestID string, err error) router.Rejection {
 		return rejected("questions_off", textQuestionsOff)
 	case errors.Is(err, giftexchange.ErrRateLimited):
 		return rejected("rate_limited", textRateLimited)
+	case errors.Is(err, giftexchange.ErrRephraseUnavailable):
+		return rejected("rephrase_unavailable", textRephraseFailed)
 	case errors.Is(err, giftexchange.ErrQuestionClosed):
 		return rejected("question", textQuestionClosed)
 	case errors.Is(err, giftexchange.ErrAlreadyAnswered):

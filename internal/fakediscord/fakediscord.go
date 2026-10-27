@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"text/template"
 	"time"
@@ -24,6 +25,7 @@ const (
 	defaultHeartbeatInterval = 41250 * time.Millisecond
 	defaultCallbackDeadline  = 3 * time.Second
 	restPrefix               = "/api/v10"
+	llmPrefix                = "/v1/publishers/google/models"
 	gatewayPath              = "/ws"
 	readHeaderTimeout        = 5 * time.Second
 )
@@ -69,6 +71,7 @@ type Server struct {
 	recordSeq int
 	subs      map[*subscriber]struct{}
 	faults    map[string][]fault
+	rephrases map[string]string
 	botStatus string
 	// stopped is closed by Close so waits and event streams end.
 	stopped chan struct{}
@@ -141,6 +144,7 @@ func New(opts Options) (*Server, error) {
 		changed:          make(chan struct{}),
 		subs:             map[*subscriber]struct{}{},
 		faults:           map[string][]fault{},
+		rephrases:        map[string]string{},
 		botStatus:        botAbsent,
 		stopped:          make(chan struct{}),
 	}
@@ -256,6 +260,26 @@ func (s *Server) RESTBase() string {
 	}
 
 	return base + restPrefix
+}
+
+// LLMBase is the Vertex AI publisher models base URL served by the fake, URL() plus
+// /v1/publishers/google/models.
+func (s *Server) LLMBase() string {
+	base := s.URL()
+	if base == "" {
+		return ""
+	}
+
+	return base + llmPrefix
+}
+
+// SetRephrased maps raw question text to rephrased for future generateContent calls. Unmapped
+// questions return their trimmed input text.
+func (s *Server) SetRephrased(raw, rephrased string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.rephrases[strings.TrimSpace(raw)] = rephrased
 }
 
 // Token is the bot token the fake accepts.

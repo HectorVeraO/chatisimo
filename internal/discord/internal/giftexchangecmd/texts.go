@@ -54,6 +54,7 @@ const (
 	textUnknownRule     = "Unknown rule."
 	textQuestionsOff    = "The organizer turned off questions for this exchange."
 	textRateLimited     = "You reached the limit of 20 questions per day for this exchange."
+	textRephraseFailed  = "Could not rephrase your question right now. Your question was not sent; please try again."
 	textInvalidState    = "Not possible while the exchange is %s."
 	textInternal        = "Something went wrong. Reference %s."
 	textQuestionClosed  = "This question is closed and can no longer be answered."

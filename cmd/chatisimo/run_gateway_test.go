@@ -59,6 +59,8 @@ func configureDiscord(t *testing.T, env environment, fake *fakediscord.Server) {
 
 	storeSetting(t, env, "discord.token", fake.Token())
 	storeSetting(t, env, "discord.api_base_url", fake.RESTBase())
+	storeSetting(t, env, "llm.api_key", fake.Token())
+	storeSetting(t, env, "llm.base_url", fake.LLMBase())
 }
 
 // running is one invocation of `run` in the background.
@@ -248,6 +250,8 @@ func TestRunExitsZeroWhenStoppedWhileDiscordIsOpening(t *testing.T) {
 
 	storeSetting(t, env, "discord.token", tokenSource.Token())
 	storeSetting(t, env, "discord.api_base_url", stub.URL)
+	storeSetting(t, env, "llm.api_key", tokenSource.Token())
+	storeSetting(t, env, "llm.base_url", stub.URL)
 
 	r = startRun(t, env)
 	close(started)
