@@ -109,6 +109,12 @@ func exchangeFilters() []exchangeFilter {
 				return s.CallerIsParticipant && s.State == drawn
 			},
 		},
+		{
+			verbs: []string{"preferences"}, scope: scopeCaller,
+			keep: func(s giftexchange.ExchangeSummary) bool {
+				return s.CallerIsParticipant && isOneOf(s.State, open, drawn)
+			},
+		},
 	}
 
 	return filters

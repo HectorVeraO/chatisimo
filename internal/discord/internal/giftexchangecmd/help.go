@@ -27,6 +27,7 @@ func helpText() string {
 		textHelpGiver,
 		textHelpAsk,
 		textHelpQuestions,
+		textHelpPreferences,
 		textHelpReveal,
 		textHelpCancel,
 		textHelpHelp,

@@ -107,7 +107,7 @@ func TestCommandTrees(t *testing.T) {
 
 	wantVerbs := []string{
 		"create", "list", "join", "leave", "remove", "rules", "exclude", "unexclude", "rename",
-		"draw", "recipient", "giver", "ask", "questions", "reveal", "cancel", "help",
+		"draw", "recipient", "giver", "ask", "questions", "preferences", "reveal", "cancel", "help",
 	}
 	if got := optionNames(short.Options); !slices.Equal(got, wantVerbs) {
 		t.Errorf("verbs = %v, want %v", got, wantVerbs)

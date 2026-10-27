@@ -2,6 +2,7 @@ package giftexchange_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
@@ -268,4 +269,54 @@ func TestNonOrganizersSeeOnlyTheExclusionCountAfterTheDraw(t *testing.T) {
 	if !errors.Is(exclusionsErr, giftexchange.ErrForbidden) {
 		t.Errorf("Exclusions by a participant: err = %v, want ErrForbidden", exclusionsErr)
 	}
+}
+
+func TestNoPreferencesTextOrPairReachesLogsErrorsOrJobs(t *testing.T) {
+	s := cycleDrawn(t, 4)
+	ctx := t.Context()
+	likesNeedle := "NEEDLE-likes-" + newSubject()
+	dislikesNeedle := "NEEDLE-dislikes-" + newSubject()
+	detailsNeedle := "NEEDLE-details-" + newSubject()
+	badNeedle := "NEEDLE-bad-" + newSubject() + "\x07"
+
+	secrets := []string{likesNeedle, dislikesNeedle, detailsNeedle, "NEEDLE-bad-"}
+	for _, p := range s.people {
+		secrets = append(secrets, p.id.String(), p.subject)
+	}
+
+	var errs []error
+	record := func(err error) {
+		errs = append(errs, err)
+	}
+
+	_, err := s.h.svc.SetPreferences(ctx, s.people[1].actor, s.exchange, giftexchange.Preferences{
+		Likes:    likesNeedle,
+		Dislikes: dislikesNeedle,
+		Details:  detailsNeedle,
+	})
+	record(err)
+
+	_, err = s.h.svc.Preferences(ctx, s.people[1].actor, s.exchange)
+	record(err)
+
+	_, err = s.h.svc.MyAssignment(ctx, s.people[0].actor, s.exchange)
+	record(err)
+
+	_, err = s.h.svc.SetPreferences(ctx, s.people[1].actor, s.exchange, giftexchange.Preferences{
+		Likes: badNeedle,
+	})
+	record(err)
+
+	_, err = s.h.svc.SetPreferences(ctx, s.organizer.actor, s.exchange, giftexchange.Preferences{
+		Likes: likesNeedle,
+	})
+	record(err)
+
+	s.h.notifier.FailWith(errors.New("delivery transport failure"))
+	s.h.startRunner(t)
+	waitFor(t, deliveryDeadline, "a preferences notice to fail once", func() bool {
+		return slices.ContainsFunc(jobStates(t, s.h), func(job storedJob) bool { return job.attempt > 0 })
+	})
+
+	assertConfidential(t, s.h, errs, secrets)
 }

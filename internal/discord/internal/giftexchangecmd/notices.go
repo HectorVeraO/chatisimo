@@ -74,11 +74,18 @@ func (b noticeBody) message() discord.MessageCreate {
 func buildBody(n giftexchange.Notification, exchange, guild string) (noticeBody, error) {
 	switch n.Kind {
 	case giftexchange.KindDrawn:
-		return pairBody(n, fmt.Sprintf(textDMDrawn, exchange, guild), textTitleRecipient, withReveal)
+		return pairBody(n, fmt.Sprintf(textDMDrawn, exchange, guild), textTitleRecipient, withDrawn)
 	case giftexchange.KindRedrawn:
-		return pairBody(n, fmt.Sprintf(textDMRedrawn, exchange, guild), textTitleNewRecipient, nil)
+		return pairBody(n, fmt.Sprintf(textDMRedrawn, exchange, guild), textTitleNewRecipient, withRecipientPreferences)
 	case giftexchange.KindAssignmentChanged:
-		return pairBody(n, fmt.Sprintf(textDMChanged, exchange, guild), textTitleNewRecipient, nil)
+		return pairBody(n, fmt.Sprintf(textDMChanged, exchange, guild), textTitleNewRecipient, withRecipientPreferences)
+	case giftexchange.KindPreferencesUpdated:
+		return pairBody(
+			n,
+			fmt.Sprintf(textDMPreferencesUpdated, exchange, guild),
+			textTitleRecipient,
+			withUpdatedPreferences,
+		)
 	case giftexchange.KindRevealSoon:
 		reveal, err := relativeTime(n.Exchange.RevealAt, "reveal time")
 		if err != nil {
@@ -117,6 +124,22 @@ func withReveal(embed discord.Embed, n giftexchange.Notification) discord.Embed 
 
 	withField := render.WithField(embed, textFieldReveal, value)
 	return withField
+}
+
+func withDrawn(embed discord.Embed, n giftexchange.Notification) discord.Embed {
+	withRevealField := withReveal(embed, n)
+	return withPreferences(withRevealField, n.Preferences)
+}
+
+func withRecipientPreferences(embed discord.Embed, n giftexchange.Notification) discord.Embed {
+	return withPreferences(embed, n.Preferences)
+}
+
+func withUpdatedPreferences(embed discord.Embed, n giftexchange.Notification) discord.Embed {
+	if n.Preferences.IsEmpty() {
+		return render.WithField(embed, textFieldPreferences, textNoneYet)
+	}
+	return withPreferences(embed, n.Preferences)
 }
 
 // pairBody builds a notice whose embed names the addressee's counterpart.

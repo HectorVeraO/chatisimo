@@ -76,6 +76,9 @@ type GiftexchangeParticipant struct {
 	PersonID   uuid.UUID
 	JoinedAt   pgtype.Timestamptz
 	LeftAt     pgtype.Timestamptz
+	Likes      string
+	Dislikes   string
+	Details    string
 }
 
 type GiftexchangePerson struct {

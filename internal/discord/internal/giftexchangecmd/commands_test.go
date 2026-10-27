@@ -89,8 +89,8 @@ func TestTheTwoTreesHoldTheSameVerbs(t *testing.T) {
 	if !reflect.DeepEqual(trees["chatisimo"], trees["ge"]) {
 		t.Error("the /chatisimo giftexchange verbs differ from the /ge verbs")
 	}
-	if got := len(trees["ge"]); got != 17 {
-		t.Errorf("%d verbs, want 17", got)
+	if got := len(trees["ge"]); got != 18 {
+		t.Errorf("%d verbs, want 18", got)
 	}
 }
 
@@ -184,11 +184,14 @@ func TestTextOptionsUseTheModulesLimits(t *testing.T) {
 	t.Parallel()
 
 	want := map[string]struct{ min, max int }{
-		"create/name":      {1, giftexchange.MaxNameRunes},
-		"rename/name":      {1, giftexchange.MaxNameRunes},
-		"ask/question":     {1, giftexchange.MaxQuestionRunes},
-		"create/draw-at":   {0, 64},
-		"create/reveal-at": {0, 64},
+		"create/name":          {1, giftexchange.MaxNameRunes},
+		"rename/name":          {1, giftexchange.MaxNameRunes},
+		"ask/question":         {1, giftexchange.MaxQuestionRunes},
+		"preferences/likes":    {1, giftexchange.MaxPreferenceRunes},
+		"preferences/dislikes": {1, giftexchange.MaxPreferenceRunes},
+		"preferences/details":  {1, giftexchange.MaxPreferenceRunes},
+		"create/draw-at":       {0, 64},
+		"create/reveal-at":     {0, 64},
 	}
 
 	for _, verb := range verbsOf(t, builtTrees(t))["ge"] {

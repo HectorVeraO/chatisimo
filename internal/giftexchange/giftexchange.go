@@ -83,13 +83,14 @@ const (
 
 // Limits fixed by the design. They are also shown as fixed rules.
 const (
-	MinParticipants  = 3
-	MaxParticipants  = 100
-	RedrawBelow      = 4
-	MaxNameRunes     = 100
-	MaxQuestionRunes = 1000
-	QuestionsPerDay  = 20
-	MaxReminderLead  = 14 * 24 * time.Hour
+	MinParticipants    = 3
+	MaxParticipants    = 100
+	RedrawBelow        = 4
+	MaxNameRunes       = 100
+	MaxPreferenceRunes = 300
+	MaxQuestionRunes   = 1000
+	QuestionsPerDay    = 20
+	MaxReminderLead    = 14 * 24 * time.Hour
 )
 
 // Participant is an active member of an exchange.
