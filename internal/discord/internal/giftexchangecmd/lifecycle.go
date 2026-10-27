@@ -49,7 +49,8 @@ func (h *Handlers) renameCommand(data discord.SlashCommandInteractionData, e *ha
 		return fmt.Errorf("read stored name: %w", parseErr)
 	}
 
-	return membershipEdit(e.Ctx, req, fmt.Sprintf(textRenamed, render.Bold(stored)))
+	c := h.catalog(LocaleEN)
+	return membershipEdit(e.Ctx, req, c.Format(textRenamed, render.Bold(stored)))
 }
 
 // cancelCommand handles /ge cancel: it asks the organizer to confirm.
@@ -78,8 +79,9 @@ func (h *Handlers) cancelCommand(data discord.SlashCommandInteractionData, e *ha
 		return giftexchange.ErrForbidden
 	}
 
-	text := fmt.Sprintf(textConfirmCancel, render.Bold(view.Name))
-	return membershipEditWithButtons(e.Ctx, req, text, customID{Action: actionCancelConfirm, Exchange: id})
+	c := h.catalog(LocaleEN)
+	text := c.Format(textConfirmCancel, render.Bold(view.Name))
+	return membershipEditWithButtons(e.Ctx, req, c, text, customID{Action: actionCancelConfirm, Exchange: id})
 }
 
 // cancelConfirmButton handles Confirm of the cancel question. The module checks the role and
@@ -101,11 +103,12 @@ func (h *Handlers) cancelConfirmButton(e *handler.ComponentEvent) error {
 		return fmt.Errorf("cancel exchange: %w", cancelErr)
 	}
 
-	editErr := membershipEdit(e.Ctx, req, fmt.Sprintf(textCancelled, render.Bold(view.Name)))
+	c := h.catalog(LocaleEN)
+	editErr := membershipEdit(e.Ctx, req, c.Format(textCancelled, render.Bold(view.Name)))
 
 	// The exchange is cancelled whether or not the confirmation edit worked, so the
 	// announcement goes out regardless.
-	public := discord.MessageCreate{Content: fmt.Sprintf(textCancelledPublic, render.Bold(view.Name))}
+	public := discord.MessageCreate{Content: c.Format(textCancelledPublic, render.Bold(view.Name))}
 	followErr := req.FollowupPublic(e.Ctx, public)
 	if followErr != nil {
 		h.logger.WarnContext(e.Ctx, "cancel announcement failed",

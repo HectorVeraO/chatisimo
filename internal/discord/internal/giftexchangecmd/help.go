@@ -10,8 +10,8 @@ import (
 )
 
 // helpText is the lead line followed by one line per verb, in the order of the trees.
-func helpText() string {
-	lines := []string{
+func helpText(c Catalog) string {
+	ids := []MsgID{
 		textHelpLead,
 		textHelpCreate,
 		textHelpList,
@@ -33,6 +33,11 @@ func helpText() string {
 		textHelpHelp,
 	}
 
+	lines := make([]string, 0, len(ids))
+	for _, id := range ids {
+		lines = append(lines, c.Get(id))
+	}
+
 	text := strings.Join(lines, "\n")
 	return text
 }
@@ -48,7 +53,8 @@ func (h *Handlers) help(_ discord.SlashCommandInteractionData, e *handler.Comman
 		panic("giftexchangecmd: help ran without a request")
 	}
 
-	err := req.Ephemeral(e.Ctx, discord.MessageCreate{Content: helpText()})
+	c := h.catalog(LocaleEN)
+	err := req.Ephemeral(e.Ctx, discord.MessageCreate{Content: helpText(c)})
 	if err != nil {
 		return err //nolint:wrapcheck // the router reduces REST errors to status and code
 	}

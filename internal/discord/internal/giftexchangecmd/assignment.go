@@ -45,7 +45,8 @@ func (h *Handlers) recipientCommand(data discord.SlashCommandInteractionData, e 
 		return fmt.Errorf("render own recipient: %w", err)
 	}
 
-	embed := withPreferences(render.Embed(textTitleRecipient, mention), assignment.Preferences)
+	c := h.catalog(LocaleEN)
+	embed := withPreferences(c, render.Embed(c.Get(textTitleRecipient), mention), assignment.Preferences)
 	embeds := []discord.Embed{embed}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
 	if editErr != nil {
@@ -84,7 +85,8 @@ func (h *Handlers) giverCommand(data discord.SlashCommandInteractionData, e *han
 		return fmt.Errorf("render own giver: %w", err)
 	}
 
-	return drawShowPair(e.Ctx, req, textTitleGiver, mention)
+	c := h.catalog(LocaleEN)
+	return drawShowPair(e.Ctx, req, c.Get(textTitleGiver), mention)
 }
 
 // drawShowPair edits the deferred reply into an embed that holds the counterpart's mention.

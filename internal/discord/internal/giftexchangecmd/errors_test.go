@@ -129,6 +129,26 @@ func TestGuildNameOrUnknown(t *testing.T) {
 	if got := giftexchangecmd.GuildNameOrUnknown("Test server"); got != "Test server" {
 		t.Errorf("name = %q", got)
 	}
+	if got := giftexchangecmd.GuildNameOrUnknownIn(giftexchangecmd.LocaleES419, ""); got != "servidor desconocido" {
+		t.Errorf("GuildNameOrUnknownIn(es-419, empty) = %q, want servidor desconocido", got)
+	}
+	if got := giftexchangecmd.GuildNameOrUnknownIn("fr", ""); got != "unknown server" {
+		t.Errorf("GuildNameOrUnknownIn(fr, empty) = %q, want fallback unknown server", got)
+	}
+}
+
+func TestMapErrorInLocalizesAndFallsBackToEnglish(t *testing.T) {
+	t.Parallel()
+
+	es := giftexchangecmd.MapErrorIn(giftexchangecmd.LocaleES419, testReference, giftexchange.ErrNotFound)
+	if es.Outcome != "rejected:not_found" || es.Text != "Ese intercambio no existe aquí." {
+		t.Errorf("MapErrorIn(es-419) = %+v", es)
+	}
+
+	fallback := giftexchangecmd.MapErrorIn("pt-BR", testReference, giftexchange.ErrNotFound)
+	if fallback.Outcome != "rejected:not_found" || fallback.Text != "That exchange does not exist here." {
+		t.Errorf("MapErrorIn(pt-BR) = %+v", fallback)
+	}
 }
 
 func TestNewReportsEveryMissingDependency(t *testing.T) {

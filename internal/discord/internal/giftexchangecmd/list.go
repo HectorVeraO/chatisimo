@@ -13,10 +13,6 @@ import (
 )
 
 const (
-	textListTitle = "Exchanges in this server"
-	textListEmpty = "No exchanges yet. Create one with /ge create."
-	textListLine  = "- %s - %s - participants: %d - you are %s"
-
 	// maxListDescriptionRunes is below Discord's limit on an embed description.
 	maxListDescriptionRunes = 4000
 )
@@ -47,7 +43,8 @@ func (h *Handlers) list(_ discord.SlashCommandInteractionData, e *handler.Comman
 	}
 	sortByName(listed)
 
-	embeds := []discord.Embed{render.Embed(textListTitle, listDescription(listed))}
+	c := h.catalog(LocaleEN)
+	embeds := []discord.Embed{render.Embed(c.Get(textListTitle), listDescription(c, listed))}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
 	if editErr != nil {
 		return editErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -56,34 +53,49 @@ func (h *Handlers) list(_ discord.SlashCommandInteractionData, e *handler.Comman
 	return nil
 }
 
-func listDescription(listed []giftexchange.ExchangeSummary) string {
+func listDescription(c Catalog, listed []giftexchange.ExchangeSummary) string {
 	if len(listed) == 0 {
-		return textListEmpty
+		return c.Get(textListEmpty)
 	}
 
 	lines := make([]string, 0, len(listed))
 	for i, summary := range listed {
 		if i == maxListedLines {
-			lines = append(lines, fmt.Sprintf(textAndMore, len(listed)-maxListedLines))
+			lines = append(lines, c.Format(textAndMore, len(listed)-maxListedLines))
 			break
 		}
-		lines = append(lines, fmt.Sprintf(textListLine,
-			render.Bold(summary.Name), summary.State, summary.ParticipantCount, roleText(summary)))
+		lines = append(lines, c.Format(textListLine,
+			render.Bold(summary.Name), stateText(c, summary.State), summary.ParticipantCount, roleText(c, summary)))
 	}
 
 	text := render.Truncate(strings.Join(lines, "\n"), maxListDescriptionRunes, truncationMark)
 	return text
 }
 
-func roleText(s giftexchange.ExchangeSummary) string {
+func roleText(c Catalog, s giftexchange.ExchangeSummary) string {
 	switch {
 	case s.CallerIsOrganizer && s.CallerIsParticipant:
-		return textRoleBoth
+		return c.Get(textRoleBoth)
 	case s.CallerIsOrganizer:
-		return textRoleOrganizer
+		return c.Get(textRoleOrganizer)
 	case s.CallerIsParticipant:
-		return textRoleParticipant
+		return c.Get(textRoleParticipant)
 	default:
-		return textRoleNone
+		return c.Get(textRoleNone)
+	}
+}
+
+func stateText(c Catalog, state giftexchange.State) string {
+	switch state {
+	case giftexchange.StateOpen:
+		return c.Get(textStateOpen)
+	case giftexchange.StateDrawn:
+		return c.Get(textStateDrawn)
+	case giftexchange.StateRevealed:
+		return c.Get(textStateRevealed)
+	case giftexchange.StateCancelled:
+		return c.Get(textStateCancelled)
+	default:
+		return string(state)
 	}
 }
