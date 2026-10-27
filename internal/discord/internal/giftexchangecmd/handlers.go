@@ -63,6 +63,7 @@ func (h *Handlers) Register(r *router.Router) {
 	h.registerRules(r)
 	h.registerDraw(r)
 	h.registerQuestions(r)
+	h.registerPreferences(r)
 }
 
 // verb registers the named verb of the command trees on every command path. It panics on a

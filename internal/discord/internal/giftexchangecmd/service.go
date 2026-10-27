@@ -59,6 +59,10 @@ type Service interface {
 	Reveal(ctx context.Context, a giftexchange.Actor, g giftexchange.GroupID, id giftexchange.ExchangeID) error
 	MyAssignment(ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID) (giftexchange.Assignment, error)
 	MyGiver(ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID) (giftexchange.RevealedGiver, error)
+	Preferences(ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID) (giftexchange.Preferences, error)
+	SetPreferences(
+		ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID, prefs giftexchange.Preferences,
+	) (giftexchange.Preferences, error)
 
 	Ask(ctx context.Context, a giftexchange.Actor, id giftexchange.ExchangeID, text string) (giftexchange.QuestionID, error)
 	Answer(ctx context.Context, a giftexchange.Actor, q giftexchange.QuestionID, text string) error

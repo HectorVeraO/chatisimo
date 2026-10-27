@@ -117,9 +117,14 @@ DELETE FROM giftexchange.exclusions
 WHERE exchange_id = @exchange_id AND (giver_id = @person_id OR recipient_id = @person_id);
 
 -- name: GetParticipant :one
-SELECT exchange_id, person_id, joined_at, left_at
+SELECT exchange_id, person_id, joined_at, left_at, likes, dislikes, details
 FROM giftexchange.participants
 WHERE exchange_id = @exchange_id AND person_id = @person_id;
+
+-- name: UpdateParticipantPreferences :exec
+UPDATE giftexchange.participants
+SET likes = @likes, dislikes = @dislikes, details = @details
+WHERE exchange_id = @exchange_id AND person_id = @person_id AND left_at IS NULL;
 
 -- name: CountActiveParticipants :one
 SELECT count(*)

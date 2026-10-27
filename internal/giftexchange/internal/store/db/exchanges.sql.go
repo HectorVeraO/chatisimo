@@ -198,7 +198,7 @@ func (q *Queries) GetGroup(ctx context.Context, id uuid.UUID) (GetGroupRow, erro
 }
 
 const getParticipant = `-- name: GetParticipant :one
-SELECT exchange_id, person_id, joined_at, left_at
+SELECT exchange_id, person_id, joined_at, left_at, likes, dislikes, details
 FROM giftexchange.participants
 WHERE exchange_id = $1 AND person_id = $2
 `
@@ -216,6 +216,9 @@ func (q *Queries) GetParticipant(ctx context.Context, arg GetParticipantParams) 
 		&i.PersonID,
 		&i.JoinedAt,
 		&i.LeftAt,
+		&i.Likes,
+		&i.Dislikes,
+		&i.Details,
 	)
 	return i, err
 }
@@ -821,6 +824,31 @@ func (q *Queries) UpdateExchangeRules(ctx context.Context, arg UpdateExchangeRul
 		arg.AvoidLastRound,
 		arg.QuestionsEnabled,
 		arg.ID,
+	)
+	return err
+}
+
+const updateParticipantPreferences = `-- name: UpdateParticipantPreferences :exec
+UPDATE giftexchange.participants
+SET likes = $1, dislikes = $2, details = $3
+WHERE exchange_id = $4 AND person_id = $5 AND left_at IS NULL
+`
+
+type UpdateParticipantPreferencesParams struct {
+	Likes      string
+	Dislikes   string
+	Details    string
+	ExchangeID uuid.UUID
+	PersonID   uuid.UUID
+}
+
+func (q *Queries) UpdateParticipantPreferences(ctx context.Context, arg UpdateParticipantPreferencesParams) error {
+	_, err := q.db.Exec(ctx, updateParticipantPreferences,
+		arg.Likes,
+		arg.Dislikes,
+		arg.Details,
+		arg.ExchangeID,
+		arg.PersonID,
 	)
 	return err
 }

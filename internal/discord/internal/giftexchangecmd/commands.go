@@ -142,6 +142,39 @@ func verbs() []verbSpec {
 			},
 		},
 		{name: "questions", description: "See the questions you asked and received", options: justExchange},
+		{
+			name: "preferences", description: "Set or view your gift preferences for your giver",
+			options: func() []discord.ApplicationCommandOption {
+				return []discord.ApplicationCommandOption{
+					textOption(
+						"likes",
+						"Likes and hobbies, such as coffee, books or board games",
+						1,
+						giftexchange.MaxPreferenceRunes,
+						false,
+					),
+					textOption(
+						"dislikes",
+						"Dislikes or things to avoid, such as allergies",
+						1,
+						giftexchange.MaxPreferenceRunes,
+						false,
+					),
+					textOption(
+						"details",
+						"Helpful details, such as shirt size or dietary needs",
+						1,
+						giftexchange.MaxPreferenceRunes,
+						false,
+					),
+					discord.ApplicationCommandOptionBool{
+						Name:        "clear",
+						Description: "Clear your gift preferences",
+					},
+					exchangeOption(),
+				}
+			},
+		},
 		{name: "reveal", description: "Reveal the givers now (organizer)", guildOnly: true, options: justExchange},
 		{name: "cancel", description: "Cancel an exchange (organizer)", guildOnly: true, options: justExchange},
 		{name: "help", description: "Show the commands", options: noOptions},

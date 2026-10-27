@@ -193,6 +193,10 @@ func TestFiltersKeepTheSummariesTheirVerbCanActOn(t *testing.T) {
 		{"ask", revealed, participant, false},
 		{"questions", drawn, both, true},
 		{"questions", drawn, organizer, false},
+		{"preferences", open, participant, true},
+		{"preferences", drawn, participant, true},
+		{"preferences", revealed, participant, false},
+		{"preferences", open, organizer, false},
 	}
 
 	for _, c := range cases {

@@ -143,7 +143,7 @@ func (s *Service) assessNotification(
 	facts := noticeFacts{exchange: exchange}
 
 	switch NotificationKind(row.Kind) {
-	case KindDrawn, KindRedrawn, KindAssignmentChanged, KindRevealSoon:
+	case KindDrawn, KindRedrawn, KindAssignmentChanged, KindRevealSoon, KindPreferencesUpdated:
 		return s.assessDrawn(ctx, q, row, facts)
 	case KindDrawSoon:
 		current := facts.exchange.exchange
@@ -252,7 +252,8 @@ func (s *Service) buildNotification(
 
 	switch kind {
 	case KindCancelled, KindDrawn, KindRedrawn, KindAssignmentChanged, KindRoundVoided, KindRevealed,
-		KindDrawFailed, KindDrawSoon, KindRevealSoon, KindQuestionReceived, KindAnswerReceived:
+		KindDrawFailed, KindDrawSoon, KindRevealSoon, KindQuestionReceived, KindAnswerReceived,
+		KindPreferencesUpdated:
 		return s.buildNotice(ctx, q, row, facts)
 	default:
 		panic("giftexchange: notify: no delivery rule for kind " + row.Kind)
@@ -296,8 +297,27 @@ func (s *Service) buildNotice(
 		counterpart := PersonRef{ID: PersonID(*facts.counterpart), Identities: identities[*facts.counterpart]}
 		notification.Counterpart = &counterpart
 	}
+	if carriesRecipientPreferences(NotificationKind(row.Kind)) && facts.counterpart != nil {
+		participant, partErr := q.GetParticipant(ctx, db.GetParticipantParams{
+			ExchangeID: row.ExchangeID,
+			PersonID:   *facts.counterpart,
+		})
+		if partErr != nil {
+			return Notification{}, fmt.Errorf("read recipient preferences: %w", partErr)
+		}
+		notification.Preferences = preferencesOf(participant)
+	}
 
 	return notification, nil
+}
+
+func carriesRecipientPreferences(kind NotificationKind) bool {
+	switch kind {
+	case KindDrawn, KindRedrawn, KindAssignmentChanged, KindPreferencesUpdated:
+		return true
+	default:
+		return false
+	}
 }
 
 // noticeQuestion is the question content a notice carries: the answer only for answer_received,

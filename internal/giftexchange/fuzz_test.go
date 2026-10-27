@@ -138,6 +138,43 @@ func FuzzParseQuestionText(f *testing.F) {
 	})
 }
 
+func FuzzParsePreferences(f *testing.F) {
+	for _, s := range textSeeds() {
+		f.Add(s, "", "")
+		f.Add("", s, "")
+		f.Add("", "", s)
+		f.Add(s, s, s)
+	}
+	f.Add(strings.Repeat("a", giftexchange.MaxPreferenceRunes), "", "")
+	f.Add(strings.Repeat("a", giftexchange.MaxPreferenceRunes+1), "", "")
+
+	parseOne := func(v string) (string, error) {
+		p, err := giftexchange.ParsePreferences(giftexchange.Preferences{Likes: v})
+		return p.Likes, err //nolint:wrapcheck // test helper passes the parser error through
+	}
+
+	f.Fuzz(func(t *testing.T, likes, dislikes, details string) {
+		got, err := giftexchange.ParsePreferences(giftexchange.Preferences{
+			Likes:    likes,
+			Dislikes: dislikes,
+			Details:  details,
+		})
+		if err != nil {
+			checkInvalid(t, err)
+			return
+		}
+		for _, field := range []string{got.Likes, got.Dislikes, got.Details} {
+			if field != "" {
+				checkValidText(t, field, giftexchange.MaxPreferenceRunes, true, parseOne)
+			}
+		}
+		again, err := giftexchange.ParsePreferences(got)
+		if err != nil || again != got {
+			t.Fatalf("valid preferences do not parse to themselves: %v", err)
+		}
+	})
+}
+
 func FuzzParseRuleName(f *testing.F) {
 	for _, name := range allRuleNames {
 		f.Add(string(name))

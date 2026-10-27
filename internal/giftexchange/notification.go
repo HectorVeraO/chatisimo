@@ -35,6 +35,9 @@ const (
 	KindQuestionReceived NotificationKind = "question_received"
 	// KindAnswerReceived: to the asker of an answered question. Question set, with the answer.
 	KindAnswerReceived NotificationKind = "answer_received"
+	// KindPreferencesUpdated: to a giver when their recipient updates or clears preferences;
+	// Counterpart is the recipient, Preferences is the new preferences.
+	KindPreferencesUpdated NotificationKind = "preferences_updated"
 )
 
 // Reason explains a voided round or a failed deadline draw. It never names a person or pair.
@@ -54,17 +57,19 @@ type NotifiedQuestion struct {
 }
 
 // Notification is one message to one person, built from IDs at delivery time.
-// Counterpart is set only for KindDrawn, KindRedrawn, KindAssignmentChanged and KindRevealSoon
-// (the addressee's own recipient) and KindRevealed (the addressee's own giver); nil otherwise.
-// Question is set only for KindQuestionReceived and KindAnswerReceived. Reason only for
-// KindRoundVoided and KindDrawFailed. It holds a pair, so it formats and logs as
-// "notification <id> <kind>".
+// Counterpart is set only for KindDrawn, KindRedrawn, KindAssignmentChanged, KindRevealSoon and
+// KindPreferencesUpdated (the addressee's own recipient) and KindRevealed (the addressee's own
+// giver); nil otherwise. Preferences is populated for KindDrawn, KindRedrawn,
+// KindAssignmentChanged and KindPreferencesUpdated. Question is set only for KindQuestionReceived
+// and KindAnswerReceived. Reason only for KindRoundVoided and KindDrawFailed. It holds a pair, so
+// it formats and logs as "notification <id> <kind>".
 type Notification struct {
 	ID          NotificationID
 	Kind        NotificationKind
 	To          PersonRef
 	Exchange    ExchangeSummary
 	Counterpart *PersonRef
+	Preferences Preferences
 	Question    *NotifiedQuestion
 	Reason      Reason
 }
@@ -89,11 +94,12 @@ func (n Notification) LogValue() slog.Value {
 const redacted = "[redacted]"
 
 // Assignment is the caller's own recipient in the current round. It holds a pair (the caller and
-// Recipient), so String, Format (every verb, %v %+v %#v included) and LogValue render
-// "[redacted]".
+// Recipient) and the recipient's gift preferences, so String, Format (every verb, %v %+v %#v
+// included) and LogValue render "[redacted]".
 type Assignment struct {
-	Exchange  ExchangeID
-	Recipient PersonRef
+	Exchange    ExchangeID
+	Recipient   PersonRef
+	Preferences Preferences
 }
 
 // String returns "[redacted]".

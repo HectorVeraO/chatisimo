@@ -42,7 +42,20 @@ func (s *Service) MyAssignment(ctx context.Context, a Actor, id ExchangeID) (Ass
 		return Assignment{}, refErr
 	}
 
-	return Assignment{Exchange: id, Recipient: ref}, nil
+	participant, partErr := q.GetParticipant(ctx, db.GetParticipantParams{
+		ExchangeID: exchange.ID,
+		PersonID:   recipient,
+	})
+	if partErr != nil {
+		return Assignment{}, fmt.Errorf("get recipient participant of %s: %w", exchange.ID, partErr)
+	}
+
+	assignment := Assignment{
+		Exchange:    id,
+		Recipient:   ref,
+		Preferences: preferencesOf(participant),
+	}
+	return assignment, nil
 }
 
 // MyGiver returns who gave to the caller. Revealed only; the caller must be a recipient of the
@@ -137,17 +150,29 @@ func callerRelation(
 	a Actor,
 	exchange db.GiftexchangeExchange,
 ) (bool, bool, error) {
+	_, isRelated, isActive, err := callerParticipant(ctx, q, a, exchange)
+	return isRelated, isActive, err
+}
+
+// callerParticipant loads the caller's participant row (if any) and reports whether the caller is
+// related to the exchange and whether they are an active participant.
+func callerParticipant(
+	ctx context.Context,
+	q *db.Queries,
+	a Actor,
+	exchange db.GiftexchangeExchange,
+) (db.GiftexchangeParticipant, bool, bool, error) {
 	participant, err := q.GetParticipant(ctx, db.GetParticipantParams{
 		ExchangeID: exchange.ID,
 		PersonID:   uuid.UUID(a.person),
 	})
 	hasRow := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return false, false, fmt.Errorf("get participant of %s: %w", exchange.ID, err)
+		return db.GiftexchangeParticipant{}, false, false, fmt.Errorf("get participant of %s: %w", exchange.ID, err)
 	}
 
 	isOrganizer := PersonID(exchange.OrganizerID) == a.person
 	isRelated := hasRow || isOrganizer
 	isActive := hasRow && !participant.LeftAt.Valid
-	return isRelated, isActive, nil
+	return participant, isRelated, isActive, nil
 }

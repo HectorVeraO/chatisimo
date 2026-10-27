@@ -16,6 +16,9 @@ const (
 	subject     = "100000000000000001"
 	questionTxt = "Do you like chocolate?"
 	answerTxt   = "Only the dark kind"
+	likesTxt    = "Specialty coffee and board games"
+	dislikesTxt = "Peanuts and strong perfume"
+	detailsTxt  = "Shirt size M"
 )
 
 func mustPersonRef(t *testing.T, rawID string) giftexchange.PersonRef {
@@ -29,7 +32,7 @@ func mustPersonRef(t *testing.T, rawID string) giftexchange.PersonRef {
 }
 
 func sensitiveFragments() []string {
-	return []string{giverID, recipientID, subject, questionTxt, answerTxt}
+	return []string{giverID, recipientID, subject, questionTxt, answerTxt, likesTxt, dislikesTxt, detailsTxt}
 }
 
 func assertNoLeak(t *testing.T, label string, x any, want string) {
@@ -65,12 +68,33 @@ func assertNoLeak(t *testing.T, label string, x any, want string) {
 	}
 }
 
+func samplePreferences() giftexchange.Preferences {
+	return giftexchange.Preferences{
+		Likes:    likesTxt,
+		Dislikes: dislikesTxt,
+		Details:  detailsTxt,
+	}
+}
+
+func TestPreferencesIsRedactedEverywhere(t *testing.T) {
+	p := samplePreferences()
+	assertNoLeak(t, "Preferences", p, "[redacted]")
+	assertNoLeak(t, "*Preferences", &p, "[redacted]")
+	if got := p.GoString(); got != "[redacted]" {
+		t.Errorf("GoString() = %q, want [redacted]", got)
+	}
+}
+
 func TestAssignmentIsRedactedEverywhere(t *testing.T) {
 	exchange, err := giftexchange.ParseExchangeID(validID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := giftexchange.Assignment{Exchange: exchange, Recipient: mustPersonRef(t, recipientID)}
+	a := giftexchange.Assignment{
+		Exchange:    exchange,
+		Recipient:   mustPersonRef(t, recipientID),
+		Preferences: samplePreferences(),
+	}
 	assertNoLeak(t, "Assignment", a, "[redacted]")
 	assertNoLeak(t, "*Assignment", &a, "[redacted]")
 }
@@ -92,6 +116,7 @@ func TestNotificationRendersOnlyIDAndKind(t *testing.T) {
 		Kind:        giftexchange.KindAnswerReceived,
 		To:          mustPersonRef(t, giverID),
 		Counterpart: &counterpart,
+		Preferences: samplePreferences(),
 		Question:    &giftexchange.NotifiedQuestion{ID: questionID, Text: questionTxt, Answer: answerTxt},
 	}
 	want := "notification " + validID + " answer_received"

@@ -522,6 +522,43 @@ func TestDrawDeliversOneRecipientDMToEachGiver(t *testing.T) {
 	}
 }
 
+func TestNotifyRendersPreferencesUpdatedDMWithEscapedFields(t *testing.T) {
+	w := newWorld(t)
+	counterpart := giftexchange.PersonRef{
+		Identities: []giftexchange.ExternalIdentity{
+			{Provider: giftexchange.ProviderDiscord, Subject: userC},
+		},
+	}
+	notice := cancelledNotice(userB)
+	notice.Kind = giftexchange.KindPreferencesUpdated
+	notice.Counterpart = &counterpart
+	notice.Preferences = giftexchange.Preferences{
+		Likes:    "@everyone **coffee**",
+		Dislikes: "Peanuts",
+		Details:  "Size M",
+	}
+
+	err := w.notifier.Notify(t.Context(), notice)
+	if err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+
+	dms := w.fake.DMs(w.users[userB])
+	if len(dms) != 1 {
+		t.Fatalf("addressee has %d DMs, want 1", len(dms))
+	}
+	if !strings.Contains(dms[0].Content, "updated their gift preferences") {
+		t.Errorf("DM content = %q, want updated preferences text", dms[0].Content)
+	}
+	embedJSON := string(dms[0].Embeds[0])
+	for _, want := range []string{`\\@everyone \\*\\*coffee\\*\\*`, "Peanuts", "Size M"} {
+		if !strings.Contains(embedJSON, want) {
+			t.Errorf("DM embed = %s, want %q", embedJSON, want)
+		}
+	}
+	assertNoPings(t, w.fake)
+}
+
 var snowflakePattern = regexp.MustCompile(`[0-9]{17,20}`)
 
 func TestFailedDeliveriesLeaveNoSnowflakeTokenOrMessageTextInJobsOrLogs(t *testing.T) {

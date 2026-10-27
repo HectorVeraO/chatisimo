@@ -194,6 +194,12 @@ func TestZeroActorIsUnauthenticatedEverywhereAndChangesNothing(t *testing.T) {
 		"remove participant": func() error {
 			return errOf(s.h.svc.RemoveParticipant(t.Context(), zero, s.group, s.exchange, participant.id))
 		},
+		"preferences": func() error {
+			return errOf(s.h.svc.Preferences(t.Context(), zero, s.exchange))
+		},
+		"set preferences": func() error {
+			return errOf(s.h.svc.SetPreferences(t.Context(), zero, s.exchange, giftexchange.Preferences{Likes: " Books "}))
+		},
 	}
 
 	for name, call := range calls {
@@ -243,6 +249,14 @@ func TestZeroIDsAreInvalidInputBeforeAnyLookup(t *testing.T) {
 		"remove zero person": func() error {
 			return errOf(s.h.svc.RemoveParticipant(t.Context(), s.organizer.actor, s.group, s.exchange, zeroPerson))
 		},
+		"preferences with zero exchange": func() error {
+			return errOf(s.h.svc.Preferences(t.Context(), s.organizer.actor, zeroExchange))
+		},
+		"set preferences with zero exchange": func() error {
+			return errOf(s.h.svc.SetPreferences(
+				t.Context(), s.organizer.actor, zeroExchange, giftexchange.Preferences{Likes: "Books"},
+			))
+		},
 	}
 
 	for name, call := range calls {
@@ -291,6 +305,9 @@ func TestOwnPairReadsDenyEveryoneWhoIsNotAnActiveParticipantAndChangeNothing(t *
 	reads := map[string]func(caller giftexchange.Actor, x giftexchange.ExchangeID) error{
 		"my assignment": func(caller giftexchange.Actor, x giftexchange.ExchangeID) error {
 			return errOf(s.h.svc.MyAssignment(t.Context(), caller, x))
+		},
+		"preferences": func(caller giftexchange.Actor, x giftexchange.ExchangeID) error {
+			return errOf(s.h.svc.Preferences(t.Context(), caller, x))
 		},
 	}
 	callers := []struct {
@@ -364,4 +381,73 @@ func TestDrawDeniesNonOrganizersAfterTheDrawAndChangesNothing(t *testing.T) {
 		}
 	}
 	assertUnchanged(t, before, takeSnapshot(t, s.h, s.exchange))
+}
+
+func TestSetPreferencesDeniesEveryoneWhoIsNotAnActiveParticipantAndChangesNothing(t *testing.T) {
+	s := newPairScene(t)
+	var zero giftexchange.Actor
+	unknown := unknownExchange(t)
+	prefs := giftexchange.Preferences{Likes: "Dark chocolate"}
+
+	callers := []struct {
+		name   string
+		actor  giftexchange.Actor
+		x      giftexchange.ExchangeID
+		wanted error
+	}{
+		{"a stranger with no tie to the exchange", s.stranger.actor, s.exchange, giftexchange.ErrNotFound},
+		{
+			"a participant asking for an exchange that does not exist", s.participants[0].actor, unknown,
+			giftexchange.ErrNotFound,
+		},
+		{"an organizer who never joined", s.organizer.actor, s.exchange, giftexchange.ErrNotParticipant},
+		{"a person who left before the draw", s.leaver.actor, s.exchange, giftexchange.ErrNotParticipant},
+		{"the zero actor", zero, s.exchange, giftexchange.ErrUnauthenticated},
+	}
+
+	before := takeSnapshot(t, s.h, s.exchange)
+	for _, tc := range callers {
+		_, err := s.h.svc.SetPreferences(t.Context(), tc.actor, tc.x, prefs)
+		if !errors.Is(err, tc.wanted) {
+			t.Errorf("SetPreferences by %s: err = %v, want %v", tc.name, err, tc.wanted)
+		}
+	}
+	assertUnchanged(t, before, takeSnapshot(t, s.h, s.exchange))
+}
+
+func TestRecipientPreferencesAreVisibleOnlyToTheParticipantAndTheirCurrentGiver(t *testing.T) {
+	s := cycleDrawn(t, 4)
+	want := giftexchange.Preferences{
+		Likes:    "Sci-fi novels",
+		Dislikes: "Scented candles",
+		Details:  "Size L",
+	}
+
+	_, err := s.h.svc.SetPreferences(t.Context(), s.people[1].actor, s.exchange, want)
+	if err != nil {
+		t.Fatalf("SetPreferences: %v", err)
+	}
+
+	own, err := s.h.svc.Preferences(t.Context(), s.people[1].actor, s.exchange)
+	if err != nil || own != want {
+		t.Errorf("participant's own Preferences = %+v, %v; want %+v", own, err, want)
+	}
+
+	giverAssignment, err := s.h.svc.MyAssignment(t.Context(), s.people[0].actor, s.exchange)
+	if err != nil || giverAssignment.Preferences != want {
+		t.Errorf("giver's MyAssignment.Preferences = %+v, %v; want %+v", giverAssignment.Preferences, err, want)
+	}
+
+	for _, other := range []person{s.people[0], s.people[2], s.people[3]} {
+		gotPrefs, prefsErr := s.h.svc.Preferences(t.Context(), other.actor, s.exchange)
+		if prefsErr != nil || !gotPrefs.IsEmpty() {
+			t.Errorf("other participant Preferences = %+v, %v; want empty", gotPrefs, prefsErr)
+		}
+	}
+	for _, nonGiver := range []person{s.people[1], s.people[2], s.people[3]} {
+		gotAssign, assignErr := s.h.svc.MyAssignment(t.Context(), nonGiver.actor, s.exchange)
+		if assignErr != nil || !gotAssign.Preferences.IsEmpty() {
+			t.Errorf("non-giver MyAssignment.Preferences = %+v, %v; want empty", gotAssign.Preferences, assignErr)
+		}
+	}
 }

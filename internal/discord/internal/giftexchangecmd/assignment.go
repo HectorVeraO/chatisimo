@@ -45,7 +45,14 @@ func (h *Handlers) recipientCommand(data discord.SlashCommandInteractionData, e 
 		return fmt.Errorf("render own recipient: %w", err)
 	}
 
-	return drawShowPair(e.Ctx, req, textTitleRecipient, mention)
+	embed := withPreferences(render.Embed(textTitleRecipient, mention), assignment.Preferences)
+	embeds := []discord.Embed{embed}
+	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
+	if editErr != nil {
+		return editErr //nolint:wrapcheck // the router reduces REST errors to status and code
+	}
+
+	return nil
 }
 
 // giverCommand handles /ge giver: it shows the caller their own giver, ephemeral, after the
