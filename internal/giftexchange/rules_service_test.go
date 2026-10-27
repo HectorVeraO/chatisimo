@@ -365,8 +365,9 @@ func TestSetRuleTimesMustBeStrictlyInTheFuture(t *testing.T) {
 
 			for name, raw := range map[string]string{"past": past, "equal to now": now} {
 				_, err := s.set(t, s.organizer, rule, raw)
-				if !slices.Equal(inputFields(err), []string{string(rule)}) {
-					t.Errorf("%s: err = %v, want *InputError for %s", name, err, rule)
+				var inputErr *giftexchange.InputError
+				if !errors.As(err, &inputErr) || inputErr.Field != string(rule) || inputErr.Code != giftexchange.InputCodeMustBeFuture {
+					t.Errorf("%s: err = %v, want *InputError for %s with code %q", name, err, rule, giftexchange.InputCodeMustBeFuture)
 				}
 			}
 			assertUnchanged(t, before, takeSnapshot(t, s.h, s.exchange))
@@ -389,10 +390,11 @@ func TestSetRuleKeepsDrawBeforeReveal(t *testing.T) {
 
 	_, equalReveal := s.set(t, s.organizer, giftexchange.RuleRevealAt, draw)
 	_, earlierReveal := s.set(t, s.organizer, giftexchange.RuleRevealAt, s.h.futureText(24*time.Hour))
-	isRevealRefused := slices.Equal(inputFields(equalReveal), []string{"reveal_at"}) &&
-		slices.Equal(inputFields(earlierReveal), []string{"reveal_at"})
-	if !isRevealRefused {
-		t.Errorf("reveal_at errors = %v and %v, want *InputError for reveal_at", equalReveal, earlierReveal)
+	for _, err := range []error{equalReveal, earlierReveal} {
+		var inputErr *giftexchange.InputError
+		if !errors.As(err, &inputErr) || inputErr.Field != "reveal_at" || inputErr.Code != giftexchange.InputCodeAfterDrawAt {
+			t.Errorf("reveal_at err = %v, want *InputError for reveal_at with code %q", err, giftexchange.InputCodeAfterDrawAt)
+		}
 	}
 	assertUnchanged(t, before, takeSnapshot(t, s.h, s.exchange))
 
@@ -402,8 +404,9 @@ func TestSetRuleKeepsDrawBeforeReveal(t *testing.T) {
 	beforeDraw := takeSnapshot(t, s.h, s.exchange)
 
 	_, laterDraw := s.set(t, s.organizer, giftexchange.RuleDrawAt, s.h.futureText(96*time.Hour))
-	if !slices.Equal(inputFields(laterDraw), []string{"draw_at"}) {
-		t.Errorf("draw_at after reveal_at: err = %v, want *InputError for draw_at", laterDraw)
+	var drawInputErr *giftexchange.InputError
+	if !errors.As(laterDraw, &drawInputErr) || drawInputErr.Field != "draw_at" || drawInputErr.Code != giftexchange.InputCodeBeforeRevealAt {
+		t.Errorf("draw_at after reveal_at: err = %v, want *InputError for draw_at with code %q", laterDraw, giftexchange.InputCodeBeforeRevealAt)
 	}
 	assertUnchanged(t, beforeDraw, takeSnapshot(t, s.h, s.exchange))
 

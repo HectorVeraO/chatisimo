@@ -75,6 +75,17 @@ func TestParseIDRejectsOtherForms(t *testing.T) {
 				if !errors.Is(err, giftexchange.ErrInvalidInput) {
 					t.Fatalf("err = %v, want ErrInvalidInput", err)
 				}
+				var inputErr *giftexchange.InputError
+				if !errors.As(err, &inputErr) {
+					t.Fatalf("err = %v, want *InputError", err)
+				}
+				wantCode := giftexchange.InputCodeNotCanonicalUUID
+				if raw == zeroID {
+					wantCode = giftexchange.InputCodeZeroUUID
+				}
+				if inputErr.Code != wantCode {
+					t.Errorf("Code = %q, want %q", inputErr.Code, wantCode)
+				}
 				if raw != "" && strings.Contains(err.Error(), raw) {
 					t.Fatalf("error text %q contains the input", err.Error())
 				}
@@ -229,5 +240,51 @@ func TestParseTextReportsEveryProblemTogether(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("error %q does not mention %q", text, want)
 		}
+	}
+}
+
+func TestParseTextSetsErrorCodeAndParameters(t *testing.T) {
+	_, nameEmptyErr := giftexchange.ParseExchangeName("   ")
+	_, nameUTF8Err := giftexchange.ParseExchangeName("Win\xffter")
+	_, nameLongErr := giftexchange.ParseExchangeName(strings.Repeat("a", giftexchange.MaxNameRunes+1))
+	_, questionLongErr := giftexchange.ParseQuestionText(strings.Repeat("a", giftexchange.MaxQuestionRunes+1))
+	_, prefsLongErr := giftexchange.ParsePreferences(giftexchange.Preferences{
+		Likes: strings.Repeat("a", giftexchange.MaxPreferenceRunes+1),
+	})
+	_, nameCtrlErr := giftexchange.ParseExchangeName("Win\x07ter")
+	_, nameBreakErr := giftexchange.ParseExchangeName("Win\nter")
+	_, nameBidiErr := giftexchange.ParseExchangeName("Win" + string(rune(0x202E)) + "ter")
+	_, nameNoVisibleErr := giftexchange.ParseExchangeName(zeroWidth)
+
+	cases := []struct {
+		name     string
+		err      error
+		wantCode giftexchange.InputErrorCode
+		wantMax  int
+	}{
+		{"empty name", nameEmptyErr, giftexchange.InputCodeEmpty, 0},
+		{"invalid UTF-8", nameUTF8Err, giftexchange.InputCodeInvalidUTF8, 0},
+		{"too long name sets MaxNameRunes", nameLongErr, giftexchange.InputCodeTooLong, giftexchange.MaxNameRunes},
+		{"too long question sets MaxQuestionRunes", questionLongErr, giftexchange.InputCodeTooLong, giftexchange.MaxQuestionRunes},
+		{"too long preference sets MaxPreferenceRunes", prefsLongErr, giftexchange.InputCodeTooLong, giftexchange.MaxPreferenceRunes},
+		{"control characters", nameCtrlErr, giftexchange.InputCodeControlChars, 0},
+		{"line breaks", nameBreakErr, giftexchange.InputCodeLineBreaks, 0},
+		{"bidi control characters", nameBidiErr, giftexchange.InputCodeBidiChars, 0},
+		{"no visible character", nameNoVisibleErr, giftexchange.InputCodeNoVisibleChar, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var inputErr *giftexchange.InputError
+			if !errors.As(tc.err, &inputErr) {
+				t.Fatalf("err = %v, want *InputError", tc.err)
+			}
+			if inputErr.Code != tc.wantCode {
+				t.Errorf("Code = %q, want %q", inputErr.Code, tc.wantCode)
+			}
+			if inputErr.Max != tc.wantMax {
+				t.Errorf("Max = %d, want %d", inputErr.Max, tc.wantMax)
+			}
+		})
 	}
 }

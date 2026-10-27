@@ -169,3 +169,178 @@ func unknownRuleFromParser() error {
 	_, err := giftexchange.ParseRuleName("no-such-rule")
 	return fmt.Errorf("parse rule: %w", err)
 }
+
+func sampleInputErrorForCode(code giftexchange.InputErrorCode) *giftexchange.InputError {
+	switch code {
+	case giftexchange.InputCodeRequired:
+		return &giftexchange.InputError{Field: "name", Code: code, Reason: "is required"}
+	case giftexchange.InputCodeUnknown:
+		return &giftexchange.InputError{Field: "rule", Code: code, Reason: "is unknown"}
+	case giftexchange.InputCodeEmpty:
+		return &giftexchange.InputError{Field: "name", Code: code, Reason: "is empty"}
+	case giftexchange.InputCodeTooLong:
+		return &giftexchange.InputError{
+			Field:  "name",
+			Code:   code,
+			Reason: "is too long",
+			Max:    giftexchange.MaxNameRunes,
+		}
+	case giftexchange.InputCodeInvalidUTF8:
+		return &giftexchange.InputError{Field: "name", Code: code, Reason: "is not valid UTF-8"}
+	case giftexchange.InputCodeInvalidText:
+		return &giftexchange.InputError{Field: "identity.subject", Code: code, Reason: "is not valid text"}
+	case giftexchange.InputCodeControlChars:
+		return &giftexchange.InputError{Field: "name", Code: code, Reason: "contains control characters"}
+	case giftexchange.InputCodeLineBreaks:
+		return &giftexchange.InputError{Field: "name", Code: code, Reason: "contains line breaks"}
+	case giftexchange.InputCodeBidiChars:
+		return &giftexchange.InputError{Field: "name", Code: code, Reason: "contains bidirectional control characters"}
+	case giftexchange.InputCodeNoVisibleChar:
+		return &giftexchange.InputError{Field: "name", Code: code, Reason: "has no visible character"}
+	case giftexchange.InputCodeNotCanonicalUUID:
+		return &giftexchange.InputError{Field: "exchange_id", Code: code, Reason: "is not a canonical uuid"}
+	case giftexchange.InputCodeZeroUUID:
+		return &giftexchange.InputError{Field: "exchange_id", Code: code, Reason: "must not be the zero uuid"}
+	case giftexchange.InputCodeEditedViaExclusions:
+		return &giftexchange.InputError{Field: "rule", Code: code, Reason: "is edited through the exclusion methods"}
+	case giftexchange.InputCodeInvalidInstant:
+		return &giftexchange.InputError{Field: "draw_at", Code: code, Reason: "is not unset or an RFC 3339 time with an offset"}
+	case giftexchange.InputCodeYearOutOfRange:
+		return &giftexchange.InputError{
+			Field:  "draw_at",
+			Code:   code,
+			Reason: "is outside the years 2000 to 9999",
+			Min:    2000,
+			Max:    9999,
+		}
+	case giftexchange.InputCodeInvalidDuration:
+		return &giftexchange.InputError{Field: "reminder_lead", Code: code, Reason: "is not a duration such as 0, 36h, 90m, 3d or 1d12h"}
+	case giftexchange.InputCodeDurationOutOfRange:
+		return &giftexchange.InputError{Field: "reminder_lead", Code: code, Reason: "is outside 0 to 14 days in whole seconds"}
+	case giftexchange.InputCodeNotOneOf:
+		return &giftexchange.InputError{
+			Field:   "dropout_policy",
+			Code:    code,
+			Reason:  "is not one of patch, redraw",
+			Allowed: []string{"patch", "redraw"},
+		}
+	case giftexchange.InputCodeInvalidBool:
+		return &giftexchange.InputError{Field: "avoid_last_round", Code: code, Reason: "is not on, off, true or false"}
+	case giftexchange.InputCodeMustBeFuture:
+		return &giftexchange.InputError{Field: "draw_at", Code: code, Reason: "must be in the future"}
+	case giftexchange.InputCodeBeforeRevealAt:
+		return &giftexchange.InputError{Field: "draw_at", Code: code, Reason: "must be before reveal_at"}
+	case giftexchange.InputCodeAfterDrawAt:
+		return &giftexchange.InputError{Field: "reveal_at", Code: code, Reason: "must be after draw_at"}
+	case giftexchange.InputCodeSameAsGiver:
+		return &giftexchange.InputError{Field: "recipient", Code: code, Reason: "must differ from the giver"}
+	default:
+		return &giftexchange.InputError{Field: "name", Code: code}
+	}
+}
+
+func TestMapErrorInRendersEveryInputErrorCodeInBothLocales(t *testing.T) {
+	t.Parallel()
+
+	codes := giftexchange.AllInputErrorCodes()
+	if len(codes) == 0 {
+		t.Fatal("AllInputErrorCodes returned no codes")
+	}
+
+	for _, code := range codes {
+		t.Run(string(code), func(t *testing.T) {
+			t.Parallel()
+
+			input := sampleInputErrorForCode(code)
+			// Clear Reason on the InputError passed to MapErrorIn so the adapter must render
+			// from Code via the catalog rather than falling back to Reason.
+			codeOnly := *input
+			codeOnly.Reason = ""
+
+			en := giftexchangecmd.MapErrorIn(giftexchangecmd.LocaleEN, testReference, &codeOnly)
+			es := giftexchangecmd.MapErrorIn(giftexchangecmd.LocaleES419, testReference, &codeOnly)
+
+			if en.Outcome != "rejected:invalid_input" || es.Outcome != "rejected:invalid_input" {
+				t.Fatalf("outcomes = %q, %q; want rejected:invalid_input", en.Outcome, es.Outcome)
+			}
+			if strings.Contains(en.Text, "invalid input") {
+				t.Errorf("en rendered fallback for code %q: %q", code, en.Text)
+			}
+			if strings.Contains(es.Text, "entrada inválida") {
+				t.Errorf("es-419 rendered fallback for code %q: %q", code, es.Text)
+			}
+			if en.Text == es.Text {
+				t.Errorf("code %q rendered identical text in en and es-419: %q", code, en.Text)
+			}
+			if input.Reason == "" {
+				t.Fatalf("sampleInputErrorForCode(%q) is missing expected English Reason", code)
+			}
+			wantENLine := "- " + strings.ReplaceAll(input.Field+" "+input.Reason, "_", `\_`)
+			if !strings.Contains(en.Text, wantENLine) {
+				t.Errorf("en text %q does not contain %q", en.Text, wantENLine)
+			}
+		})
+	}
+}
+
+func TestMapErrorInRendersAggregatedInputErrorsAndFieldNamesInBothLocales(t *testing.T) {
+	t.Parallel()
+
+	joined := errors.Join(
+		&giftexchange.InputError{
+			Field:  "draw_at",
+			Code:   giftexchange.InputCodeMustBeFuture,
+			Reason: "must be in the future",
+		},
+		&giftexchange.InputError{
+			Field:  "reveal_at",
+			Code:   giftexchange.InputCodeAfterDrawAt,
+			Reason: "must be after draw_at",
+		},
+		&giftexchange.InputError{
+			Field:  "reminder_lead",
+			Code:   giftexchange.InputCodeDurationOutOfRange,
+			Reason: "is outside 0 to 14 days in whole seconds",
+		},
+		&giftexchange.InputError{
+			Field:   "dropout_policy",
+			Code:    giftexchange.InputCodeNotOneOf,
+			Reason:  "is not one of patch, redraw",
+			Allowed: []string{"patch", "redraw"},
+		},
+		&giftexchange.InputError{
+			Field:  "name",
+			Code:   giftexchange.InputCodeTooLong,
+			Reason: "is too long",
+			Max:    giftexchange.MaxNameRunes,
+		},
+	)
+
+	en := giftexchangecmd.MapErrorIn(giftexchangecmd.LocaleEN, testReference, joined)
+	for _, want := range []string{
+		"Not saved:",
+		`- draw\_at must be in the future`,
+		`- reveal\_at must be after draw\_at`,
+		`- reminder\_lead is outside 0 to 14 days in whole seconds`,
+		`- dropout\_policy is not one of patch, redraw`,
+		"- name is too long",
+	} {
+		if !strings.Contains(en.Text, want) {
+			t.Errorf("en text %q lacks %q", en.Text, want)
+		}
+	}
+
+	es := giftexchangecmd.MapErrorIn(giftexchangecmd.LocaleES419, testReference, joined)
+	for _, want := range []string{
+		"No se guardó:",
+		"- fecha de sorteo debe estar en el futuro",
+		"- fecha de revelación debe ser posterior a la fecha de sorteo",
+		"- recordatorio previo está fuera del rango de 0 a 14 días en segundos enteros",
+		"- política ante bajas no es uno de patch, redraw",
+		"- nombre es demasiado largo",
+	} {
+		if !strings.Contains(es.Text, want) {
+			t.Errorf("es-419 text %q lacks %q", es.Text, want)
+		}
+	}
+}

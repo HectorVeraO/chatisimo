@@ -150,11 +150,153 @@ func collectLeaves(c Catalog, err error, lines *[]string, depth int) {
 
 	var input *giftexchange.InputError
 	if errors.As(err, &input) {
-		*lines = append(*lines, render.Text(input.Field+" "+input.Reason))
+		*lines = append(*lines, render.Text(formatInputProblem(c, input)))
 		return
 	}
 
 	*lines = append(*lines, c.Get(textInvalidInput))
+}
+
+func formatInputProblem(c Catalog, input *giftexchange.InputError) string {
+	field := inputFieldLabel(c, input.Field)
+	reason := inputReasonText(c, input)
+	return field + " " + reason
+}
+
+func inputFieldLabel(c Catalog, field string) string {
+	if id, ok := inputFieldMsgID(field); ok {
+		return c.Get(id)
+	}
+	return field
+}
+
+func inputFieldMsgID(field string) (MsgID, bool) {
+	switch field {
+	case "name":
+		return textFieldNameName, true
+	case "text":
+		return textFieldNameText, true
+	case "likes":
+		return textFieldNameLikes, true
+	case "dislikes":
+		return textFieldNameDislikes, true
+	case "details":
+		return textFieldNameDetails, true
+	case "draw_at":
+		return textFieldNameDrawAt, true
+	case "reveal_at":
+		return textFieldNameRevealAt, true
+	case "reminder_lead":
+		return textFieldNameReminderLead, true
+	case "dropout_policy":
+		return textFieldNameDropoutPolicy, true
+	case "avoid_last_round":
+		return textFieldNameAvoidLastRound, true
+	case "questions_enabled":
+		return textFieldNameQuestionsEnabled, true
+	case "recipient":
+		return textFieldNameRecipient, true
+	case "giver":
+		return textFieldNameGiver, true
+	case "rule":
+		return textFieldNameRule, true
+	case "exclusion":
+		return textFieldNameExclusion, true
+	case "exchange_id":
+		return textFieldNameExchangeID, true
+	case "question_id":
+		return textFieldNameQuestionID, true
+	case "person_id":
+		return textFieldNamePersonID, true
+	case "group_id":
+		return textFieldNameGroupID, true
+	case "giver_id":
+		return textFieldNameGiverID, true
+	case "recipient_id":
+		return textFieldNameRecipientID, true
+	case "identity.provider":
+		return textFieldNameIdentityProvider, true
+	case "identity.subject":
+		return textFieldNameIdentitySubject, true
+	case "group.provider":
+		return textFieldNameGroupProvider, true
+	case "group.subject":
+		return textFieldNameGroupSubject, true
+	case "registry":
+		return textFieldNameRegistry, true
+	case "deps.Pool":
+		return textFieldNameDepsPool, true
+	case "deps.Scheduler":
+		return textFieldNameDepsScheduler, true
+	case "deps.Clock":
+		return textFieldNameDepsClock, true
+	case "deps.Random":
+		return textFieldNameDepsRandom, true
+	case "deps.Notifier":
+		return textFieldNameDepsNotifier, true
+	case "deps.Rephraser":
+		return textFieldNameDepsRephraser, true
+	case "deps.Logger":
+		return textFieldNameDepsLogger, true
+	default:
+		return "", false
+	}
+}
+
+func inputReasonText(c Catalog, input *giftexchange.InputError) string {
+	switch input.Code {
+	case giftexchange.InputCodeRequired:
+		return c.Get(textReasonRequired)
+	case giftexchange.InputCodeUnknown:
+		return c.Get(textReasonUnknown)
+	case giftexchange.InputCodeEmpty:
+		return c.Get(textReasonEmpty)
+	case giftexchange.InputCodeTooLong:
+		return c.Get(textReasonTooLong)
+	case giftexchange.InputCodeInvalidUTF8:
+		return c.Get(textReasonInvalidUTF8)
+	case giftexchange.InputCodeInvalidText:
+		return c.Get(textReasonInvalidText)
+	case giftexchange.InputCodeControlChars:
+		return c.Get(textReasonControlChars)
+	case giftexchange.InputCodeLineBreaks:
+		return c.Get(textReasonLineBreaks)
+	case giftexchange.InputCodeBidiChars:
+		return c.Get(textReasonBidiChars)
+	case giftexchange.InputCodeNoVisibleChar:
+		return c.Get(textReasonNoVisibleChar)
+	case giftexchange.InputCodeNotCanonicalUUID:
+		return c.Get(textReasonNotCanonicalUUID)
+	case giftexchange.InputCodeZeroUUID:
+		return c.Get(textReasonZeroUUID)
+	case giftexchange.InputCodeEditedViaExclusions:
+		return c.Get(textReasonEditedViaExclusions)
+	case giftexchange.InputCodeInvalidInstant:
+		return c.Get(textReasonInvalidInstant)
+	case giftexchange.InputCodeYearOutOfRange:
+		return c.Format(textReasonYearOutOfRange, input.Min, input.Max)
+	case giftexchange.InputCodeInvalidDuration:
+		return c.Get(textReasonInvalidDuration)
+	case giftexchange.InputCodeDurationOutOfRange:
+		return c.Get(textReasonDurationOutOfRange)
+	case giftexchange.InputCodeNotOneOf:
+		return c.Format(textReasonNotOneOf, strings.Join(input.Allowed, ", "))
+	case giftexchange.InputCodeInvalidBool:
+		return c.Get(textReasonInvalidBool)
+	case giftexchange.InputCodeMustBeFuture:
+		return c.Get(textReasonMustBeFuture)
+	case giftexchange.InputCodeBeforeRevealAt:
+		return c.Get(textReasonBeforeRevealAt)
+	case giftexchange.InputCodeAfterDrawAt:
+		return c.Get(textReasonAfterDrawAt)
+	case giftexchange.InputCodeSameAsGiver:
+		return c.Get(textReasonSameAsGiver)
+	default:
+		if input.Reason != "" {
+			return input.Reason
+		}
+		return c.Get(textInvalidInput)
+	}
 }
 
 func chooseExchangeText(c Catalog, names []string) string {

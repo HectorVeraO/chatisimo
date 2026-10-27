@@ -207,6 +207,63 @@ const (
 	textRulesNotEditable        MsgID = "textRulesNotEditable"
 	textRulesNotAPersonReason   MsgID = "textRulesNotAPersonReason"
 	textRulesNotParticipantText MsgID = "textRulesNotParticipantText"
+
+	textFieldNameName             MsgID = "textFieldNameName"
+	textFieldNameText             MsgID = "textFieldNameText"
+	textFieldNameLikes            MsgID = "textFieldNameLikes"
+	textFieldNameDislikes         MsgID = "textFieldNameDislikes"
+	textFieldNameDetails          MsgID = "textFieldNameDetails"
+	textFieldNameDrawAt           MsgID = "textFieldNameDrawAt"
+	textFieldNameRevealAt         MsgID = "textFieldNameRevealAt"
+	textFieldNameReminderLead     MsgID = "textFieldNameReminderLead"
+	textFieldNameDropoutPolicy    MsgID = "textFieldNameDropoutPolicy"
+	textFieldNameAvoidLastRound   MsgID = "textFieldNameAvoidLastRound"
+	textFieldNameQuestionsEnabled MsgID = "textFieldNameQuestionsEnabled"
+	textFieldNameRecipient        MsgID = "textFieldNameRecipient"
+	textFieldNameGiver            MsgID = "textFieldNameGiver"
+	textFieldNameRule             MsgID = "textFieldNameRule"
+	textFieldNameExclusion        MsgID = "textFieldNameExclusion"
+	textFieldNameExchangeID       MsgID = "textFieldNameExchangeID"
+	textFieldNameQuestionID       MsgID = "textFieldNameQuestionID"
+	textFieldNamePersonID         MsgID = "textFieldNamePersonID"
+	textFieldNameGroupID          MsgID = "textFieldNameGroupID"
+	textFieldNameGiverID          MsgID = "textFieldNameGiverID"
+	textFieldNameRecipientID      MsgID = "textFieldNameRecipientID"
+	textFieldNameIdentityProvider MsgID = "textFieldNameIdentityProvider"
+	textFieldNameIdentitySubject  MsgID = "textFieldNameIdentitySubject"
+	textFieldNameGroupProvider    MsgID = "textFieldNameGroupProvider"
+	textFieldNameGroupSubject     MsgID = "textFieldNameGroupSubject"
+	textFieldNameRegistry         MsgID = "textFieldNameRegistry"
+	textFieldNameDepsPool         MsgID = "textFieldNameDepsPool"
+	textFieldNameDepsScheduler    MsgID = "textFieldNameDepsScheduler"
+	textFieldNameDepsClock        MsgID = "textFieldNameDepsClock"
+	textFieldNameDepsRandom       MsgID = "textFieldNameDepsRandom"
+	textFieldNameDepsNotifier     MsgID = "textFieldNameDepsNotifier"
+	textFieldNameDepsRephraser    MsgID = "textFieldNameDepsRephraser"
+	textFieldNameDepsLogger       MsgID = "textFieldNameDepsLogger"
+	textReasonRequired            MsgID = "textReasonRequired"
+	textReasonUnknown             MsgID = "textReasonUnknown"
+	textReasonEmpty               MsgID = "textReasonEmpty"
+	textReasonTooLong             MsgID = "textReasonTooLong"
+	textReasonInvalidUTF8         MsgID = "textReasonInvalidUTF8"
+	textReasonInvalidText         MsgID = "textReasonInvalidText"
+	textReasonControlChars        MsgID = "textReasonControlChars"
+	textReasonLineBreaks          MsgID = "textReasonLineBreaks"
+	textReasonBidiChars           MsgID = "textReasonBidiChars"
+	textReasonNoVisibleChar       MsgID = "textReasonNoVisibleChar"
+	textReasonNotCanonicalUUID    MsgID = "textReasonNotCanonicalUUID"
+	textReasonZeroUUID            MsgID = "textReasonZeroUUID"
+	textReasonEditedViaExclusions MsgID = "textReasonEditedViaExclusions"
+	textReasonInvalidInstant      MsgID = "textReasonInvalidInstant"
+	textReasonYearOutOfRange      MsgID = "textReasonYearOutOfRange"
+	textReasonInvalidDuration     MsgID = "textReasonInvalidDuration"
+	textReasonDurationOutOfRange  MsgID = "textReasonDurationOutOfRange"
+	textReasonNotOneOf            MsgID = "textReasonNotOneOf"
+	textReasonInvalidBool         MsgID = "textReasonInvalidBool"
+	textReasonMustBeFuture        MsgID = "textReasonMustBeFuture"
+	textReasonBeforeRevealAt      MsgID = "textReasonBeforeRevealAt"
+	textReasonAfterDrawAt         MsgID = "textReasonAfterDrawAt"
+	textReasonSameAsGiver         MsgID = "textReasonSameAsGiver"
 )
 
 // Buttons, card fields, embed titles and the other labels of the interface.
@@ -404,6 +461,63 @@ func catalogEN() map[MsgID]string {
 		textRulesNotEditable:        "cannot be changed here",
 		textRulesNotAPersonReason:   "must be a person in this exchange",
 		textRulesNotParticipantText: "giver and recipient must both be participants",
+
+		textFieldNameName:             "name",
+		textFieldNameText:             "text",
+		textFieldNameLikes:            "likes",
+		textFieldNameDislikes:         "dislikes",
+		textFieldNameDetails:          "details",
+		textFieldNameDrawAt:           "draw_at",
+		textFieldNameRevealAt:         "reveal_at",
+		textFieldNameReminderLead:     "reminder_lead",
+		textFieldNameDropoutPolicy:    "dropout_policy",
+		textFieldNameAvoidLastRound:   "avoid_last_round",
+		textFieldNameQuestionsEnabled: "questions_enabled",
+		textFieldNameRecipient:        "recipient",
+		textFieldNameGiver:            "giver",
+		textFieldNameRule:             "rule",
+		textFieldNameExclusion:        "exclusion",
+		textFieldNameExchangeID:       "exchange_id",
+		textFieldNameQuestionID:       "question_id",
+		textFieldNamePersonID:         "person_id",
+		textFieldNameGroupID:          "group_id",
+		textFieldNameGiverID:          "giver_id",
+		textFieldNameRecipientID:      "recipient_id",
+		textFieldNameIdentityProvider: "identity.provider",
+		textFieldNameIdentitySubject:  "identity.subject",
+		textFieldNameGroupProvider:    "group.provider",
+		textFieldNameGroupSubject:     "group.subject",
+		textFieldNameRegistry:         "registry",
+		textFieldNameDepsPool:         "deps.Pool",
+		textFieldNameDepsScheduler:    "deps.Scheduler",
+		textFieldNameDepsClock:        "deps.Clock",
+		textFieldNameDepsRandom:       "deps.Random",
+		textFieldNameDepsNotifier:     "deps.Notifier",
+		textFieldNameDepsRephraser:    "deps.Rephraser",
+		textFieldNameDepsLogger:       "deps.Logger",
+		textReasonRequired:            "is required",
+		textReasonUnknown:             "is unknown",
+		textReasonEmpty:               "is empty",
+		textReasonTooLong:             "is too long",
+		textReasonInvalidUTF8:         "is not valid UTF-8",
+		textReasonInvalidText:         "is not valid text",
+		textReasonControlChars:        "contains control characters",
+		textReasonLineBreaks:          "contains line breaks",
+		textReasonBidiChars:           "contains bidirectional control characters",
+		textReasonNoVisibleChar:       "has no visible character",
+		textReasonNotCanonicalUUID:    "is not a canonical uuid",
+		textReasonZeroUUID:            "must not be the zero uuid",
+		textReasonEditedViaExclusions: "is edited through the exclusion methods",
+		textReasonInvalidInstant:      "is not unset or an RFC 3339 time with an offset",
+		textReasonYearOutOfRange:      "is outside the years %d to %d",
+		textReasonInvalidDuration:     "is not a duration such as 0, 36h, 90m, 3d or 1d12h",
+		textReasonDurationOutOfRange:  "is outside 0 to 14 days in whole seconds",
+		textReasonNotOneOf:            "is not one of %s",
+		textReasonInvalidBool:         "is not on, off, true or false",
+		textReasonMustBeFuture:        "must be in the future",
+		textReasonBeforeRevealAt:      "must be before reveal_at",
+		textReasonAfterDrawAt:         "must be after draw_at",
+		textReasonSameAsGiver:         "must differ from the giver",
 
 		textButtonJoin:    "Join",
 		textButtonLeave:   "Leave",

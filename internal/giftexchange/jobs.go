@@ -116,7 +116,7 @@ func (s *Service) enqueueNotice(
 // New and before building the jobs.Runner from r.
 func (s *Service) RegisterJobs(r *jobs.Registry) error {
 	if r == nil {
-		return &InputError{Field: "registry", Reason: "is required"}
+		return &InputError{Field: "registry", Code: InputCodeRequired, Reason: "is required"}
 	}
 
 	err := errors.Join(
