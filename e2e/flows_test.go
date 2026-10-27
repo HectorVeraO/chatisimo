@@ -138,6 +138,18 @@ func TestCommandTrees(t *testing.T) {
 	if question.MaxLength == nil || *question.MaxLength != 1000 {
 		t.Errorf("ask question = %+v, want max_length 1000", question)
 	}
+
+	preferences := findOption(t, short.Options, "preferences")
+	wantPrefOpts := []string{"likes", "dislikes", "details", "clear", "exchange"}
+	if got := optionNames(preferences.Options); !slices.Equal(got, wantPrefOpts) {
+		t.Errorf("preferences options = %v, want %v", got, wantPrefOpts)
+	}
+	for _, fieldName := range []string{"likes", "dislikes", "details"} {
+		opt := findOption(t, preferences.Options, fieldName)
+		if opt.MaxLength == nil || *opt.MaxLength != 300 || opt.Required {
+			t.Errorf("preferences %s = %+v, want optional with max_length 300", fieldName, opt)
+		}
+	}
 }
 
 func TestCreateCard(t *testing.T) {
@@ -866,6 +878,142 @@ func TestRecipientAndGiver(t *testing.T) {
 	}
 	if !hasTitle(t, late.message, titleGiver) || !strings.Contains(late.text, "<@"+giverOfBruno+">") {
 		t.Errorf("giver after the reveal = %q, want Bruno's giver", late.text)
+	}
+}
+
+func TestPreferences(t *testing.T) {
+	t.Parallel()
+
+	s := newGuild(t, 5)
+	organizer, outsider, givers := s.members[0], s.members[4], s.members[1:4]
+	exchange, name := s.setup(t, organizer, givers)
+	alice := givers[0]
+
+	const (
+		initialLikes    = "Sci-fi novels and loose-leaf tea"
+		initialDislikes = "Scented candles"
+		initialDetails  = "Shirt size M"
+		updatedLikes    = "Fantasy books and dark chocolate"
+	)
+	created.add("preferences initial likes", initialLikes)
+	created.add("preferences initial dislikes", initialDislikes)
+	created.add("preferences initial details", initialDetails)
+	created.add("preferences updated likes", updatedLikes)
+
+	emptyView := s.slash(t, alice, "/ge/preferences", map[string]any{"exchange": exchange.id})
+	if emptyView.message.EphemeralFor != alice.ID || !strings.Contains(emptyView.text, "have not set gift preferences") {
+		t.Errorf("empty preferences = %q to %q, want empty notice to Alice", emptyView.text, emptyView.message.EphemeralFor)
+	}
+
+	outsiderAttempt := s.slash(t, outsider, "/ge/preferences", map[string]any{"likes": initialLikes, "exchange": exchange.id})
+	if !strings.Contains(outsiderAttempt.text, textNotParticipant) && !strings.Contains(outsiderAttempt.text, textNotFound) {
+		t.Errorf("outsider preferences = %q, want a refusal", outsiderAttempt.text)
+	}
+
+	saved := s.slash(t, alice, "/ge/preferences", map[string]any{
+		"likes":    initialLikes,
+		"dislikes": initialDislikes,
+		"details":  initialDetails,
+		"exchange": exchange.id,
+	})
+	if saved.message.EphemeralFor != alice.ID || !strings.Contains(saved.text, "Your gift preferences for") ||
+		!strings.Contains(saved.text, "were saved.") {
+		t.Errorf("set preferences = %q to %q, want saved confirmation to Alice", saved.text, saved.message.EphemeralFor)
+	}
+	for fieldName, wantVal := range map[string]string{
+		"Likes and hobbies": initialLikes,
+		"Dislikes / avoid":  initialDislikes,
+		"Helpful details":   initialDetails,
+	} {
+		if got := fieldValue(t, saved.message, fieldName); got != wantVal {
+			t.Errorf("saved %s = %q, want %q", fieldName, got, wantVal)
+		}
+	}
+
+	viewed := s.slash(t, alice, "/ge/preferences", map[string]any{"exchange": exchange.id})
+	if got := fieldValue(t, viewed.message, "Likes and hobbies"); got != initialLikes {
+		t.Errorf("viewed Likes and hobbies = %q, want %q", got, initialLikes)
+	}
+
+	s.draw(t, organizer, exchange.id)
+	pairs := s.pairsAfterDraw(t, givers)
+	var giverOfAlice fakediscord.User
+	for _, g := range givers {
+		if pairs[g.ID] == alice.ID {
+			giverOfAlice = g
+		}
+	}
+
+	recipientView := s.slash(t, giverOfAlice, "/ge/recipient", map[string]any{"exchange": exchange.id})
+	for fieldName, wantVal := range map[string]string{
+		"Likes and hobbies": initialLikes,
+		"Dislikes / avoid":  initialDislikes,
+		"Helpful details":   initialDetails,
+	} {
+		if got := fieldValue(t, recipientView.message, fieldName); got != wantVal {
+			t.Errorf("giver /ge/recipient %s = %q, want %q", fieldName, got, wantVal)
+		}
+	}
+
+	updated := s.slash(t, alice, "/ge/preferences", map[string]any{
+		"likes":    updatedLikes,
+		"exchange": exchange.id,
+	})
+	if got := fieldValue(t, updated.message, "Likes and hobbies"); got != updatedLikes {
+		t.Errorf("updated Likes and hobbies = %q, want %q", got, updatedLikes)
+	}
+	if got := fieldValue(t, updated.message, "Dislikes / avoid"); got != initialDislikes {
+		t.Errorf("updated Dislikes / avoid = %q, want %q preserved", got, initialDislikes)
+	}
+
+	hasEmbedField := func(m fakediscord.Message, fieldName, wantValue string) bool {
+		for _, doc := range embedsOf(t, m.Embeds) {
+			for _, field := range doc.Fields {
+				if field.Name == fieldName && (wantValue == "" || field.Value == wantValue) {
+					return true
+				}
+			}
+		}
+
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), waitDeadline)
+	defer cancel()
+	updateDM, err := s.fake.WaitDM(ctx, giverOfAlice, func(m fakediscord.Message) bool {
+		return strings.Contains(textOf(t, m), "updated their gift preferences") &&
+			hasEmbedField(m, "Likes and hobbies", updatedLikes)
+	})
+	if err != nil {
+		t.Fatalf("giver got no preferences update DM: %v", err)
+	}
+	if !strings.Contains(textOf(t, updateDM), name) || !strings.Contains(textOf(t, updateDM), "<@"+alice.ID+">") {
+		t.Errorf("update DM = %q, want exchange name and recipient mention", textOf(t, updateDM))
+	}
+	if got := fieldValue(t, updateDM, "Likes and hobbies"); got != updatedLikes {
+		t.Errorf("update DM Likes and hobbies = %q, want %q", got, updatedLikes)
+	}
+
+	cleared := s.slash(t, alice, "/ge/preferences", map[string]any{
+		"clear":    true,
+		"exchange": exchange.id,
+	})
+	if !strings.Contains(cleared.text, "were cleared") {
+		t.Errorf("clear preferences = %q, want cleared confirmation", cleared.text)
+	}
+
+	clearDM, err := s.fake.WaitDM(ctx, giverOfAlice, func(m fakediscord.Message) bool {
+		return strings.Contains(textOf(t, m), "updated their gift preferences") &&
+			hasEmbedField(m, "Gift preferences", "None yet.")
+	})
+	if err != nil {
+		t.Fatalf("giver got no preferences cleared DM: %v", err)
+	}
+	if got := fieldValue(t, clearDM, "Gift preferences"); got != "None yet." {
+		t.Errorf("clear DM Gift preferences = %q, want None yet.", got)
+	}
+	if hasEmbedField(clearDM, "Likes and hobbies", "") {
+		t.Errorf("cleared DM still contains Likes and hobbies field")
 	}
 }
 

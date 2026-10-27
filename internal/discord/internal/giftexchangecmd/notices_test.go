@@ -67,6 +67,13 @@ func TestRenderNotificationRendersEveryKind(t *testing.T) {
 	question.Question = &giftexchange.NotifiedQuestion{ID: fakeQuestion, Text: "What size are you?"}
 	answer := notification(giftexchange.KindAnswerReceived)
 	answer.Question = &giftexchange.NotifiedQuestion{ID: fakeQuestion, Text: "What size?", Answer: "Medium"}
+	prefsUpdated := withCounterpart(notification(giftexchange.KindPreferencesUpdated))
+	prefsUpdated.Preferences = giftexchange.Preferences{
+		Likes:    "Dark chocolate",
+		Dislikes: "Perfume",
+		Details:  "Shoe size 42",
+	}
+	prefsCleared := withCounterpart(notification(giftexchange.KindPreferencesUpdated))
 
 	tests := []struct {
 		name         string
@@ -149,6 +156,20 @@ func TestRenderNotificationRendersEveryKind(t *testing.T) {
 			wantContent: "Your recipient answered your question in " + x + " " + g +
 				":\n> What size?\n> Medium",
 		},
+		{
+			name:        "preferences updated",
+			n:           prefsUpdated,
+			wantContent: "Your recipient updated their gift preferences in " + x + " " + g + ".",
+			wantTitle:   "Your recipient",
+			wantDesc:    "<@" + fakeCounterpart + ">",
+		},
+		{
+			name:        "preferences cleared",
+			n:           prefsCleared,
+			wantContent: "Your recipient updated their gift preferences in " + x + " " + g + ".",
+			wantTitle:   "Your recipient",
+			wantDesc:    "<@" + fakeCounterpart + ">",
+		},
 	}
 
 	for _, tt := range tests {
@@ -208,6 +229,43 @@ func TestRenderDrawnShowsManualRevealWhenNoRevealTime(t *testing.T) {
 	}
 
 	assertEmbed(t, got, "Your recipient", "<@"+fakeCounterpart+">", "not set (organizer runs it)")
+}
+
+func TestRenderRecipientNoticesIncludeNonEmptyPreferences(t *testing.T) {
+	prefs := giftexchange.Preferences{
+		Likes:    "Board games",
+		Dislikes: "Licorice",
+		Details:  "No allergies",
+	}
+
+	for _, kind := range []giftexchange.NotificationKind{
+		giftexchange.KindDrawn,
+		giftexchange.KindRedrawn,
+		giftexchange.KindAssignmentChanged,
+		giftexchange.KindPreferencesUpdated,
+	} {
+		n := withCounterpart(notification(kind))
+		n.Preferences = prefs
+
+		got, err := RenderNotification(n, fakeGuildName)
+		if err != nil {
+			t.Fatalf("RenderNotification(%s): %v", kind, err)
+		}
+
+		raw, err := json.Marshal(got.Embeds[0].Fields)
+		if err != nil {
+			t.Fatalf("Marshal(%s): %v", kind, err)
+		}
+		for _, want := range []string{
+			"Likes and hobbies", "Board games",
+			"Dislikes / avoid", "Licorice",
+			"Helpful details", "No allergies",
+		} {
+			if !strings.Contains(string(raw), want) {
+				t.Errorf("%s fields %s do not include %q", kind, raw, want)
+			}
+		}
+	}
 }
 
 func TestRenderQuestionHasAnswerButtonAndNamesNoAsker(t *testing.T) {
