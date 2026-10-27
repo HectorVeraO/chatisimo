@@ -296,6 +296,7 @@ func (s *Server) placeInChannelLocked(p *plan, guildID, actorID string) {
 type componentInfo struct {
 	Type       int               `json:"type"`
 	CustomID   string            `json:"custom_id"`
+	Label      string            `json:"label"`
 	Disabled   bool              `json:"disabled"`
 	Required   *bool             `json:"required"`
 	MinLength  *int              `json:"min_length"`
@@ -565,16 +566,43 @@ func checkTextLength(input componentInfo, value string) []error {
 	return problems
 }
 
-// modalInputs lists the text inputs of a modal in order.
+// modalInputs lists the text inputs of a modal in order, with each input's label resolved
+// from its own label field or an enclosing Label component.
 func modalInputs(m Modal) []componentInfo {
 	var inputs []componentInfo
-	walkComponents(m.Components, 0, func(info componentInfo) {
-		if info.Type == componentTextInput {
-			inputs = append(inputs, info)
-		}
+	walkModalInputs(m.Components, "", 0, func(info componentInfo) {
+		inputs = append(inputs, info)
 	})
 
 	return inputs
+}
+
+func walkModalInputs(raws []json.RawMessage, parentLabel string, depth int, visit func(componentInfo)) {
+	if depth > maxComponentDepth {
+		return
+	}
+
+	for _, raw := range raws {
+		var info componentInfo
+		err := json.Unmarshal(raw, &info)
+		if err != nil {
+			continue
+		}
+		if info.Type == componentTextInput {
+			if info.Label == "" {
+				info.Label = parentLabel
+			}
+			visit(info)
+		}
+		innerLabel := parentLabel
+		if info.Type == componentLabel {
+			innerLabel = info.Label
+		}
+		walkModalInputs(info.Components, innerLabel, depth+1, visit)
+		if len(info.Component) > 0 {
+			walkModalInputs([]json.RawMessage{info.Component}, innerLabel, depth+1, visit)
+		}
+	}
 }
 
 // modalSubmitComponents builds the components of a modal submission: one action row per

@@ -128,7 +128,10 @@ func (h *Handlers) answerButton(e *handler.ComponentEvent) error {
 	input.Placeholder = questionModalHint
 
 	modalID := formatCustomID(customID{Action: actionAnswerModal, Question: parsed.Question})
-	modal := discord.NewModalCreate(modalID, questionModalTitle, discord.NewActionRow(input))
+	modal := discord.ModalCreate{
+		CustomID: modalID,
+		Title:    questionModalTitle,
+	}.AddLabel(questionModalHint, input)
 	modalErr := req.Modal(e.Ctx, modal)
 	if modalErr != nil {
 		return modalErr //nolint:wrapcheck // the router reduces REST errors to status and code
