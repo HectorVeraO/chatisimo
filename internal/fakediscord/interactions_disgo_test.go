@@ -123,7 +123,7 @@ func answeringHandlers(t *testing.T, tokens chan<- string) botHandlers {
 				check(replyTo(e, content, true))
 			case "/ge/admin/create":
 				input := discord.NewTextInput("title", discord.TextInputStyleShort)
-				check(e.Modal(discord.NewModalCreate("title:1", "New exchange", discord.NewActionRow(input))))
+				check(e.Modal(discord.ModalCreate{CustomID: "title:1", Title: "New exchange"}.AddLabel("Title", input)))
 			default:
 				t.Errorf("unexpected command %s", data.CommandPath())
 			}

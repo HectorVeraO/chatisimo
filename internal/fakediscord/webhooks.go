@@ -300,9 +300,6 @@ func (s *Server) callbackModalLocked(intr *interaction, raw json.RawMessage) out
 	if len(data.Components) == 0 || len(data.Components) > maxModalComponents {
 		problems = append(problems, fmt.Errorf("data.components: must hold 1-%d components", maxModalComponents))
 	}
-	if len(problems) > 0 {
-		return problemsOutcome(problems)
-	}
 
 	modal := Modal{
 		UserID:     intr.actorID,
@@ -310,6 +307,19 @@ func (s *Server) callbackModalLocked(intr *interaction, raw json.RawMessage) out
 		Title:      data.Title,
 		Components: data.Components,
 	}
+	inputs := modalInputs(modal)
+	if len(inputs) == 0 {
+		problems = append(problems, errors.New("data.components: must contain at least one text input"))
+	}
+	for index, input := range inputs {
+		if input.Label == "" {
+			problems = append(problems, fmt.Errorf("data.components[%d].label: required", index))
+		}
+	}
+	if len(problems) > 0 {
+		return problemsOutcome(problems)
+	}
+
 	s.w.modals[intr.actorID] = &pendingModal{Modal: modal, channelID: intr.channelID, sourceMessageID: intr.sourceMessageID}
 	s.emitModalLocked(modal)
 

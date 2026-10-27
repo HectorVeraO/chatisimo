@@ -459,9 +459,13 @@ func TestBadAutocompleteAndModalCallbacksAreRefused(t *testing.T) {
 		"modal without a title":       `{"type":9,"data":{"custom_id":"m","components":[{"type":1}]}}`,
 		"modal with a long custom id": `{"type":9,"data":{"custom_id":"` + strings.Repeat("x", 101) + `","title":"t","components":[{"type":1}]}}`,
 		"modal without components":    `{"type":9,"data":{"custom_id":"m","title":"t","components":[]}}`,
+		"modal without text inputs":   `{"type":9,"data":{"custom_id":"m","title":"t","components":[{"type":1,"components":[]}]}}`,
+		"modal with unlabeled input":  `{"type":9,"data":{"custom_id":"m","title":"t","components":[{"type":1,"components":[{"type":4,"custom_id":"c","style":1}]}]}}`,
+		"modal with empty label":      `{"type":9,"data":{"custom_id":"m","title":"t","components":[{"type":18,"label":"","component":{"type":4,"custom_id":"c","style":1}}]}}`,
 	} {
-		if got := w.respond(t, slashInteraction, body); got.status != http.StatusBadRequest {
-			t.Errorf("%s: callback = %d %s, want 400", name, got.status, got.body)
+		got := w.respond(t, slashInteraction, body)
+		if got.status != http.StatusBadRequest || got.json(t)["code"] != float64(50035) {
+			t.Errorf("%s: callback = %d %s, want 400 50035", name, got.status, got.body)
 		}
 	}
 	w.respond(t, slashInteraction, `{"type":5}`)
@@ -707,7 +711,9 @@ func FuzzCallbackBody(f *testing.F) {
 		``, `nope`, `{}`, `{"type":4}`, `{"type":4,"data":{}}`, `{"type":4,"data":[1]}`,
 		`{"type":4,"data":{"content":"x","allowed_mentions":[1]}}`,
 		`{"type":4,"data":{"content":5}}`, `{"type":7,"data":null}`, `{"type":8,"data":{"choices":[{}]}}`,
-		`{"type":9,"data":{"custom_id":"a","components":"x"}}`, `{"type":5,"data":{"flags":"x"}}`,
+		`{"type":9,"data":{"custom_id":"a","components":"x"}}`,
+		`{"type":9,"data":{"custom_id":"m","title":"t","components":[{"type":1,"components":[{"type":4,"custom_id":"c","style":1}]}]}}`,
+		`{"type":5,"data":{"flags":"x"}}`,
 		`{"type":"4"}`, `{"type":-1}`, `{"type":4,"data":{"content":"` + strings.Repeat("a", 4096) + `"}}`,
 		`{"type":4,"data":{"content":"` + abuseText + `"}}`,
 		`{"type":7,"data":{"content":"` + abuseText + `"}}`,

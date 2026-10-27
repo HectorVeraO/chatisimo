@@ -317,7 +317,7 @@ func TestQuestionAnswerEditsTheDMAndTellsTheGiver(t *testing.T) {
 
 	opened := q.answerModal(t, recipient, dm)
 	input := string(opened.Modal.Components[0])
-	for _, want := range []string{`"custom_id":"answer"`, `"max_length":1000`, `"min_length":1`, `"style":2`} {
+	for _, want := range []string{`"type":18`, `"label":"Your answer"`, `"custom_id":"answer"`, `"max_length":1000`, `"min_length":1`, `"style":2`} {
 		if !strings.Contains(input, want) {
 			t.Errorf("modal input lacks %s: %s", want, input)
 		}
