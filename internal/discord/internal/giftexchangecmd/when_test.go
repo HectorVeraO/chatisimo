@@ -26,6 +26,16 @@ func TestParseWhenReadsEveryAcceptedForm(t *testing.T) {
 		"in 3d":                     whenNow.Add(72 * time.Hour),
 		"in 2h30m":                  whenNow.Add(150 * time.Minute),
 		"in 1d12h":                  whenNow.Add(36 * time.Hour),
+		"in 90m":                    whenNow.Add(90 * time.Minute),
+		"en 3d":                     whenNow.Add(72 * time.Hour),
+		"en 2h30m":                  whenNow.Add(150 * time.Minute),
+		"en 1d12h":                  whenNow.Add(36 * time.Hour),
+		"en 90m":                    whenNow.Add(90 * time.Minute),
+		"EN 45m":                    whenNow.Add(45 * time.Minute),
+		"EN 2h":                     whenNow.Add(2 * time.Hour),
+		"En 3d":                     whenNow.Add(72 * time.Hour),
+		"  en   3D  ":               whenNow.Add(72 * time.Hour),
+		"en 730d":                   whenNow.Add(730 * 24 * time.Hour),
 		"45s":                       whenNow.Add(45 * time.Second),
 		"3d":                        whenNow.Add(72 * time.Hour),
 		"  in   3D  ":               whenNow.Add(72 * time.Hour),
@@ -65,32 +75,41 @@ func TestParseWhenReportsEmptyInput(t *testing.T) {
 
 func TestParseWhenRefusesOtherInput(t *testing.T) {
 	cases := map[string]string{
-		"words":                  "tomorrow",
-		"only the prefix":        "in",
-		"prefix and space":       "in ",
-		"prefix without space":   "in3d",
-		"unit without number":    "d",
-		"number without unit":    "30",
-		"unknown unit":           "3w",
-		"zero":                   "0s",
-		"zero days":              "in 0d",
-		"negative":               "in -3d",
-		"decimal":                "in 1.5h",
-		"spaces inside":          "in 2h 30m",
-		"over 730 days":          "in 731d",
-		"over 730 days in hours": "in 17521h",
-		"overflow digits":        "in 99999999999999999999d",
-		"nine digits of days":    "in 999999999d",
-		"date without time":      "2026-12-20",
-		"time without date":      "18:00",
-		"day first":              "20-12-2026 18:00",
-		"impossible day":         "2026-02-30 10:00",
-		"impossible hour":        "2026-12-20 25:00",
-		"rfc3339 without zone":   "2026-12-20T18:00:00",
-		"unicode digits":         "in \u0663d",
-		"right to left":          "\u202ein 3d",
-		"emoji":                  "\U0001F600",
-		"long":                   strings.Repeat("1d", 5000),
+		"words":                    "tomorrow",
+		"only the prefix":          "in",
+		"prefix and space":         "in ",
+		"prefix without space":     "in3d",
+		"spanish only prefix":      "en",
+		"spanish prefix and space": "en ",
+		"spanish without space":    "en3d",
+		"double prefix":            "en in 3d",
+		"unit without number":      "d",
+		"number without unit":      "30",
+		"unknown unit":             "3w",
+		"zero":                     "0s",
+		"zero days":                "in 0d",
+		"spanish zero minutes":     "en 0m",
+		"negative":                 "in -3d",
+		"spanish negative":         "en -1d",
+		"decimal":                  "in 1.5h",
+		"spaces inside":            "in 2h 30m",
+		"spanish spaces inside":    "en 2h 30m",
+		"over 730 days":            "in 731d",
+		"spanish over 730 days":    "en 731d",
+		"over 730 days in hours":   "in 17521h",
+		"overflow digits":          "in 99999999999999999999d",
+		"nine digits of days":      "in 999999999d",
+		"date without time":        "2026-12-20",
+		"time without date":        "18:00",
+		"day first":                "20-12-2026 18:00",
+		"impossible day":           "2026-02-30 10:00",
+		"impossible hour":          "2026-12-20 25:00",
+		"rfc3339 without zone":     "2026-12-20T18:00:00",
+		"unicode digits":           "in \u0663d",
+		"right to left":            "\u202ein 3d",
+		"spanish right to left":    "\u202een 3d",
+		"emoji":                    "\U0001F600",
+		"long":                     strings.Repeat("1d", 5000),
 	}
 
 	for name, raw := range cases {
@@ -124,10 +143,11 @@ func FuzzParseWhen(f *testing.F) {
 	}
 
 	seeds := []string{
-		"", " ", "in 3d", "in 2h30m", "45s", "in 730d", "in 731d", "in 99999999999999999999d",
+		"", " ", "in 3d", "in 2h30m", "en 3d", "en 1d12h", "en 90m", "en ", "en 999999d",
+		"45s", "in 730d", "in 731d", "in 99999999999999999999d",
 		"2026-12-20 18:00", "2026-12-20 18:00:30", "2026-12-20T18:00:00Z", "2026-02-30 10:00",
 		"in \u0663d", "\u202ein 3d", "\U0001F600", strings.Repeat("9d", 100), "in 0s", "in -1d",
-		"in 999999999d999999999h",
+		"en 0m", "en -1d", "in 999999999d999999999h",
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -152,7 +172,8 @@ func FuzzParseWhen(f *testing.F) {
 			t.Fatalf("parseWhen(%q) = %v, want a UTC time", raw, got)
 		}
 
-		isRelative := strings.HasPrefix(strings.ToLower(strings.TrimSpace(raw)), "in ")
+		lower := strings.ToLower(strings.TrimSpace(raw))
+		isRelative := strings.HasPrefix(lower, "in ") || strings.HasPrefix(lower, "en ")
 		if isRelative {
 			if !got.After(whenNow) || got.Sub(whenNow) > 730*24*time.Hour {
 				t.Fatalf("parseWhen(%q) = %v, want within 730 days after now", raw, got)

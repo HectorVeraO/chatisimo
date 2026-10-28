@@ -85,8 +85,9 @@ func FuzzRulesOptionValue(f *testing.F) {
 
 func FuzzRulesModalInput(f *testing.F) {
 	seeds := []string{
-		"", "   ", "in 3d", "in 9999d", "tomorrow", "2026-12-20 18:00", "2030-01-02T03:04:05Z",
-		"\u202ein 3d", "in\u200b 3d", "<@100000000000000001> @everyone", "**in 3d**",
+		"", "   ", "in 3d", "in 9999d", "en 3d", "en 1d12h", "en 90m", "en ", "en 999999d",
+		"tomorrow", "2026-12-20 18:00", "2030-01-02T03:04:05Z",
+		"\u202ein 3d", "\u202een 3d", "in\u200b 3d", "en\u200b 3d", "<@100000000000000001> @everyone", "**in 3d**",
 		strings.Repeat("9", 64), strings.Repeat("9", 65), "\xff\xfe", "\U0001F381", "0", "-1d", "36h",
 	}
 	for _, seed := range seeds {

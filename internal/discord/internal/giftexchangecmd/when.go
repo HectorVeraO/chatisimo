@@ -6,7 +6,8 @@ import (
 )
 
 const (
-	relativePrefix = "in "
+	relativePrefixEN = "in "
+	relativePrefixES = "en "
 	// maxWhenAheadSeconds bounds a relative time to 730 days. It also keeps the arithmetic far
 	// from overflow: nine digits of days is under 10^14 seconds.
 	maxWhenAheadSeconds int64 = 730 * 24 * 60 * 60
@@ -18,9 +19,10 @@ const (
 )
 
 // parseWhen reads the time a person typed. Empty input returns empty = true. A duration with
-// an optional "in " prefix (in 3d, 2h30m, 45s) is added to now. A date and time without a
-// zone is read in loc, and an RFC 3339 time carries its own zone. The result is in UTC. Any
-// other input returns errBadTime. Whether the time lies in the future is the module's rule.
+// an optional "in " or "en " prefix (in 3d, en 3d, 2h30m, 45s) is added to now. A date and
+// time without a zone is read in loc, and an RFC 3339 time carries its own zone. The result is
+// in UTC. Any other input returns errBadTime. Whether the time lies in the future is the
+// module's rule.
 func parseWhen(raw string, now time.Time, loc *time.Location) (time.Time, bool, error) {
 	if loc == nil {
 		panic("giftexchangecmd: parseWhen without a location")
@@ -32,7 +34,7 @@ func parseWhen(raw string, now time.Time, loc *time.Location) (time.Time, bool, 
 	}
 
 	lower := strings.ToLower(trimmed)
-	duration, isDuration := parseDuration(strings.TrimSpace(strings.TrimPrefix(lower, relativePrefix)))
+	duration, isDuration := parseDuration(trimRelativePrefix(lower))
 	if isDuration {
 		when := now.Add(duration).UTC()
 		return when, false, nil
@@ -51,6 +53,17 @@ func parseWhen(raw string, now time.Time, loc *time.Location) (time.Time, bool, 
 	}
 
 	return time.Time{}, false, errBadTime
+}
+
+func trimRelativePrefix(lower string) string {
+	for _, prefix := range []string{relativePrefixEN, relativePrefixES} {
+		rest, hasPrefix := strings.CutPrefix(lower, prefix)
+		if hasPrefix {
+			return strings.TrimSpace(rest)
+		}
+	}
+
+	return lower
 }
 
 // parseDuration reads one or more <int><unit> pairs with units d, h, m and s. It accepts a
