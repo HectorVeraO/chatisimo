@@ -153,7 +153,7 @@ func TestExchangeViewListsRulesWithDefaultsAndCallerEditability(t *testing.T) {
 	wantNames := []giftexchange.RuleName{
 		giftexchange.RuleDrawAt, giftexchange.RuleRevealAt, giftexchange.RuleReminderLead,
 		giftexchange.RuleDropoutPolicy, giftexchange.RuleAvoidLastRound, giftexchange.RuleExclusions,
-		giftexchange.RuleQuestionsEnabled, giftexchange.RuleLanguage, giftexchange.RuleMinParticipants,
+		giftexchange.RuleQuestionsEnabled, giftexchange.RuleMinParticipants,
 		giftexchange.RuleMaxParticipants, giftexchange.RuleNoSelfAssignment, giftexchange.RuleRedrawBelow,
 		giftexchange.RuleQuestionMaxLength, giftexchange.RuleQuestionsPerDay,
 	}
@@ -169,8 +169,8 @@ func TestExchangeViewListsRulesWithDefaultsAndCallerEditability(t *testing.T) {
 		giftexchange.RuleDrawAt: "unset", giftexchange.RuleRevealAt: "unset",
 		giftexchange.RuleReminderLead: "1d", giftexchange.RuleDropoutPolicy: "patch",
 		giftexchange.RuleAvoidLastRound: "off", giftexchange.RuleExclusions: "0",
-		giftexchange.RuleQuestionsEnabled: "on", giftexchange.RuleLanguage: "en",
-		giftexchange.RuleMinParticipants: "3", giftexchange.RuleMaxParticipants: "100",
+		giftexchange.RuleQuestionsEnabled: "on",
+		giftexchange.RuleMinParticipants:  "3", giftexchange.RuleMaxParticipants: "100",
 		giftexchange.RuleNoSelfAssignment: "on", giftexchange.RuleRedrawBelow: "4",
 		giftexchange.RuleQuestionMaxLength: "1000", giftexchange.RuleQuestionsPerDay: "20",
 	}

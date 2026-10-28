@@ -24,22 +24,24 @@ const (
 var namePattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
 type option struct {
-	Type         int      `json:"type"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	Required     bool     `json:"required"`
-	Autocomplete bool     `json:"autocomplete"`
-	MaxLength    *int     `json:"max_length"`
-	MinLength    *int     `json:"min_length"`
-	Options      []option `json:"options"`
+	Type                     int               `json:"type"`
+	Name                     string            `json:"name"`
+	Description              string            `json:"description"`
+	DescriptionLocalizations map[string]string `json:"description_localizations"`
+	Required                 bool              `json:"required"`
+	Autocomplete             bool              `json:"autocomplete"`
+	MaxLength                *int              `json:"max_length"`
+	MinLength                *int              `json:"min_length"`
+	Options                  []option          `json:"options"`
 }
 
 type command struct {
-	Name             string   `json:"name"`
-	Description      string   `json:"description"`
-	Contexts         []int    `json:"contexts"`
-	IntegrationTypes []int    `json:"integration_types"`
-	Options          []option `json:"options"`
+	Name                     string            `json:"name"`
+	Description              string            `json:"description"`
+	DescriptionLocalizations map[string]string `json:"description_localizations"`
+	Contexts                 []int             `json:"contexts"`
+	IntegrationTypes         []int             `json:"integration_types"`
+	Options                  []option          `json:"options"`
 }
 
 func builtTrees(t *testing.T) []command {
@@ -217,5 +219,47 @@ func TestTextOptionsUseTheModulesLimits(t *testing.T) {
 
 	for missing := range want {
 		t.Errorf("option %s is not in the tree", missing)
+	}
+}
+
+func TestEveryCommandAndOptionHasEnglishAndSpanishDescriptionLocalizations(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range builtTrees(t) {
+		checkDescriptionLocalizations(t, "/"+c.Name, c.Description, c.DescriptionLocalizations)
+		checkOptionLocalizations(t, "/"+c.Name, c.Options)
+	}
+}
+
+func checkOptionLocalizations(t *testing.T, where string, opts []option) {
+	t.Helper()
+
+	for _, o := range opts {
+		path := where + "/" + o.Name
+		checkDescriptionLocalizations(t, path, o.Description, o.DescriptionLocalizations)
+		checkOptionLocalizations(t, path, o.Options)
+	}
+}
+
+func checkDescriptionLocalizations(t *testing.T, where, desc string, locs map[string]string) {
+	t.Helper()
+
+	if len(locs) == 0 {
+		t.Fatalf("%s: missing description_localizations", where)
+	}
+	if locs["en-US"] != desc {
+		t.Errorf("%s: en-US localization %q != description %q", where, locs["en-US"], desc)
+	}
+	for _, key := range []string{"es-419", "es-ES"} {
+		val := locs[key]
+		if n := utf8.RuneCountInString(val); n < 1 || n > 100 {
+			t.Errorf("%s: %s localization %q has %d runes, want 1-100", where, key, val, n)
+		}
+		if val == desc {
+			t.Errorf("%s: %s localization %q is identical to English", where, key, val)
+		}
+	}
+	if locs["es-419"] != locs["es-ES"] {
+		t.Errorf("%s: es-419 %q != es-ES %q", where, locs["es-419"], locs["es-ES"])
 	}
 }

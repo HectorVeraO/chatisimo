@@ -69,7 +69,7 @@ func (h *Handlers) askCommand(data discord.SlashCommandInteractionData, e *handl
 		return fmt.Errorf("ask question: %w", askErr)
 	}
 
-	c := CatalogForExchange(summary.Language)
+	c := h.catalogFor(req)
 	reply := c.Format(textAsked, render.Bold(summary.Name))
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &reply})
 	if editErr != nil {
@@ -79,7 +79,7 @@ func (h *Handlers) askCommand(data discord.SlashCommandInteractionData, e *handl
 	return nil
 }
 
-// questionExchangeSummary returns the summary of the exchange and records its language on req.
+// questionExchangeSummary returns the summary of the exchange and records its guild locale on req.
 // A typed exchange ID may name an exchange of another guild, which is not among the
 // candidates; the caller's own list has it.
 func (h *Handlers) questionExchangeSummary(
@@ -87,7 +87,7 @@ func (h *Handlers) questionExchangeSummary(
 ) (giftexchange.ExchangeSummary, error) {
 	for _, candidate := range candidates {
 		if candidate.ID == id {
-			req.SetLocale(string(candidate.Language))
+			h.setGroupLocale(req, candidate.Group.Subject)
 			return candidate, nil
 		}
 	}
@@ -98,7 +98,7 @@ func (h *Handlers) questionExchangeSummary(
 	}
 	for _, summary := range listed {
 		if summary.ID == id {
-			req.SetLocale(string(summary.Language))
+			h.setGroupLocale(req, summary.Group.Subject)
 			return summary, nil
 		}
 	}
@@ -106,7 +106,7 @@ func (h *Handlers) questionExchangeSummary(
 	if req.Group != nil {
 		view, viewErr := h.svc.Exchange(ctx, req.Actor, *req.Group, id)
 		if viewErr == nil {
-			req.SetLocale(string(view.Language))
+			h.setGroupLocale(req, view.Group.Subject)
 		}
 	}
 
@@ -127,14 +127,13 @@ func (h *Handlers) questionCatalog(
 		}
 		for _, q := range received {
 			if q.ID == questionID {
-				req.SetLocale(string(summary.Language))
-				return CatalogForExchange(summary.Language)
+				h.setGroupLocale(req, summary.Group.Subject)
+				return h.catalogFor(req)
 			}
 		}
 	}
 	if len(listed) > 0 {
-		req.SetLocale(string(listed[0].Language))
-		return CatalogForExchange(listed[0].Language)
+		h.setGroupLocale(req, listed[0].Group.Subject)
 	}
 	return h.catalogFor(req)
 }

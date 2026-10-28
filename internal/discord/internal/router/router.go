@@ -50,11 +50,15 @@ type Rejection struct {
 // to show to the caller for unexpected failures.
 type ErrorMapper func(requestID string, err error) Rejection
 
-// Config holds the router's collaborators. Every field is required.
+// Config holds the router's collaborators. Resolver, MapError and Logger are required;
+// Observe is optional.
 type Config struct {
 	Resolver Resolver
 	MapError ErrorMapper
 	Logger   *slog.Logger
+	// Observe, when non-nil, is called for every incoming interaction once its Request is
+	// created, before any handler or error mapper runs.
+	Observe func(req *Request)
 }
 
 // Router owns the handler mux. It is safe for concurrent use once handlers are registered.
@@ -63,6 +67,7 @@ type Router struct {
 	resolver Resolver
 	mapError ErrorMapper
 	logger   *slog.Logger
+	observe  func(req *Request)
 	cancel   context.CancelFunc
 
 	mu       sync.Mutex
@@ -92,6 +97,7 @@ func New(cfg Config) (*Router, error) {
 		resolver: cfg.Resolver,
 		mapError: cfg.MapError,
 		logger:   cfg.Logger,
+		observe:  cfg.Observe,
 		cancel:   cancel,
 	}
 

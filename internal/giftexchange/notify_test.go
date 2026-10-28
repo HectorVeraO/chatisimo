@@ -557,28 +557,3 @@ func TestDrawnNoticeIsStaleWhenTheAddresseeNoLongerGives(t *testing.T) {
 		}
 	}
 }
-
-func TestNotificationCarriesExchangeLanguage(t *testing.T) {
-	s := newDrawScene(t, 3)
-	_, setErr := s.h.svc.SetRule(t.Context(), s.organizer.actor, s.group, s.exchange, giftexchange.RuleChange{
-		Name: giftexchange.RuleLanguage,
-		Raw:  string(giftexchange.LanguageES419),
-	})
-	if setErr != nil {
-		t.Fatalf("SetRule language: %v", setErr)
-	}
-	s.mustDraw(t)
-	s.h.startRunner(t)
-
-	waitForFinished(t, s.exchange, len(s.people))
-
-	received := s.h.notifier.Received()
-	if len(received) != len(s.people) {
-		t.Fatalf("received %d notifications, want %d", len(received), len(s.people))
-	}
-	for _, got := range received {
-		if got.Exchange.Language != giftexchange.LanguageES419 {
-			t.Errorf("notification Exchange.Language = %q, want %q", got.Exchange.Language, giftexchange.LanguageES419)
-		}
-	}
-}

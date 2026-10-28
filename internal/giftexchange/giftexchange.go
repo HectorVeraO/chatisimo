@@ -81,15 +81,6 @@ const (
 	DropoutRedraw DropoutPolicy = "redraw"
 )
 
-// Language is the language of an exchange's user-facing messages.
-type Language string
-
-// The exchange languages.
-const (
-	LanguageEN    Language = "en"
-	LanguageES419 Language = "es-419"
-)
-
 // Limits fixed by the design. They are also shown as fixed rules.
 const (
 	MinParticipants    = 3
@@ -121,7 +112,6 @@ type ExchangeSummary struct {
 	Group    Group
 	Name     string
 	State    State
-	Language Language
 	DrawAt   *time.Time
 	RevealAt *time.Time
 	// ParticipantCount counts active participants.

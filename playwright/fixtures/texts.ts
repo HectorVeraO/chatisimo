@@ -3,8 +3,8 @@
 // plain values the page renders (an exchange name arrives in bold, which the page renders as
 // plain text, and a mention renders as "@Name").
 //
-// Source: internal/discord/internal/giftexchangecmd/texts.go, except where a section says
-// otherwise. Code Path Parity: .claude/references/code-path-parity.md.
+// Source: internal/discord/internal/giftexchangecmd/catalog_en_us.json, except where a section
+// says otherwise. Code Path Parity: .claude/references/code-path-parity.md.
 
 export const created =
   "You created %s and you organize it. You are not a participant unless you join. " +
@@ -55,7 +55,7 @@ export const listLine = "- %s - %s - participants: %d - you are %s";
 export const rulesBadTimeReason = "is not a time such as in 3d or 2026-12-20 18:00 (Santiago time)";
 export const rulesPairArrow = " -> ";
 
-// Source: internal/giftexchange/rules.go.
+// Source: internal/discord/internal/giftexchangecmd/catalog_en_us.json (textReasonMustBeFuture).
 export const mustBeInTheFuture = "must be in the future";
 
 // Source: internal/discord/internal/giftexchangecmd/texts.go (flows from the draw to the reveal).
@@ -118,12 +118,12 @@ export const dmAnswer = "Your recipient answered your question in %s (%s):";
 // Source: internal/fakediscord/web/slash.js (the composer refuses an option over its maximum).
 export const composerTooLong = "%s: must be %d characters or fewer.";
 
-// Source: internal/giftexchange/parse.go (the reasons of an exchange name the module refuses).
+// Source: internal/discord/internal/giftexchangecmd/catalog_en_us.json (the reasons of an exchange name the module refuses).
 export const reasonTooLong = "is too long";
 export const reasonBidi = "contains bidirectional control characters";
 export const reasonNoVisible = "has no visible character";
 
-// Source: internal/discord/internal/giftexchangecmd/catalog_es419.json.
+// Source: internal/discord/internal/giftexchangecmd/catalog_es_cl.json.
 export const es = {
   created:
     "Creaste %s y lo organizas. No eres participante a menos que te unas. Configúralo con /ge rules.",
@@ -131,7 +131,6 @@ export const es = {
   manual: "sin definir (lo ejecuta quien organiza)",
   joined: "Te uniste a %s.",
   noCandidates: "No tienes ningún intercambio donde puedas hacer esto.",
-  ruleLanguage: "Idioma",
   buttonJoin: "Unirse",
   buttonLeave: "Salir",
   buttonRules: "Reglas",

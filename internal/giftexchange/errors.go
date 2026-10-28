@@ -92,19 +92,18 @@ func AllInputErrorCodes() []InputErrorCode {
 
 // InputError reports one invalid field. It matches ErrInvalidInput with errors.Is. Field is a
 // fixed name ("name", "text", "rule", "draw_at", "deps.Pool", ...); Code is a machine-readable
-// InputErrorCode, with Min, Max and Allowed holding any bounds; Reason is a fixed phrase.
+// InputErrorCode, with Min, Max and Allowed holding any bounds.
 type InputError struct {
 	Field   string
 	Code    InputErrorCode
-	Reason  string
 	Min     int
 	Max     int
 	Allowed []string
 }
 
-// Error returns the field and the reason, never the rejected input.
+// Error returns the field and the error code, never the rejected input.
 func (e *InputError) Error() string {
-	text := ErrInvalidInput.Error() + ": " + e.Field + " " + e.Reason
+	text := ErrInvalidInput.Error() + ": " + e.Field + " (" + string(e.Code) + ")"
 	return text
 }
 

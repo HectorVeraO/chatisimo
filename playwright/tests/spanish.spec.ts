@@ -31,9 +31,8 @@ test("an es-419 server runs a full round in Spanish", async ({ world, page }) =>
   await world.clickButton(texts.es.buttonRules);
   const rulesView = world.messageWithEmbed(texts.format(texts.es.rulesTitle, EXCHANGE));
   await expect(rulesView).toBeVisible();
-  await expect(world.fieldValue(rulesView, texts.es.ruleLanguage)).toHaveText("es-419");
 
-  // Participants keep en-US user locale; the exchange language governs all exchange messages.
+  // Participants keep en-US user locale; the es-419 server locale renders their interactions and DMs in Spanish.
   for (const participant of PARTICIPANTS) {
     await world.asUser(participant);
     await world.card(EXCHANGE).getByRole("button", { name: texts.es.buttonJoin, exact: true }).click();

@@ -1,35 +1,28 @@
 package giftexchangecmd
 
 import (
-	"fmt"
-
-	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
+	"github.com/HectorVeraO/chatisimo/internal/platform/i18n"
 )
 
-// Locale identifies a language catalog of the Discord adapter.
-type Locale string
+// Locale identifies a BCP 47 language catalog of the Discord adapter.
+type Locale = i18n.Locale
 
-// Supported locales of the Discord adapter. LocaleEN is the default and fallback.
+// Supported locales of the Discord adapter. LocaleENUS is the default and fallback.
 const (
-	LocaleEN    Locale = "en"
-	LocaleES419 Locale = "es-419"
+	LocaleENUS Locale = i18n.LocaleENUS
+	LocaleESCL Locale = i18n.LocaleESCL
 )
 
-// LocaleFromDiscord maps a Discord locale tag (e.g. "es-419", "es-ES", "en-US") to a
-// supported Locale, falling back to LocaleEN.
+// LocaleFromDiscord maps a Discord locale tag (e.g. "es-419", "es-CL", "es-ES", "en-US")
+// to a supported Locale, falling back to LocaleENUS.
 func LocaleFromDiscord(raw string) Locale {
-	switch raw {
-	case "es-419", "es-ES":
-		return LocaleES419
-	default:
-		return LocaleEN
-	}
+	return i18n.MatchLocale(raw)
 }
 
-// CatalogForExchange returns the message catalog for an exchange's language, falling back to
-// LocaleEN.
-func CatalogForExchange(lang giftexchange.Language) Catalog {
-	return CatalogFor(Locale(lang))
+// ResolveLocale picks the best supported Locale from candidates in priority order, preferring
+// a non-default supported locale when an earlier candidate is the default fallback.
+func ResolveLocale(candidates ...string) Locale {
+	return i18n.ResolveLocale(candidates...)
 }
 
 // MsgID identifies one user-facing message template in a Catalog.
@@ -37,62 +30,41 @@ type MsgID string
 
 // Catalog holds the user-facing message templates for one Locale.
 type Catalog struct {
-	locale   Locale
-	messages map[MsgID]string
-	fallback map[MsgID]string
+	inner     i18n.Catalog
+	hasBundle bool
 }
 
-// CatalogFor returns the message catalog for loc, falling back to LocaleEN when loc is
+// CatalogFor returns the message catalog for loc, falling back to LocaleENUS when loc is
 // unsupported or empty.
 func CatalogFor(loc Locale) Catalog {
-	en := catalogEN()
-	if loc == LocaleES419 {
-		return Catalog{
-			locale:   LocaleES419,
-			messages: catalogES419(),
-			fallback: en,
-		}
-	}
-
-	return Catalog{
-		locale:   LocaleEN,
-		messages: en,
-		fallback: en,
-	}
+	return Catalog{inner: defaultBundle().Catalog(loc), hasBundle: true}
 }
 
-// Locale returns the resolved locale of the catalog.
+// Locale returns the resolved canonical locale of the catalog.
 func (c Catalog) Locale() Locale {
-	if c.locale == "" {
-		return LocaleEN
+	if !c.hasBundle {
+		return LocaleENUS
 	}
 
-	return c.locale
+	return c.inner.Locale()
 }
 
-// Get returns the raw message template for id, falling back to LocaleEN if missing.
+// Get returns the raw message template for id, falling back to LocaleENUS if missing.
 func (c Catalog) Get(id MsgID) string {
-	if c.messages != nil {
-		if text, ok := c.messages[id]; ok {
-			return text
-		}
-	}
-	if c.fallback != nil {
-		if text, ok := c.fallback[id]; ok {
-			return text
-		}
-	}
-	if text, ok := catalogEN()[id]; ok {
-		return text
+	if !c.hasBundle {
+		return defaultBundle().Catalog(LocaleENUS).Get(string(id))
 	}
 
-	panic("giftexchangecmd: unknown message ID " + string(id))
+	return c.inner.Get(string(id))
 }
 
 // Format formats the message template for id with args.
 func (c Catalog) Format(id MsgID, args ...any) string {
-	text := fmt.Sprintf(c.Get(id), args...)
-	return text
+	if !c.hasBundle {
+		return defaultBundle().Catalog(LocaleENUS).Format(string(id), args...)
+	}
+
+	return c.inner.Format(string(id), args...)
 }
 
 // Every user-facing text key of the Discord adapter. Placeholders: the exchange name arrives
@@ -192,6 +164,46 @@ const (
 	textHelpHelp        MsgID = "textHelpHelp"
 )
 
+// Slash command and option description keys used to populate Discord DescriptionLocalizations.
+const (
+	textCmdChatisimoDesc           MsgID = "textCmdChatisimoDesc"
+	textCmdGiftexchangeDesc        MsgID = "textCmdGiftexchangeDesc"
+	textCmdCreateDesc              MsgID = "textCmdCreateDesc"
+	textCmdListDesc                MsgID = "textCmdListDesc"
+	textCmdJoinDesc                MsgID = "textCmdJoinDesc"
+	textCmdLeaveDesc               MsgID = "textCmdLeaveDesc"
+	textCmdRemoveDesc              MsgID = "textCmdRemoveDesc"
+	textCmdRulesDesc               MsgID = "textCmdRulesDesc"
+	textCmdExcludeDesc             MsgID = "textCmdExcludeDesc"
+	textCmdUnexcludeDesc           MsgID = "textCmdUnexcludeDesc"
+	textCmdRenameDesc              MsgID = "textCmdRenameDesc"
+	textCmdDrawDesc                MsgID = "textCmdDrawDesc"
+	textCmdRecipientDesc           MsgID = "textCmdRecipientDesc"
+	textCmdGiverDesc               MsgID = "textCmdGiverDesc"
+	textCmdAskDesc                 MsgID = "textCmdAskDesc"
+	textCmdQuestionsDesc           MsgID = "textCmdQuestionsDesc"
+	textCmdPreferencesDesc         MsgID = "textCmdPreferencesDesc"
+	textCmdRevealDesc              MsgID = "textCmdRevealDesc"
+	textCmdCancelDesc              MsgID = "textCmdCancelDesc"
+	textCmdHelpDesc                MsgID = "textCmdHelpDesc"
+	textOptExchangeDesc            MsgID = "textOptExchangeDesc"
+	textOptCreateNameDesc          MsgID = "textOptCreateNameDesc"
+	textOptCreateDrawAtDesc        MsgID = "textOptCreateDrawAtDesc"
+	textOptCreateRevealAtDesc      MsgID = "textOptCreateRevealAtDesc"
+	textOptRemoveParticipantDesc   MsgID = "textOptRemoveParticipantDesc"
+	textOptExcludeGiverDesc        MsgID = "textOptExcludeGiverDesc"
+	textOptExcludeRecipientDesc    MsgID = "textOptExcludeRecipientDesc"
+	textOptExcludeBothDesc         MsgID = "textOptExcludeBothDesc"
+	textOptUnexcludeGiverDesc      MsgID = "textOptUnexcludeGiverDesc"
+	textOptUnexcludeRecipientDesc  MsgID = "textOptUnexcludeRecipientDesc"
+	textOptRenameNameDesc          MsgID = "textOptRenameNameDesc"
+	textOptAskQuestionDesc         MsgID = "textOptAskQuestionDesc"
+	textOptPreferencesLikesDesc    MsgID = "textOptPreferencesLikesDesc"
+	textOptPreferencesDislikesDesc MsgID = "textOptPreferencesDislikesDesc"
+	textOptPreferencesDetailsDesc  MsgID = "textOptPreferencesDetailsDesc"
+	textOptPreferencesClearDesc    MsgID = "textOptPreferencesClearDesc"
+)
+
 // Rule labels, values and input error reasons shown by the rules and exclusions commands.
 const (
 	textRuleDrawAt            MsgID = "textRuleDrawAt"
@@ -201,7 +213,6 @@ const (
 	textRuleAvoidLastRound    MsgID = "textRuleAvoidLastRound"
 	textRuleExclusions        MsgID = "textRuleExclusions"
 	textRuleQuestionsEnabled  MsgID = "textRuleQuestionsEnabled"
-	textRuleLanguage          MsgID = "textRuleLanguage"
 	textRuleMinParticipants   MsgID = "textRuleMinParticipants"
 	textRuleMaxParticipants   MsgID = "textRuleMaxParticipants"
 	textRuleNoSelfAssignment  MsgID = "textRuleNoSelfAssignment"
@@ -241,7 +252,6 @@ const (
 	textFieldNameDropoutPolicy    MsgID = "textFieldNameDropoutPolicy"
 	textFieldNameAvoidLastRound   MsgID = "textFieldNameAvoidLastRound"
 	textFieldNameQuestionsEnabled MsgID = "textFieldNameQuestionsEnabled"
-	textFieldNameLanguage         MsgID = "textFieldNameLanguage"
 	textFieldNameRecipient        MsgID = "textFieldNameRecipient"
 	textFieldNameGiver            MsgID = "textFieldNameGiver"
 	textFieldNameRule             MsgID = "textFieldNameRule"
@@ -252,18 +262,6 @@ const (
 	textFieldNameGroupID          MsgID = "textFieldNameGroupID"
 	textFieldNameGiverID          MsgID = "textFieldNameGiverID"
 	textFieldNameRecipientID      MsgID = "textFieldNameRecipientID"
-	textFieldNameIdentityProvider MsgID = "textFieldNameIdentityProvider"
-	textFieldNameIdentitySubject  MsgID = "textFieldNameIdentitySubject"
-	textFieldNameGroupProvider    MsgID = "textFieldNameGroupProvider"
-	textFieldNameGroupSubject     MsgID = "textFieldNameGroupSubject"
-	textFieldNameRegistry         MsgID = "textFieldNameRegistry"
-	textFieldNameDepsPool         MsgID = "textFieldNameDepsPool"
-	textFieldNameDepsScheduler    MsgID = "textFieldNameDepsScheduler"
-	textFieldNameDepsClock        MsgID = "textFieldNameDepsClock"
-	textFieldNameDepsRandom       MsgID = "textFieldNameDepsRandom"
-	textFieldNameDepsNotifier     MsgID = "textFieldNameDepsNotifier"
-	textFieldNameDepsRephraser    MsgID = "textFieldNameDepsRephraser"
-	textFieldNameDepsLogger       MsgID = "textFieldNameDepsLogger"
 	textReasonRequired            MsgID = "textReasonRequired"
 	textReasonUnknown             MsgID = "textReasonUnknown"
 	textReasonEmpty               MsgID = "textReasonEmpty"
@@ -354,250 +352,3 @@ const (
 	// customIDAnswerPrefix starts the custom ID of the Answer button; the question ID follows.
 	customIDAnswerPrefix = "/gx/answer/"
 )
-
-// catalogEN returns the English message catalog (LocaleEN).
-func catalogEN() map[MsgID]string {
-	return map[MsgID]string{
-		textGuildOnly:      "This command works only in a server.",
-		textNoCandidates:   "You have no exchange where you can do this.",
-		textChooseExchange: "You are in several exchanges. Choose one with the exchange option:",
-		textNoMatch:        "No exchange matches that name. Pick one from the list.",
-		textCreated: "You created %s and you organize it. You are not a participant unless you join. " +
-			"Configure it with /ge rules.",
-		textCardBody:           "Organized by %s. Join with the button or /ge join.",
-		textManual:             "not set (organizer runs it)",
-		textJoined:             "You joined %s.",
-		textLeft:               "You left %s.",
-		textConfirmLeave:       "%s is already drawn. Leave anyway? Your giver may get a new recipient.",
-		textConfirmRemove:      "%s is already drawn. Remove %s? A giver may get a new recipient.",
-		textRemoved:            "Removed %s from %s.",
-		textOutcomeRemoved:     "Removed.",
-		textOutcomePatched:     "Removed. One giver got a new recipient by DM.",
-		textOutcomeRedrawn:     "Removed. The draw was redone and every giver got a DM.",
-		textOutcomeReopened:    "Removed. Too few participants or no valid draw remained, so the draw was undone and %s is open again.",
-		textOwnRecipient:       "You can't remove your own recipient. They can leave, or you can cancel the exchange.",
-		textExcluded:           "Exclusion added: %s will not draw %s.",
-		textExcludedBoth:       " The reverse is excluded too.",
-		textUnexcluded:         "Exclusion removed: %s may draw %s again.",
-		textRenamed:            "Renamed to %s.",
-		textConfirmDraw:        "Draw %s now with %d participants? This can't be undone.",
-		textDrawn:              "Draw done for %s.",
-		textDrawnPublic:        "The draw for %s is done. Each giver got a DM with their recipient, or can use /ge recipient.",
-		textConfirmReveal:      "Reveal %s now? Each participant will learn their giver.",
-		textRevealed:           "%s is revealed.",
-		textRevealedPublic:     "%s is revealed. Each participant got a DM with their giver, or can use /ge giver.",
-		textConfirmCancel:      "Cancel %s? This can't be undone.",
-		textCancelled:          "%s is cancelled.",
-		textCancelledPublic:    "%s was cancelled by the organizer.",
-		textNothingChanged:     "Nothing changed.",
-		textAsked:              "Your question was sent anonymously to your recipient in %s.",
-		textPreferencesSaved:   "Your gift preferences for %s were saved.",
-		textPreferencesCleared: "Your gift preferences for %s were cleared.",
-		textPreferencesNone:    "You have not set gift preferences for %s yet. Use /ge preferences with likes, dislikes or details.",
-		textYourAnswer:         "Your answer:",
-		textNotSaved:           "Not saved:",
-		textNotSavedLine:       "- %s",
-		textInvalidInput:       "invalid input",
-		textBadTime:            "Use in 3d, in 2h30m, YYYY-MM-DD HH:MM (Santiago time) or an RFC 3339 time.",
-		textNotFound:           "That exchange does not exist here.",
-		textForbidden:          "You are not allowed to do that in this exchange.",
-		textAlreadyParticipant: "You are already in this exchange.",
-		textNotParticipant:     "You are not in this exchange.",
-		textFull:               "This exchange is full (%d participants).",
-		textTooFew:             "At least %d participants are needed to draw.",
-		textInfeasible: "No valid draw exists with the current exclusions: %d givers have no possible " +
-			"recipient. Remove some exclusions and try again.",
-		textRuleFixed:       "This rule can't be changed.",
-		textRuleLocked:      "This rule can't change while the exchange is %s.",
-		textUnknownRule:     "Unknown rule.",
-		textQuestionsOff:    "The organizer turned off questions for this exchange.",
-		textRateLimited:     "You reached the limit of 20 questions per day for this exchange.",
-		textRephraseFailed:  "Could not rephrase your question right now. Your question was not sent; please try again.",
-		textInvalidState:    "Not possible while the exchange is %s.",
-		textInternal:        "Something went wrong. Reference %s.",
-		textQuestionClosed:  "This question is closed and can no longer be answered.",
-		textAlreadyAnswered: "You already answered this question.",
-		textRulesState:      "State: %s. Participants: %d. You are %s.",
-		textRoleOrganizer:   "the organizer",
-		textRoleParticipant: "a participant",
-		textRoleBoth:        "the organizer and a participant",
-		textRoleNone:        "not in it",
-		textStateOpen:       "open",
-		textStateDrawn:      "drawn",
-		textStateRevealed:   "revealed",
-		textStateCancelled:  "cancelled",
-		textListTitle:       "Exchanges in this server",
-		textListEmpty:       "No exchanges yet. Create one with /ge create.",
-		textListLine:        "- %s - %s - participants: %d - you are %s",
-
-		textHelpLead:        "Every command also works as /chatisimo giftexchange <verb>.",
-		textHelpCreate:      "/ge create - create an exchange and become its organizer",
-		textHelpList:        "/ge list - list the exchanges of this server",
-		textHelpJoin:        "/ge join - join an exchange",
-		textHelpLeave:       "/ge leave - leave an exchange",
-		textHelpRemove:      "/ge remove - remove a participant (organizer)",
-		textHelpRules:       "/ge rules - see the rules, and change them if you organize",
-		textHelpExclude:     "/ge exclude - stop one person from drawing another (organizer)",
-		textHelpUnexclude:   "/ge unexclude - undo an exclusion (organizer)",
-		textHelpRename:      "/ge rename - rename an exchange (organizer)",
-		textHelpDraw:        "/ge draw - run the draw now (organizer)",
-		textHelpRecipient:   "/ge recipient - see who you give a gift to",
-		textHelpGiver:       "/ge giver - see who gave you a gift, after the reveal",
-		textHelpAsk:         "/ge ask - ask your recipient an anonymous question",
-		textHelpQuestions:   "/ge questions - see the questions you asked and received",
-		textHelpPreferences: "/ge preferences - set or view your gift preferences for your giver",
-		textHelpReveal:      "/ge reveal - reveal the givers now (organizer)",
-		textHelpCancel:      "/ge cancel - cancel an exchange (organizer)",
-		textHelpHelp:        "/ge help - show this help",
-
-		textRuleDrawAt:            "Draw time",
-		textRuleRevealAt:          "Reveal time",
-		textRuleReminderLead:      "Reminder before each",
-		textRuleDropoutPolicy:     "Dropout policy",
-		textRuleAvoidLastRound:    "Avoid last round's pairs",
-		textRuleExclusions:        "Exclusions",
-		textRuleQuestionsEnabled:  "Anonymous questions",
-		textRuleLanguage:          "Language",
-		textRuleMinParticipants:   "Minimum participants",
-		textRuleMaxParticipants:   "Maximum participants",
-		textRuleNoSelfAssignment:  "Self-assignment",
-		textRuleRedrawBelow:       "Redraw below",
-		textRuleQuestionMaxLength: "Question length",
-		textRuleQuestionsPerDay:   "Questions per day",
-
-		textTimeValue:           "%s (%s)",
-		textReminderOff:         "off",
-		textOn:                  "on",
-		textOff:                 "off",
-		textNever:               "never",
-		textDropoutPatch:        "patch",
-		textDropoutRedraw:       "redraw",
-		textRedrawBelowValue:    "%d participants",
-		textQuestionLengthValue: "%d characters",
-
-		textSuffixDefault: " (default)",
-		textSuffixFixed:   " - fixed",
-		textSuffixLocked:  " - locked",
-
-		textRulesBadTimeReason:      "is not a time such as in 3d or 2026-12-20 18:00 (Santiago time)",
-		textRulesTooLongReason:      "is longer than 64 characters",
-		textRulesExclusionsHint:     "is edited with /ge exclude and /ge unexclude",
-		textRulesNotEditable:        "cannot be changed here",
-		textRulesNotAPersonReason:   "must be a person in this exchange",
-		textRulesNotParticipantText: "giver and recipient must both be participants",
-
-		textFieldNameName:             "name",
-		textFieldNameText:             "text",
-		textFieldNameLikes:            "likes",
-		textFieldNameDislikes:         "dislikes",
-		textFieldNameDetails:          "details",
-		textFieldNameDrawAt:           "draw_at",
-		textFieldNameRevealAt:         "reveal_at",
-		textFieldNameReminderLead:     "reminder_lead",
-		textFieldNameDropoutPolicy:    "dropout_policy",
-		textFieldNameAvoidLastRound:   "avoid_last_round",
-		textFieldNameQuestionsEnabled: "questions_enabled",
-		textFieldNameLanguage:         "language",
-		textFieldNameRecipient:        "recipient",
-		textFieldNameGiver:            "giver",
-		textFieldNameRule:             "rule",
-		textFieldNameExclusion:        "exclusion",
-		textFieldNameExchangeID:       "exchange_id",
-		textFieldNameQuestionID:       "question_id",
-		textFieldNamePersonID:         "person_id",
-		textFieldNameGroupID:          "group_id",
-		textFieldNameGiverID:          "giver_id",
-		textFieldNameRecipientID:      "recipient_id",
-		textFieldNameIdentityProvider: "identity.provider",
-		textFieldNameIdentitySubject:  "identity.subject",
-		textFieldNameGroupProvider:    "group.provider",
-		textFieldNameGroupSubject:     "group.subject",
-		textFieldNameRegistry:         "registry",
-		textFieldNameDepsPool:         "deps.Pool",
-		textFieldNameDepsScheduler:    "deps.Scheduler",
-		textFieldNameDepsClock:        "deps.Clock",
-		textFieldNameDepsRandom:       "deps.Random",
-		textFieldNameDepsNotifier:     "deps.Notifier",
-		textFieldNameDepsRephraser:    "deps.Rephraser",
-		textFieldNameDepsLogger:       "deps.Logger",
-		textReasonRequired:            "is required",
-		textReasonUnknown:             "is unknown",
-		textReasonEmpty:               "is empty",
-		textReasonTooLong:             "is too long",
-		textReasonInvalidUTF8:         "is not valid UTF-8",
-		textReasonInvalidText:         "is not valid text",
-		textReasonControlChars:        "contains control characters",
-		textReasonLineBreaks:          "contains line breaks",
-		textReasonBidiChars:           "contains bidirectional control characters",
-		textReasonNoVisibleChar:       "has no visible character",
-		textReasonNotCanonicalUUID:    "is not a canonical uuid",
-		textReasonZeroUUID:            "must not be the zero uuid",
-		textReasonEditedViaExclusions: "is edited through the exclusion methods",
-		textReasonInvalidInstant:      "is not unset or an RFC 3339 time with an offset",
-		textReasonYearOutOfRange:      "is outside the years %d to %d",
-		textReasonInvalidDuration:     "is not a duration such as 0, 36h, 90m, 3d or 1d12h",
-		textReasonDurationOutOfRange:  "is outside 0 to 14 days in whole seconds",
-		textReasonNotOneOf:            "is not one of %s",
-		textReasonInvalidBool:         "is not on, off, true or false",
-		textReasonMustBeFuture:        "must be in the future",
-		textReasonBeforeRevealAt:      "must be before reveal_at",
-		textReasonAfterDrawAt:         "must be after draw_at",
-		textReasonSameAsGiver:         "must differ from the giver",
-
-		textButtonJoin:    "Join",
-		textButtonLeave:   "Leave",
-		textButtonRules:   "Rules",
-		textButtonConfirm: "Confirm",
-		textButtonBack:    "Back",
-		textButtonAnswer:  "Answer",
-
-		textFieldDraw:   "Draw",
-		textFieldReveal: "Reveal",
-
-		textRulesTitle:        "Rules - %s",
-		textParticipantsField: "Participants (%d)",
-		textExclusionsField:   "Exclusions",
-		textAndMore:           "and %d more",
-
-		textQuestionModalTitle:     "Answer the question",
-		textQuestionModalHint:      "Your answer",
-		textQuestionListTitle:      "Your questions",
-		textQuestionsAskedField:    "Questions you asked",
-		textQuestionsReceivedField: "Questions you received",
-		textNoneYet:                "None yet.",
-		textClosedMarker:           " (closed)",
-
-		textTitleRecipient:    "Your recipient",
-		textTitleNewRecipient: "Your new recipient",
-		textTitleGiver:        "Your giver",
-		textTitlePreferences:  "Your gift preferences - %s",
-
-		textFieldPreferences: "Gift preferences",
-		textFieldLikes:       "Likes and hobbies",
-		textFieldDislikes:    "Dislikes / avoid",
-		textFieldDetails:     "Helpful details",
-
-		textSelectPlaceholder:        "Change a rule",
-		textModalLabel:               "New value",
-		textModalTitle:               "Set %s",
-		textModalPlaceholderTime:     "in 3d, in 2h30m, 2026-12-20 18:00 (Santiago time), or empty to clear",
-		textModalPlaceholderReminder: "24h, 2d, 30m; 0 turns reminders off",
-
-		textDMDrawn:              "The draw for %s (%s) is done.",
-		textDMRedrawn:            "A participant left %s (%s) and the draw was redone.",
-		textDMChanged:            "A participant left %s (%s). Your recipient changed.",
-		textDMVoided:             "The draw for %s (%s) was undone: too few participants or no valid draw. It is open again.",
-		textDMDrawFailed:         "The scheduled draw for %s (%s) failed: %s.",
-		textDMDrawSoon:           "Reminder: the draw for %s (%s) is %s.",
-		textDMRevealSoon:         "Reminder: %s (%s) is revealed %s.",
-		textDMRevealed:           "%s (%s) is revealed.",
-		textDMCancelled:          "%s (%s) was cancelled by the organizer.",
-		textDMQuestion:           "Anonymous question from your giver in %s (%s):",
-		textDMAnswer:             "Your recipient answered your question in %s (%s):",
-		textDMPreferencesUpdated: "Your recipient updated their gift preferences in %s (%s).",
-		textDMFooter:             "Use /ge recipient, /ge giver or /ge questions to see this again.",
-		textReasonTooFew:         "too few participants",
-		textReasonNoValid:        "no valid draw with the current exclusions",
-		textUnknownServer:        "unknown server",
-	}
-}

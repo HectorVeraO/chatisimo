@@ -14,7 +14,7 @@ func TestTypedErrorsMatchTheirSentinels(t *testing.T) {
 		err      error
 		sentinel error
 	}{
-		{"input", &giftexchange.InputError{Field: "name", Reason: "is empty"}, giftexchange.ErrInvalidInput},
+		{"input", &giftexchange.InputError{Field: "name", Code: giftexchange.InputCodeEmpty}, giftexchange.ErrInvalidInput},
 		{"state", &giftexchange.StateError{Op: "draw", State: giftexchange.StateDrawn}, giftexchange.ErrInvalidState},
 		{"rule locked", &giftexchange.RuleLockedError{Rule: giftexchange.RuleDrawAt, State: giftexchange.StateDrawn}, giftexchange.ErrRuleLocked},
 		{"infeasible", &giftexchange.InfeasibleError{Stranded: 2}, giftexchange.ErrNoValidAssignment},
@@ -57,7 +57,7 @@ func TestErrorTextCarriesOnlyFixedFields(t *testing.T) {
 		err  error
 		want string
 	}{
-		{&giftexchange.InputError{Field: "name", Reason: "is empty"}, "giftexchange: invalid input: name is empty"},
+		{&giftexchange.InputError{Field: "name", Code: giftexchange.InputCodeEmpty}, "giftexchange: invalid input: name (empty)"},
 		{&giftexchange.StateError{Op: "draw", State: giftexchange.StateOpen}, "giftexchange: not allowed in the current state: draw in state open"},
 		{&giftexchange.RuleLockedError{Rule: giftexchange.RuleDrawAt, State: giftexchange.StateDrawn}, "giftexchange: rule can no longer change: draw_at in state drawn"},
 		{&giftexchange.InfeasibleError{Stranded: 2}, "giftexchange: exclusions leave no valid assignment: 2 givers stranded"},

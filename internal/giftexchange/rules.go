@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 	"uuid"
 
@@ -28,7 +27,6 @@ const (
 	RuleAvoidLastRound    RuleName = "avoid_last_round"
 	RuleExclusions        RuleName = "exclusions"
 	RuleQuestionsEnabled  RuleName = "questions_enabled"
-	RuleLanguage          RuleName = "language"
 	RuleMinParticipants   RuleName = "min_participants"
 	RuleMaxParticipants   RuleName = "max_participants"
 	RuleNoSelfAssignment  RuleName = "no_self_assignment"
@@ -165,14 +163,6 @@ func ruleDescriptors() []ruleDescriptor {
 			name: RuleQuestionsEnabled, kind: RuleKindBool, configurable: true,
 			defaultValue: "on", editableIn: openOrDrawn,
 		},
-		{
-			name:         RuleLanguage,
-			kind:         RuleKindEnum,
-			options:      []string{string(LanguageEN), string(LanguageES419)},
-			configurable: true,
-			defaultValue: string(LanguageEN),
-			editableIn:   openOrDrawn,
-		},
 		{name: RuleMinParticipants, kind: RuleKindInt, defaultValue: strconv.Itoa(MinParticipants)},
 		{name: RuleMaxParticipants, kind: RuleKindInt, defaultValue: strconv.Itoa(MaxParticipants)},
 		{name: RuleNoSelfAssignment, kind: RuleKindBool, defaultValue: "on"},
@@ -192,7 +182,7 @@ func lookupRule(name RuleName) (ruleDescriptor, bool) {
 }
 
 func unknownRuleError() error {
-	return errors.Join(&InputError{Field: "rule", Code: InputCodeUnknown, Reason: "is unknown"}, ErrUnknownRule) //nolint:wrapcheck // joins this function's own errors
+	return errors.Join(&InputError{Field: "rule", Code: InputCodeUnknown}, ErrUnknownRule) //nolint:wrapcheck // joins this function's own errors
 }
 
 // ParseRuleName parses a rule name, exact match. Unknown names return an error wrapping both
@@ -231,7 +221,7 @@ func ParseRuleValue(name RuleName, raw string) (RuleValue, error) {
 	case RuleKindBool:
 		value.flag, err = parseFlag(field, raw)
 	default:
-		err = &InputError{Field: "rule", Code: InputCodeEditedViaExclusions, Reason: "is edited through the exclusion methods"}
+		err = &InputError{Field: "rule", Code: InputCodeEditedViaExclusions}
 	}
 	if err != nil {
 		return RuleValue{}, err
@@ -246,25 +236,24 @@ func parseInstant(field, raw string) (time.Time, error) {
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, raw)
 	if err != nil {
-		return time.Time{}, &InputError{Field: field, Code: InputCodeInvalidInstant, Reason: "is not unset or an RFC 3339 time with an offset"}
+		return time.Time{}, &InputError{Field: field, Code: InputCodeInvalidInstant}
 	}
 	instant := parsed.UTC().Truncate(time.Second)
 	isInRange := instant.Year() >= minYear && instant.Year() <= maxYear
 	if !isInRange {
 		return time.Time{}, &InputError{
-			Field:  field,
-			Code:   InputCodeYearOutOfRange,
-			Reason: "is outside the years 2000 to 9999",
-			Min:    minYear,
-			Max:    maxYear,
+			Field: field,
+			Code:  InputCodeYearOutOfRange,
+			Min:   minYear,
+			Max:   maxYear,
 		}
 	}
 	return instant, nil
 }
 
 func parseLead(field, raw string) (time.Duration, error) {
-	badForm := &InputError{Field: field, Code: InputCodeInvalidDuration, Reason: "is not a duration such as 0, 36h, 90m, 3d or 1d12h"}
-	outOfRange := &InputError{Field: field, Code: InputCodeDurationOutOfRange, Reason: "is outside 0 to 14 days in whole seconds"}
+	badForm := &InputError{Field: field, Code: InputCodeInvalidDuration}
+	outOfRange := &InputError{Field: field, Code: InputCodeDurationOutOfRange}
 
 	if raw == "0" {
 		return 0, nil
@@ -326,7 +315,6 @@ func parseOption(field, raw string, options []string) (string, error) {
 		return "", &InputError{
 			Field:   field,
 			Code:    InputCodeNotOneOf,
-			Reason:  "is not one of " + strings.Join(options, ", "),
 			Allowed: slices.Clone(options),
 		}
 	}
@@ -340,7 +328,7 @@ func parseFlag(field, raw string) (bool, error) {
 	case "off", "false":
 		return false, nil
 	default:
-		return false, &InputError{Field: field, Code: InputCodeInvalidBool, Reason: "is not on, off, true or false"}
+		return false, &InputError{Field: field, Code: InputCodeInvalidBool}
 	}
 }
 
@@ -353,7 +341,6 @@ type ruleSettings struct {
 	dropoutPolicy    string
 	avoidLastRound   bool
 	questionsEnabled bool
-	language         string
 }
 
 func defaultSettings() ruleSettings {
@@ -361,7 +348,6 @@ func defaultSettings() ruleSettings {
 		reminderLead:     defaultReminderLead,
 		dropoutPolicy:    string(DropoutPatch),
 		questionsEnabled: true,
-		language:         string(LanguageEN),
 	}
 	return settings
 }
@@ -372,7 +358,6 @@ func settingsOf(exchange db.GiftexchangeExchange) ruleSettings {
 		dropoutPolicy:    exchange.DropoutPolicy,
 		avoidLastRound:   exchange.AvoidLastRound,
 		questionsEnabled: exchange.QuestionsEnabled,
-		language:         exchange.Language,
 	}
 	if exchange.DrawAt.Valid {
 		settings.drawAt = exchange.DrawAt.Time.UTC()
@@ -405,8 +390,6 @@ func (c ruleSettings) assign(value RuleValue) ruleSettings {
 		c.avoidLastRound = value.flag
 	case RuleQuestionsEnabled:
 		c.questionsEnabled = value.flag
-	case RuleLanguage:
-		c.language = value.text
 	}
 	return c
 }
@@ -432,16 +415,16 @@ func checkTime(value RuleValue, now, other time.Time, mustPrecede bool) error {
 	}
 	isFuture := value.instant.After(now)
 	if !isFuture {
-		return &InputError{Field: field, Code: InputCodeMustBeFuture, Reason: "must be in the future"}
+		return &InputError{Field: field, Code: InputCodeMustBeFuture}
 	}
 	if other.IsZero() {
 		return nil
 	}
 	if mustPrecede && !value.instant.Before(other) {
-		return &InputError{Field: field, Code: InputCodeBeforeRevealAt, Reason: "must be before reveal_at"}
+		return &InputError{Field: field, Code: InputCodeBeforeRevealAt}
 	}
 	if !mustPrecede && !value.instant.After(other) {
-		return &InputError{Field: field, Code: InputCodeAfterDrawAt, Reason: "must be after draw_at"}
+		return &InputError{Field: field, Code: InputCodeAfterDrawAt}
 	}
 	return nil
 }
@@ -591,7 +574,6 @@ func (s *Service) setRuleLocked(
 			DropoutPolicy:       after.dropoutPolicy,
 			AvoidLastRound:      after.avoidLastRound,
 			QuestionsEnabled:    after.questionsEnabled,
-			Language:            after.language,
 		})
 		if updateErr != nil {
 			return RuleView{}, fmt.Errorf("update rules of %s: %w", exchange.ID, updateErr)

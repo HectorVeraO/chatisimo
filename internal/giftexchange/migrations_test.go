@@ -249,25 +249,11 @@ func TestMigration0002PreferencesUpAndDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Migrations: %v", err)
 	}
-	rawMigration0003, err := fs.ReadFile(files, "0003_exchange_language.sql")
-	if err != nil {
-		t.Fatalf("read 0003_exchange_language.sql: %v", err)
-	}
-	_, downSQL0003, hasDown0003 := strings.Cut(string(rawMigration0003), "-- +goose Down")
-	if !hasDown0003 {
-		t.Fatal("0003_exchange_language.sql is missing -- +goose Down")
-	}
+	downSQL0004 := readMigrationDown(t, files, "0004_drop_exchange_language.sql")
+	downSQL0003 := readMigrationDown(t, files, "0003_exchange_language.sql")
+	downSQL := readMigrationDown(t, files, "0002_preferences.sql")
 
-	rawMigration, err := fs.ReadFile(files, "0002_preferences.sql")
-	if err != nil {
-		t.Fatalf("read 0002_preferences.sql: %v", err)
-	}
-	_, downSQL, hasDown := strings.Cut(string(rawMigration), "-- +goose Down")
-	if !hasDown {
-		t.Fatal("0002_preferences.sql is missing -- +goose Down")
-	}
-
-	_, downErr := pool.Exec(t.Context(), downSQL0003+"; "+downSQL+"; DELETE FROM giftexchange.goose_db_version WHERE version_id >= 2;")
+	_, downErr := pool.Exec(t.Context(), downSQL0004+"; "+downSQL0003+"; "+downSQL+"; DELETE FROM giftexchange.goose_db_version WHERE version_id >= 2;")
 	if downErr != nil {
 		t.Fatalf("exec goose Down: %v", downErr)
 	}
@@ -305,6 +291,22 @@ func TestMigration0002PreferencesUpAndDown(t *testing.T) {
 	}
 }
 
+func readMigrationDown(t *testing.T, files fs.FS, name string) string {
+	t.Helper()
+
+	rawMigration, err := fs.ReadFile(files, name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+
+	_, downSQL, hasDown := strings.Cut(string(rawMigration), "-- +goose Down")
+	if !hasDown {
+		t.Fatalf("%s is missing -- +goose Down", name)
+	}
+
+	return downSQL
+}
+
 func TestMigration0003ExchangeLanguageUpAndDown(t *testing.T) {
 	source, err := giftexchange.MigrationSource()
 	if err != nil {
@@ -325,7 +327,19 @@ func TestMigration0003ExchangeLanguageUpAndDown(t *testing.T) {
 		}
 	})
 
+	files, err := store.Migrations()
+	if err != nil {
+		t.Fatalf("store.Migrations: %v", err)
+	}
+	downSQL0004 := readMigrationDown(t, files, "0004_drop_exchange_language.sql")
+	downSQL0003 := readMigrationDown(t, files, "0003_exchange_language.sql")
+
 	pool := isolated.Pool()
+	_, revert0004Err := pool.Exec(t.Context(), downSQL0004+"; DELETE FROM giftexchange.goose_db_version WHERE version_id = 4;")
+	if revert0004Err != nil {
+		t.Fatalf("revert 0004 to reach version 3: %v", revert0004Err)
+	}
+
 	_, seedErr := pool.Exec(t.Context(), `
 		INSERT INTO giftexchange.persons (id, created_at)
 		VALUES ('018f0000-0000-7000-8000-000000000011', now());
@@ -374,20 +388,7 @@ func TestMigration0003ExchangeLanguageUpAndDown(t *testing.T) {
 		t.Error("expected CHECK constraint to reject unsupported language 'fr'")
 	}
 
-	files, err := store.Migrations()
-	if err != nil {
-		t.Fatalf("store.Migrations: %v", err)
-	}
-	rawMigration, err := fs.ReadFile(files, "0003_exchange_language.sql")
-	if err != nil {
-		t.Fatalf("read 0003_exchange_language.sql: %v", err)
-	}
-	_, downSQL, hasDown := strings.Cut(string(rawMigration), "-- +goose Down")
-	if !hasDown {
-		t.Fatal("0003_exchange_language.sql is missing -- +goose Down")
-	}
-
-	_, downErr := pool.Exec(t.Context(), downSQL+"; DELETE FROM giftexchange.goose_db_version WHERE version_id = 3;")
+	_, downErr := pool.Exec(t.Context(), downSQL0003+"; DELETE FROM giftexchange.goose_db_version WHERE version_id = 3;")
 	if downErr != nil {
 		t.Fatalf("exec goose Down: %v", downErr)
 	}
@@ -420,7 +421,86 @@ func TestMigration0003ExchangeLanguageUpAndDown(t *testing.T) {
 	if colErr != nil {
 		t.Fatalf("count language column after Up: %v", colErr)
 	}
+	if colCount != 0 {
+		t.Errorf("language column count after full Up (including 0004) = %d, want 0", colCount)
+	}
+}
+
+func TestMigration0004DropExchangeLanguageUpAndDown(t *testing.T) {
+	source, err := giftexchange.MigrationSource()
+	if err != nil {
+		t.Fatalf("MigrationSource: %v", err)
+	}
+
+	isolated, err := pgtest.New(t.Context(), pgtest.Options{Sources: []db.Source{source}})
+	if err != nil {
+		t.Fatalf("pgtest.New: %v", err)
+	}
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), closeDeadline)
+		defer cancel()
+
+		closeErr := isolated.Close(closeCtx)
+		if closeErr != nil {
+			t.Errorf("isolated.Close: %v", closeErr)
+		}
+	})
+
+	pool := isolated.Pool()
+
+	var colCount int
+	colErr := pool.QueryRow(t.Context(), `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'giftexchange' AND table_name = 'exchanges'
+		  AND column_name = 'language'
+	`).Scan(&colCount)
+	if colErr != nil {
+		t.Fatalf("count language column after 0004 Up: %v", colErr)
+	}
+	if colCount != 0 {
+		t.Errorf("language column count after 0004 Up = %d, want 0", colCount)
+	}
+
+	files, err := store.Migrations()
+	if err != nil {
+		t.Fatalf("store.Migrations: %v", err)
+	}
+	downSQL := readMigrationDown(t, files, "0004_drop_exchange_language.sql")
+
+	_, downErr := pool.Exec(t.Context(), downSQL+"; DELETE FROM giftexchange.goose_db_version WHERE version_id = 4;")
+	if downErr != nil {
+		t.Fatalf("exec 0004 Down: %v", downErr)
+	}
+
+	colErr = pool.QueryRow(t.Context(), `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'giftexchange' AND table_name = 'exchanges'
+		  AND column_name = 'language'
+	`).Scan(&colCount)
+	if colErr != nil {
+		t.Fatalf("count language column after 0004 Down: %v", colErr)
+	}
 	if colCount != 1 {
-		t.Errorf("language column count after Up = %d, want 1", colCount)
+		t.Errorf("language column count after 0004 Down = %d, want 1", colCount)
+	}
+
+	upErr := db.Migrate(t.Context(), pool, source)
+	if upErr != nil {
+		t.Fatalf("Migrate after 0004 Down: %v", upErr)
+	}
+
+	colErr = pool.QueryRow(t.Context(), `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'giftexchange' AND table_name = 'exchanges'
+		  AND column_name = 'language'
+	`).Scan(&colCount)
+	if colErr != nil {
+		t.Fatalf("count language column after re-running 0004 Up: %v", colErr)
+	}
+	if colCount != 0 {
+		t.Errorf("language column count after re-running 0004 Up = %d, want 0", colCount)
 	}
 }
