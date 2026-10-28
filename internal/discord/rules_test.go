@@ -1280,3 +1280,120 @@ func TestExchangeLessRepliesUseInteractionLocaleWithFallbackToEnglish(t *testing
 		t.Errorf("help (de fallback) = %q, want English lead", helpFallback.content)
 	}
 }
+
+func TestSpanishRelativeTimesInCreateAndRulesModalAcrossExchangeLanguages(t *testing.T) {
+	s := newScene(t)
+
+	for _, guildLocale := range []string{"en-US", "es-419"} {
+		t.Run("create/"+guildLocale, func(t *testing.T) {
+			if err := s.fake.SetGuildLocale(s.guild, guildLocale); err != nil {
+				t.Fatalf("SetGuildLocale(%s): %v", guildLocale, err)
+			}
+
+			exchangeName := "Exchange-" + guildLocale
+			before := time.Now().UTC()
+			res := slashOrFail(t, s.harness, s.a, s.ge("create", true, map[string]any{
+				"name":      exchangeName,
+				"draw-at":   "en 1d12h",
+				"reveal-at": "en 3d",
+			}))
+			_ = replyTo(t, s.harness, res)
+
+			listed, err := s.svc.ExchangesFor(t.Context(), s.people[s.a].actor, &s.group)
+			if err != nil {
+				t.Fatalf("ExchangesFor: %v", err)
+			}
+			var id giftexchange.ExchangeID
+			for _, ex := range listed {
+				if ex.Name == exchangeName {
+					id = ex.ID
+					break
+				}
+			}
+			if id == (giftexchange.ExchangeID{}) {
+				t.Fatalf("exchange %q not found", exchangeName)
+			}
+
+			rules := rulesViewOf(t, s, s.a, id)
+			drawAt, err := time.Parse(time.RFC3339, rules["draw_at"].Value)
+			if err != nil {
+				t.Fatalf("parse draw_at: %v", err)
+			}
+			if drawAt.Before(before.Add(35*time.Hour)) || drawAt.After(before.Add(37*time.Hour)) {
+				t.Errorf("draw_at = %v, want ~36h after %v", drawAt, before)
+			}
+
+			revealAt, err := time.Parse(time.RFC3339, rules["reveal_at"].Value)
+			if err != nil {
+				t.Fatalf("parse reveal_at: %v", err)
+			}
+			if revealAt.Before(before.Add(71*time.Hour)) || revealAt.After(before.Add(73*time.Hour)) {
+				t.Errorf("reveal_at = %v, want ~72h after %v", revealAt, before)
+			}
+
+			// Update reveal_at then draw_at via /ge rules modal using Spanish relative times.
+			modalBefore := time.Now().UTC()
+			rulesSubmit(t, s, id, "reveal_at", "en 3d")
+			rulesSubmit(t, s, id, "draw_at", "en 1d12h")
+
+			afterRules := rulesViewOf(t, s, s.a, id)
+			modalDrawAt, err := time.Parse(time.RFC3339, afterRules["draw_at"].Value)
+			if err != nil {
+				t.Fatalf("parse modal draw_at: %v", err)
+			}
+			if modalDrawAt.Before(modalBefore.Add(35*time.Hour)) || modalDrawAt.After(modalBefore.Add(37*time.Hour)) {
+				t.Errorf("modal draw_at = %v, want ~36h after %v", modalDrawAt, modalBefore)
+			}
+			modalRevealAt, err := time.Parse(time.RFC3339, afterRules["reveal_at"].Value)
+			if err != nil {
+				t.Fatalf("parse modal reveal_at: %v", err)
+			}
+			if modalRevealAt.Before(modalBefore.Add(71*time.Hour)) || modalRevealAt.After(modalBefore.Add(73*time.Hour)) {
+				t.Errorf("modal reveal_at = %v, want ~72h after %v", modalRevealAt, modalBefore)
+			}
+		})
+	}
+}
+
+func TestES419TimeModalPlaceholderAndBadTimeHintsShowSpanishForm(t *testing.T) {
+	s := newScene(t)
+	if err := s.fake.SetGuildLocale(s.guild, "es-419"); err != nil {
+		t.Fatalf("SetGuildLocale(es-419): %v", err)
+	}
+
+	// Invalid draw-at on /ge create in es-419 guild replies with textBadTime showing "en 3d, en 2h30m".
+	badCreate := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, s.ge("create", true, map[string]any{
+		"name":    "BadTimeES",
+		"draw-at": "mañana",
+	})))
+	const wantBadCreate = "Usa en 3d, en 2h30m, YYYY-MM-DD HH:MM (hora de Santiago) o una fecha RFC 3339."
+	if badCreate.content != wantBadCreate {
+		t.Errorf("create bad time reply = %q, want %q", badCreate.content, wantBadCreate)
+	}
+
+	// Create valid es-419 exchange via /ge create and inspect time modal placeholder and invalid modal error.
+	res := slashOrFail(t, s.harness, s.a, s.ge("create", true, map[string]any{"name": "Navidad"}))
+	_ = replyTo(t, s.harness, res)
+	listed, err := s.svc.ExchangesFor(t.Context(), s.people[s.a].actor, &s.group)
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("ExchangesFor: %v, len=%d", err, len(listed))
+	}
+	id := listed[0].ID
+
+	view := rulesShow(t, s, s.a, id)
+	picked := rulesPick(t, s, s.a, view, id, "draw_at")
+	if picked.Modal == nil {
+		t.Fatalf("picking draw_at opened no modal: %+v", picked)
+	}
+	rawModal := string(picked.Modal.Components[0])
+	if !strings.Contains(rawModal, "en 3d, en 2h30m, 2026-12-20 18:00 (hora de Santiago), o vacío para borrar") {
+		t.Errorf("es-419 time modal = %s, want Spanish placeholder with en 3d, en 2h30m", rawModal)
+	}
+
+	reply, _ := rulesSubmit(t, s, id, "draw_at", "mañana")
+	plain := strings.ReplaceAll(reply.content, "\\", "")
+	const wantModalErr = "fecha de sorteo no es una fecha válida como en 3d o 2026-12-20 18:00 (hora de Santiago)"
+	if !strings.HasPrefix(plain, "No se guardó:") || !strings.Contains(plain, wantModalErr) {
+		t.Errorf("es-419 modal bad time reply = %q, want prefix 'No se guardó:' and %q", plain, wantModalErr)
+	}
+}
