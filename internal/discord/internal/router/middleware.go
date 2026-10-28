@@ -34,6 +34,35 @@ func (e resolveError) Error() string {
 	return text
 }
 
+type localizedError struct {
+	err    error
+	locale string
+}
+
+func (e localizedError) Error() string {
+	return e.err.Error()
+}
+
+func (e localizedError) Unwrap() error {
+	return e.err
+}
+
+func withLocale(err error, locale string) error {
+	if err == nil || locale == "" {
+		return err
+	}
+	return localizedError{err: err, locale: locale}
+}
+
+// ErrorLocale returns the locale attached to err by the router, or empty when none was attached.
+func ErrorLocale(err error) string {
+	var locErr localizedError
+	if errors.As(err, &locErr) {
+		return locErr.locale
+	}
+	return ""
+}
+
 func withRequest(ctx context.Context, req *Request) context.Context {
 	return context.WithValue(ctx, requestKey{}, req)
 }
@@ -70,7 +99,7 @@ func (r *Router) onPanic(e *handler.InteractionEvent) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(e.Ctx), replyTimeout)
 	defer cancel()
 
-	rejection := r.mapError(req.ID.String(), errPanic)
+	rejection := r.mapError(req.ID.String(), withLocale(errPanic, req.EffectiveLocale()))
 	replyErr := req.Reject(ctx, rejection.Text)
 	r.logReplyFailure(ctx, req, replyErr)
 	r.finish(ctx, req, outcomePanic)
@@ -159,7 +188,7 @@ func (r *Router) handleError(e *handler.InteractionEvent, err error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(e.Ctx), replyTimeout)
 	defer cancel()
 
-	rejection := r.mapError(req.ID.String(), err)
+	rejection := r.mapError(req.ID.String(), withLocale(err, req.EffectiveLocale()))
 	if rejection.Internal {
 		r.logger.ErrorContext(ctx, "interaction failed",
 			slog.String("request_id", req.ID.String()),

@@ -1,6 +1,10 @@
 package giftexchangecmd
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
+)
 
 // Locale identifies a language catalog of the Discord adapter.
 type Locale string
@@ -10,6 +14,23 @@ const (
 	LocaleEN    Locale = "en"
 	LocaleES419 Locale = "es-419"
 )
+
+// LocaleFromDiscord maps a Discord locale tag (e.g. "es-419", "es-ES", "en-US") to a
+// supported Locale, falling back to LocaleEN.
+func LocaleFromDiscord(raw string) Locale {
+	switch raw {
+	case "es-419", "es-ES":
+		return LocaleES419
+	default:
+		return LocaleEN
+	}
+}
+
+// CatalogForExchange returns the message catalog for an exchange's language, falling back to
+// LocaleEN.
+func CatalogForExchange(lang giftexchange.Language) Catalog {
+	return CatalogFor(Locale(lang))
+}
 
 // MsgID identifies one user-facing message template in a Catalog.
 type MsgID string
@@ -180,6 +201,7 @@ const (
 	textRuleAvoidLastRound    MsgID = "textRuleAvoidLastRound"
 	textRuleExclusions        MsgID = "textRuleExclusions"
 	textRuleQuestionsEnabled  MsgID = "textRuleQuestionsEnabled"
+	textRuleLanguage          MsgID = "textRuleLanguage"
 	textRuleMinParticipants   MsgID = "textRuleMinParticipants"
 	textRuleMaxParticipants   MsgID = "textRuleMaxParticipants"
 	textRuleNoSelfAssignment  MsgID = "textRuleNoSelfAssignment"
@@ -219,6 +241,7 @@ const (
 	textFieldNameDropoutPolicy    MsgID = "textFieldNameDropoutPolicy"
 	textFieldNameAvoidLastRound   MsgID = "textFieldNameAvoidLastRound"
 	textFieldNameQuestionsEnabled MsgID = "textFieldNameQuestionsEnabled"
+	textFieldNameLanguage         MsgID = "textFieldNameLanguage"
 	textFieldNameRecipient        MsgID = "textFieldNameRecipient"
 	textFieldNameGiver            MsgID = "textFieldNameGiver"
 	textFieldNameRule             MsgID = "textFieldNameRule"
@@ -434,6 +457,7 @@ func catalogEN() map[MsgID]string {
 		textRuleAvoidLastRound:    "Avoid last round's pairs",
 		textRuleExclusions:        "Exclusions",
 		textRuleQuestionsEnabled:  "Anonymous questions",
+		textRuleLanguage:          "Language",
 		textRuleMinParticipants:   "Minimum participants",
 		textRuleMaxParticipants:   "Maximum participants",
 		textRuleNoSelfAssignment:  "Self-assignment",
@@ -473,6 +497,7 @@ func catalogEN() map[MsgID]string {
 		textFieldNameDropoutPolicy:    "dropout_policy",
 		textFieldNameAvoidLastRound:   "avoid_last_round",
 		textFieldNameQuestionsEnabled: "questions_enabled",
+		textFieldNameLanguage:         "language",
 		textFieldNameRecipient:        "recipient",
 		textFieldNameGiver:            "giver",
 		textFieldNameRule:             "rule",

@@ -16,6 +16,7 @@ var allRuleNames = []giftexchange.RuleName{
 	giftexchange.RuleAvoidLastRound,
 	giftexchange.RuleExclusions,
 	giftexchange.RuleQuestionsEnabled,
+	giftexchange.RuleLanguage,
 	giftexchange.RuleMinParticipants,
 	giftexchange.RuleMaxParticipants,
 	giftexchange.RuleNoSelfAssignment,
@@ -75,6 +76,8 @@ func TestParseRuleValueCanonicalForms(t *testing.T) {
 		{"duration maximum in hours", giftexchange.RuleReminderLead, "336h", "14d"},
 		{"enum patch", giftexchange.RuleDropoutPolicy, "patch", "patch"},
 		{"enum redraw", giftexchange.RuleDropoutPolicy, "redraw", "redraw"},
+		{"enum language en", giftexchange.RuleLanguage, "en", "en"},
+		{"enum language es-419", giftexchange.RuleLanguage, "es-419", "es-419"},
 		{"bool on", giftexchange.RuleAvoidLastRound, "on", "on"},
 		{"bool true", giftexchange.RuleAvoidLastRound, "true", "on"},
 		{"bool off", giftexchange.RuleQuestionsEnabled, "off", "off"},
@@ -99,6 +102,7 @@ func TestParseRuleValueCanonicalForms(t *testing.T) {
 
 func TestParseRuleValueRejectsBadForms(t *testing.T) {
 	dropoutAllowed := []string{string(giftexchange.DropoutPatch), string(giftexchange.DropoutRedraw)}
+	languageAllowed := []string{string(giftexchange.LanguageEN), string(giftexchange.LanguageES419)}
 	tests := []struct {
 		name        string
 		rule        giftexchange.RuleName
@@ -132,6 +136,9 @@ func TestParseRuleValueRejectsBadForms(t *testing.T) {
 		{"enum unknown", giftexchange.RuleDropoutPolicy, "random", giftexchange.InputCodeNotOneOf, 0, 0, dropoutAllowed},
 		{"enum upper case", giftexchange.RuleDropoutPolicy, "Patch", giftexchange.InputCodeNotOneOf, 0, 0, dropoutAllowed},
 		{"enum empty", giftexchange.RuleDropoutPolicy, "", giftexchange.InputCodeNotOneOf, 0, 0, dropoutAllowed},
+		{"language unknown", giftexchange.RuleLanguage, "fr", giftexchange.InputCodeNotOneOf, 0, 0, languageAllowed},
+		{"language es-ES", giftexchange.RuleLanguage, "es-ES", giftexchange.InputCodeNotOneOf, 0, 0, languageAllowed},
+		{"language empty", giftexchange.RuleLanguage, "", giftexchange.InputCodeNotOneOf, 0, 0, languageAllowed},
 		{"bool upper case", giftexchange.RuleAvoidLastRound, "ON", giftexchange.InputCodeInvalidBool, 0, 0, nil},
 		{"bool yes", giftexchange.RuleAvoidLastRound, "yes", giftexchange.InputCodeInvalidBool, 0, 0, nil},
 		{"bool empty", giftexchange.RuleQuestionsEnabled, "", giftexchange.InputCodeInvalidBool, 0, 0, nil},

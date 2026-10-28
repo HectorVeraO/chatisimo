@@ -22,8 +22,8 @@
     "deaf": false,
     "mute": false
   },
-  "locale": "en-US",
-  "guild_locale": "en-US",
+  "locale": {{json .Locale}},
+  "guild_locale": {{json .GuildLocale}},
   "app_permissions": "0",
   "context": 0,
   "authorizing_integration_owners": {"0": {{json .GuildID}}},

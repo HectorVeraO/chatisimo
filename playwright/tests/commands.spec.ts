@@ -16,6 +16,7 @@ const VERBS = [
   "giver",
   "ask",
   "questions",
+  "preferences",
   "reveal",
   "cancel",
   "help",
@@ -28,7 +29,7 @@ test("the composer offers the two top-level commands", async ({ world }) => {
   await expect.poll(() => suggestedPaths(page)).toEqual(["/chatisimo", "/ge"]);
 });
 
-test("/ge lists the 17 verbs", async ({ world }) => {
+test("/ge lists the 18 verbs", async ({ world }) => {
   const { page } = world;
   await page.getByTestId("slash-input").fill("/ge ");
 
@@ -36,7 +37,7 @@ test("/ge lists the 17 verbs", async ({ world }) => {
   await expect.poll(() => suggestedPaths(page)).toEqual(expected);
 });
 
-test("/chatisimo giftexchange lists the same 17 verbs", async ({ world }) => {
+test("/chatisimo giftexchange lists the same 18 verbs", async ({ world }) => {
   const { page } = world;
   const input = page.getByTestId("slash-input");
 

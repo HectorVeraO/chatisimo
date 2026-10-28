@@ -20,7 +20,18 @@ export const DM_BUDGET_MS = 25_000;
 // How long a spec waits before it asserts that a direct message never arrived.
 const ABSENCE_WINDOW_MS = 3_000;
 
-export const PAIR_MARKER_TITLES = [texts.titleRecipient, texts.titleNewRecipient, texts.titleGiver];
+export const PAIR_MARKER_TITLES = [
+  texts.titleRecipient,
+  texts.titleNewRecipient,
+  texts.titleGiver,
+  texts.es.titleRecipient,
+  texts.es.titleNewRecipient,
+  texts.es.titleGiver,
+];
+
+function isGiverTitle(title: string): boolean {
+  return title === texts.titleGiver || title === texts.es.titleGiver;
+}
 
 // One embed that names a counterpart, as the page shows it.
 export interface PairMarker {
@@ -102,6 +113,22 @@ export class World {
     await this.page.getByTestId("dm-link").click();
     this.view = "dm";
     await this.settle();
+  }
+
+  async setUserLocale(locale: string): Promise<void> {
+    const updated = this.page.waitForResponse(
+      (response) => response.url().includes("/_control/users/") && response.request().method() === "PATCH",
+    );
+    await this.page.getByTestId("user-locale").selectOption(locale);
+    await updated;
+  }
+
+  async setServerLocale(locale: string): Promise<void> {
+    const updated = this.page.waitForResponse(
+      (response) => response.url().includes("/_control/guilds/") && response.request().method() === "PATCH",
+    );
+    await this.page.getByTestId("server-locale").selectOption(locale);
+    await updated;
   }
 
   get messages(): Locator {
@@ -325,7 +352,7 @@ export class World {
   async recipientsFromDms(givers: string[]): Promise<Map<string, string>> {
     const round = new Map<string, string>();
     for (const giver of givers) {
-      const markers = (await this.dmMarkers(giver, 1)).filter((marker) => marker.title !== texts.titleGiver);
+      const markers = (await this.dmMarkers(giver, 1)).filter((marker) => !isGiverTitle(marker.title));
       const latest = markers[markers.length - 1];
       if (latest === undefined || latest.mentionIds.length !== 1) {
         throw new Error(`${giver} has no single recipient in the DM`);
@@ -366,7 +393,7 @@ export class World {
   // the rounds: the recipient of the viewer, or for "Your giver" the giver of the viewer.
   private namesOwnCounterpart(viewer: string, title: string, named: string, rounds: Round[]): boolean {
     return rounds.some((round) =>
-      title === texts.titleGiver ? round.get(named) === viewer : round.get(viewer) === named,
+      isGiverTitle(title) ? round.get(named) === viewer : round.get(viewer) === named,
     );
   }
 

@@ -40,6 +40,9 @@ type Slash struct {
 // ErrUnknownUser is returned for a user the fake does not know.
 var ErrUnknownUser = errors.New("fakediscord: unknown user")
 
+// ErrUnknownGuild is returned for a guild the fake does not know.
+var ErrUnknownGuild = errors.New("fakediscord: unknown guild")
+
 // reject wraps problems in ErrRejected, or returns nil when there are none.
 func reject(problems []error) error {
 	if len(problems) == 0 {
@@ -65,6 +68,45 @@ func (s *Server) SetDMsOpen(u User, open bool) error {
 	} else {
 		s.w.dmsClosed[u.ID] = true
 	}
+	s.publishWorldChangedLocked()
+
+	return nil
+}
+
+// SetUserLocale sets u's Discord locale tag (e.g. "en-US", "es-419"). It returns
+// ErrUnknownUser for a user the fake does not know.
+func (s *Server) SetUserLocale(u User, locale string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, found := s.w.users[u.ID]
+	if !found {
+		return fmt.Errorf("set locale for user %q: %w", u.ID, ErrUnknownUser)
+	}
+	if locale == "" {
+		locale = "en-US"
+	}
+	existing.Locale = locale
+	s.w.users[u.ID] = existing
+	s.publishWorldChangedLocked()
+
+	return nil
+}
+
+// SetGuildLocale sets g's preferred Discord locale tag (e.g. "en-US", "es-419"). It returns
+// ErrUnknownGuild for a guild the fake does not know.
+func (s *Server) SetGuildLocale(g Guild, locale string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, found := s.w.guilds[g.ID]
+	if !found {
+		return fmt.Errorf("set locale for guild %q: %w", g.ID, ErrUnknownGuild)
+	}
+	if locale == "" {
+		locale = "en-US"
+	}
+	existing.Locale = locale
 	s.publishWorldChangedLocked()
 
 	return nil
@@ -229,6 +271,8 @@ func (s *Server) planSlash(as User, in Slash, kind, focused string) (*plan, erro
 	p.data = templateData{
 		User:        userToJSON(actor),
 		Bot:         s.botUser(),
+		Locale:      userLocaleOf(actor),
+		GuildLocale: s.guildLocaleLocked(guildID),
 		CommandID:   path.command.ID,
 		CommandName: path.command.Name,
 		Options:     nestOptions(path, leaves),
@@ -275,6 +319,24 @@ func (s *Server) invocationGuildLocked(actor User, guild *Guild) (string, error)
 	return stored.ID, nil
 }
 
+func userLocaleOf(u User) string {
+	if u.Locale == "" {
+		return "en-US"
+	}
+	return u.Locale
+}
+
+func (s *Server) guildLocaleLocked(guildID string) string {
+	if guildID == "" {
+		return ""
+	}
+	guild, found := s.w.guilds[guildID]
+	if !found || guild.Locale == "" {
+		return "en-US"
+	}
+	return guild.Locale
+}
+
 // placeInChannelLocked sets the plan's channel and the guild fields of its template data: the
 // guild's channel, or the user's DM channel with the bot.
 func (s *Server) placeInChannelLocked(p *plan, guildID, actorID string) {
@@ -290,6 +352,7 @@ func (s *Server) placeInChannelLocked(p *plan, guildID, actorID string) {
 	p.channelID = guild.ChannelID
 	p.data.ChannelID = guild.ChannelID
 	p.data.GuildID = guild.ID
+	p.data.GuildLocale = s.guildLocaleLocked(guild.ID)
 }
 
 // componentInfo is the part of a message or modal component the fake reads.
@@ -373,13 +436,15 @@ func (s *Server) planComponent(as User, msg Message, customID, kind string, valu
 
 	p := &plan{kind: kind, actorID: actor.ID, channelID: channel.id, sourceMessageID: target.ID}
 	p.data = templateData{
-		User:      userToJSON(actor),
-		Bot:       s.botUser(),
-		ChannelID: channel.id,
-		GuildID:   channel.guildID,
-		Message:   messageToJSON(cloneMessage(target), s.botUser()),
-		CustomID:  customID,
-		Values:    nonNilStrings(slices.Clone(values)),
+		User:        userToJSON(actor),
+		Bot:         s.botUser(),
+		Locale:      userLocaleOf(actor),
+		ChannelID:   channel.id,
+		GuildID:     channel.guildID,
+		GuildLocale: s.guildLocaleLocked(channel.guildID),
+		Message:     messageToJSON(cloneMessage(target), s.botUser()),
+		CustomID:    customID,
+		Values:      nonNilStrings(slices.Clone(values)),
 	}
 	isGuild := channel.guildID != ""
 	switch {
@@ -474,6 +539,7 @@ func (s *Server) planModal(as User, m Modal, fields map[string]string, forged bo
 	p.data = templateData{
 		User:            userToJSON(actor),
 		Bot:             s.botUser(),
+		Locale:          userLocaleOf(actor),
 		CustomID:        m.CustomID,
 		ModalComponents: modalSubmitComponents(definition, fields),
 	}
@@ -503,6 +569,7 @@ func (s *Server) placeModalLocked(p *plan, pending *pendingModal) {
 	p.channelID = channel.id
 	p.data.ChannelID = channel.id
 	p.data.GuildID = channel.guildID
+	p.data.GuildLocale = s.guildLocaleLocked(channel.guildID)
 	p.template = tplModalDM
 	if channel.guildID != "" {
 		p.template = tplModalGuild

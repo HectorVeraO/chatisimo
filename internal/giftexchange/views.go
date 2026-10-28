@@ -33,6 +33,7 @@ func summaryOf(row exchangeRow, caller PersonID) ExchangeSummary {
 		},
 		Name:                exchange.Name,
 		State:               State(exchange.State),
+		Language:            Language(exchange.Language),
 		DrawAt:              optionalTime(exchange.DrawAt),
 		RevealAt:            optionalTime(exchange.RevealAt),
 		ParticipantCount:    int(row.participantCount),
@@ -176,6 +177,8 @@ func ruleValueText(settings ruleSettings, descriptor ruleDescriptor, exclusionCo
 		return strconv.Itoa(exclusionCount)
 	case RuleQuestionsEnabled:
 		return flagText(settings.questionsEnabled)
+	case RuleLanguage:
+		return settings.language
 	default:
 		return descriptor.defaultValue
 	}

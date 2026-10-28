@@ -90,6 +90,6 @@ func (h *Handlers) verb(
 	panic("giftexchangecmd: unknown verb " + name)
 }
 
-func (h *Handlers) catalog(loc Locale) Catalog {
-	return CatalogFor(loc)
+func (h *Handlers) catalogFor(req *router.Request) Catalog {
+	return CatalogFor(LocaleFromDiscord(req.EffectiveLocale()))
 }

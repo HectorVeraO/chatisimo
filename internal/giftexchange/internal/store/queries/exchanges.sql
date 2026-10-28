@@ -6,11 +6,11 @@ WHERE id = @id;
 -- name: InsertExchange :exec
 INSERT INTO giftexchange.exchanges (
     id, group_id, organizer_id, name, state, round, draw_at, reveal_at, reminder_lead_seconds,
-    dropout_policy, avoid_last_round, questions_enabled, created_at
+    dropout_policy, avoid_last_round, questions_enabled, language, created_at
 )
 VALUES (
     @id, @group_id, @organizer_id, @name, 'open', 0, @draw_at, @reveal_at, @reminder_lead_seconds,
-    @dropout_policy, @avoid_last_round, @questions_enabled, @created_at
+    @dropout_policy, @avoid_last_round, @questions_enabled, @language, @created_at
 );
 
 -- The row lock serializes every state-changing call on one exchange.
@@ -79,7 +79,8 @@ SET draw_at = @draw_at,
     reminder_lead_seconds = @reminder_lead_seconds,
     dropout_policy = @dropout_policy,
     avoid_last_round = @avoid_last_round,
-    questions_enabled = @questions_enabled
+    questions_enabled = @questions_enabled,
+    language = @language
 WHERE id = @id;
 
 -- draw_at is non-null only in state open, so a cancel clears it.

@@ -26,6 +26,7 @@ type userControlJSON struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	DMsOpen bool   `json:"dms_open"`
+	Locale  string `json:"locale"`
 }
 
 type guildControlJSON struct {
@@ -33,6 +34,7 @@ type guildControlJSON struct {
 	Name      string   `json:"name"`
 	ChannelID string   `json:"channel_id"`
 	Channel   string   `json:"channel"`
+	Locale    string   `json:"locale"`
 	Members   []string `json:"members"`
 }
 
@@ -84,6 +86,7 @@ func (s *Server) addControlRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+controlPrefix+"/users", s.handleControlAddUser)
 	mux.HandleFunc("PATCH "+controlPrefix+"/users/{id}", s.handleControlPatchUser)
 	mux.HandleFunc("POST "+controlPrefix+"/guilds", s.handleControlAddGuild)
+	mux.HandleFunc("PATCH "+controlPrefix+"/guilds/{id}", s.handleControlPatchGuild)
 	mux.HandleFunc("POST "+controlPrefix+"/guilds/{id}/members", s.handleControlAddMember)
 	mux.HandleFunc("POST "+controlPrefix+"/interactions", s.handleControlInteraction)
 	mux.HandleFunc("GET "+controlPrefix+"/channels/{id}/messages", s.handleControlChannelMessages)
@@ -124,7 +127,12 @@ func (s *Server) handleToken(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) userControlLocked(u User) userControlJSON {
-	return userControlJSON{ID: u.ID, Name: u.Name, DMsOpen: !s.w.dmsClosed[u.ID]}
+	return userControlJSON{
+		ID:      u.ID,
+		Name:    u.Name,
+		DMsOpen: !s.w.dmsClosed[u.ID],
+		Locale:  userLocaleOf(u),
+	}
 }
 
 func (s *Server) guildControlLocked(g *guildState) guildControlJSON {
@@ -133,6 +141,7 @@ func (s *Server) guildControlLocked(g *guildState) guildControlJSON {
 		Name:      g.Name,
 		ChannelID: g.ChannelID,
 		Channel:   "general",
+		Locale:    s.guildLocaleLocked(g.ID),
 		Members:   nonNilStrings(slices.Clone(g.members)),
 	}
 }
@@ -180,8 +189,9 @@ func (s *Server) handleControlCommands(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleControlAddUser(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name string `json:"name"`
-		ID   string `json:"id"`
+		Name   string `json:"name"`
+		ID     string `json:"id"`
+		Locale string `json:"locale"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -191,6 +201,9 @@ func (s *Server) handleControlAddUser(w http.ResponseWriter, r *http.Request) {
 	if utf8.RuneCountInString(body.Name) > maxNameLength {
 		problems = append(problems, fmt.Errorf("name: longer than %d characters", maxNameLength))
 	}
+	if utf8.RuneCountInString(body.Locale) > maxNameLength {
+		problems = append(problems, fmt.Errorf("locale: longer than %d characters", maxNameLength))
+	}
 	if body.ID != "" && !isSnowflake(body.ID) {
 		problems = append(problems, errors.New("id: must be a snowflake"))
 	}
@@ -199,7 +212,7 @@ func (s *Server) handleControlAddUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stored := s.AddUser(User{ID: body.ID, Name: body.Name})
+	stored := s.AddUser(User{ID: body.ID, Name: body.Name, Locale: body.Locale})
 
 	s.mu.Lock()
 	out := succeed(http.StatusOK, s.userControlLocked(stored))
@@ -210,13 +223,18 @@ func (s *Server) handleControlAddUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleControlPatchUser(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		DMsOpen *bool `json:"dms_open"`
+		DMsOpen *bool   `json:"dms_open"`
+		Locale  *string `json:"locale"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	if body.DMsOpen == nil {
+	if body.DMsOpen == nil && body.Locale == nil {
 		invalidBody("dms_open: required").write(w)
+		return
+	}
+	if body.Locale != nil && (*body.Locale == "" || utf8.RuneCountInString(*body.Locale) > maxNameLength) {
+		invalidBody(fmt.Sprintf("locale: must be 1-%d characters", maxNameLength)).write(w)
 		return
 	}
 
@@ -228,14 +246,23 @@ func (s *Server) handleControlPatchUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	setErr := s.SetDMsOpen(user, *body.DMsOpen)
-	if setErr != nil {
-		unknownEntity("user").write(w)
-		return
+	if body.DMsOpen != nil {
+		setErr := s.SetDMsOpen(user, *body.DMsOpen)
+		if setErr != nil {
+			unknownEntity("user").write(w)
+			return
+		}
+	}
+	if body.Locale != nil {
+		localeErr := s.SetUserLocale(user, *body.Locale)
+		if localeErr != nil {
+			unknownEntity("user").write(w)
+			return
+		}
 	}
 
 	s.mu.Lock()
-	out := succeed(http.StatusOK, s.userControlLocked(user))
+	out := succeed(http.StatusOK, s.userControlLocked(s.w.users[user.ID]))
 	s.mu.Unlock()
 
 	out.write(w)
@@ -244,6 +271,7 @@ func (s *Server) handleControlPatchUser(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleControlAddGuild(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name    string   `json:"name"`
+		Locale  string   `json:"locale"`
 		Members []string `json:"members"`
 	}
 	if !decodeBody(w, r, &body) {
@@ -251,16 +279,53 @@ func (s *Server) handleControlAddGuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	out := s.addGuildLocked(body.Name, body.Members)
+	out := s.addGuildLocked(body.Name, body.Locale, body.Members)
 	s.mu.Unlock()
 
 	out.write(w)
 }
 
-func (s *Server) addGuildLocked(name string, memberIDs []string) outcome {
+func (s *Server) handleControlPatchGuild(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Locale *string `json:"locale"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if body.Locale == nil || *body.Locale == "" || utf8.RuneCountInString(*body.Locale) > maxNameLength {
+		invalidBody(fmt.Sprintf("locale: must be 1-%d characters", maxNameLength)).write(w)
+		return
+	}
+
+	guildID := r.PathValue("id")
+	s.mu.Lock()
+	guild, found := s.w.guilds[guildID]
+	s.mu.Unlock()
+	if !found {
+		unknownEntity("guild").write(w)
+		return
+	}
+
+	setErr := s.SetGuildLocale(guild.Guild, *body.Locale)
+	if setErr != nil {
+		unknownEntity("guild").write(w)
+		return
+	}
+
+	s.mu.Lock()
+	out := succeed(http.StatusOK, s.guildControlLocked(s.w.guilds[guildID]))
+	s.mu.Unlock()
+
+	out.write(w)
+}
+
+func (s *Server) addGuildLocked(name, locale string, memberIDs []string) outcome {
 	var problems []error
 	if name == "" || utf8.RuneCountInString(name) > maxNameLength {
 		problems = append(problems, fmt.Errorf("name: must be 1-%d characters", maxNameLength))
+	}
+	if utf8.RuneCountInString(locale) > maxNameLength {
+		problems = append(problems, fmt.Errorf("locale: longer than %d characters", maxNameLength))
 	}
 	if len(memberIDs) > maxGuildMembers {
 		problems = append(problems, fmt.Errorf("members: at most %d", maxGuildMembers))
@@ -278,7 +343,7 @@ func (s *Server) addGuildLocked(name string, memberIDs []string) outcome {
 		return problemsOutcome(problems)
 	}
 
-	stored, _ := s.w.upsertGuild(Guild{Name: name}, s.ids)
+	stored, _ := s.w.upsertGuild(Guild{Name: name, Locale: locale}, s.ids)
 	for _, member := range members {
 		err := s.w.addMember(stored.ID, member, s.ids)
 		if err != nil {

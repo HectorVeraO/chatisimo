@@ -48,6 +48,7 @@ const (
 var (
 	errRejected  = errors.New("test: rejected")
 	errGuildOnly = errors.New("test: guild only")
+	errLocalized = errors.New("test: localized")
 	errBoom      = errors.New("test: boom")
 )
 
@@ -107,6 +108,8 @@ func mapError(requestID string, err error) router.Rejection {
 		return router.Rejection{Text: rejectedText, Outcome: "rejected:test"}
 	case errors.Is(err, errGuildOnly):
 		return router.Rejection{Text: guildOnlyText, Outcome: "rejected:bad_input"}
+	case errors.Is(err, errLocalized):
+		return router.Rejection{Text: "mapped:" + router.ErrorLocale(err), Outcome: "rejected:test"}
 	}
 
 	return router.Rejection{Text: internalPrefix + requestID, Outcome: "error", Internal: true}
@@ -114,6 +117,7 @@ func mapError(requestID string, err error) router.Rejection {
 
 type rig struct {
 	fake       *fakediscord.Server
+	router     *router.Router
 	resolver   *resolver
 	logs       *syncBuffer
 	user       fakediscord.User
@@ -132,7 +136,7 @@ func tree() []discord.ApplicationCommandCreate {
 		Description: "test commands",
 		Options: []discord.ApplicationCommandOption{
 			sub("boom"), sub("reject"), sub("deferred"), sub("ok"), sub("card"), sub("public-card"),
-			sub("guild"), sub("ac", query),
+			sub("guild"), sub("locale"), sub("ac", query),
 		},
 		Contexts:         []discord.InteractionContextType{discord.InteractionContextTypeGuild, discord.InteractionContextTypeBotDM},
 		IntegrationTypes: []discord.ApplicationIntegrationType{discord.ApplicationIntegrationTypeGuildInstall},
@@ -187,6 +191,7 @@ func newRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatalf("router.New: %v", err)
 	}
+	g.router = r
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -607,5 +612,36 @@ func TestNewReportsEveryMissingCollaborator(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %s", err, want)
 		}
+	}
+}
+
+func TestRequestExposesLocalesAndAttachesEffectiveLocaleToErrors(t *testing.T) {
+	g := newRig(t)
+	var seenLocale, seenGuildLocale string
+	g.router.RegisterVerb(router.Verb{
+		Roots: []string{"/t"},
+		Name:  "locale",
+		Command: func(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+			req := request(t, e.Ctx)
+			seenLocale = req.Locale()
+			seenGuildLocale = req.GuildLocale()
+			req.SetLocale("es-419")
+			return errLocalized
+		},
+	})
+	if err := g.fake.SetUserLocale(g.user, "es-ES"); err != nil {
+		t.Fatalf("SetUserLocale: %v", err)
+	}
+	if err := g.fake.SetGuildLocale(g.guild, "es-419"); err != nil {
+		t.Fatalf("SetGuildLocale: %v", err)
+	}
+
+	result := g.slash(t, "/t/locale", true)
+
+	if seenLocale != "es-ES" || seenGuildLocale != "es-419" {
+		t.Errorf("seen locales = (%q, %q), want (es-ES, es-419)", seenLocale, seenGuildLocale)
+	}
+	if result.Message == nil || result.Message.Content != "mapped:es-419" {
+		t.Errorf("reply = %+v, want mapped:es-419", result.Message)
 	}
 }

@@ -9,8 +9,9 @@ import (
 
 // User is a synthetic Discord user.
 type User struct {
-	ID   string
-	Name string
+	ID     string
+	Name   string
+	Locale string
 }
 
 // Guild is a synthetic guild with one text channel.
@@ -18,6 +19,7 @@ type Guild struct {
 	ID        string
 	Name      string
 	ChannelID string
+	Locale    string
 }
 
 // Message is a message the bot sent.
@@ -137,12 +139,19 @@ func (w *world) upsertUser(u User, ids *snowflakes) User {
 	if u.ID == "" {
 		u.ID = ids.next()
 	}
+	known, isKnown := w.users[u.ID]
 	if u.Name == "" {
-		known, isKnown := w.users[u.ID]
 		if isKnown {
 			u.Name = known.Name
 		} else {
 			u.Name = "user-" + u.ID
+		}
+	}
+	if u.Locale == "" {
+		if isKnown && known.Locale != "" {
+			u.Locale = known.Locale
+		} else {
+			u.Locale = "en-US"
 		}
 	}
 	w.users[u.ID] = u
@@ -161,9 +170,15 @@ func (w *world) upsertGuild(g Guild, ids *snowflakes) (stored Guild, isNew bool)
 		if g.Name != "" {
 			existing.Name = g.Name
 		}
+		if g.Locale != "" {
+			existing.Locale = g.Locale
+		}
 		return existing.Guild, false
 	}
 
+	if g.Locale == "" {
+		g.Locale = "en-US"
+	}
 	g.ChannelID = ids.next()
 	w.guilds[g.ID] = &guildState{Guild: g}
 	w.guildOrder = append(w.guildOrder, g.ID)

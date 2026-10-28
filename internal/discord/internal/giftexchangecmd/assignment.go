@@ -45,7 +45,7 @@ func (h *Handlers) recipientCommand(data discord.SlashCommandInteractionData, e 
 		return fmt.Errorf("render own recipient: %w", err)
 	}
 
-	c := h.catalog(LocaleEN)
+	c := h.catalogFor(req)
 	embed := withPreferences(c, render.Embed(c.Get(textTitleRecipient), mention), assignment.Preferences)
 	embeds := []discord.Embed{embed}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
@@ -85,7 +85,7 @@ func (h *Handlers) giverCommand(data discord.SlashCommandInteractionData, e *han
 		return fmt.Errorf("render own giver: %w", err)
 	}
 
-	c := h.catalog(LocaleEN)
+	c := h.catalogFor(req)
 	return drawShowPair(e.Ctx, req, c.Get(textTitleGiver), mention)
 }
 

@@ -36,7 +36,7 @@ func (h *Handlers) preferencesCommand(data discord.SlashCommandInteractionData, 
 	}
 
 	rawExchange, _ := data.OptString(exchangeOptionName)
-	candidates, err := h.candidates(e.Ctx, req, filterFor("preferences"))
+	candidates, listed, err := h.listCandidates(e.Ctx, req, filterFor("preferences"))
 	if err != nil {
 		return err
 	}
@@ -45,6 +45,7 @@ func (h *Handlers) preferencesCommand(data discord.SlashCommandInteractionData, 
 		return err
 	}
 	req.SetExchange(id)
+	h.setExchangeLocale(e.Ctx, req, id, listed)
 
 	clear, _ := data.OptBool(clearOptionName)
 	if clear {
@@ -78,14 +79,14 @@ func (h *Handlers) preferencesCommand(data discord.SlashCommandInteractionData, 
 		return fmt.Errorf("save preferences: %w", err)
 	}
 
-	name, nameErr := h.questionExchangeName(e.Ctx, req, id, candidates)
+	summary, nameErr := h.questionExchangeSummary(e.Ctx, req, id, candidates)
 	if nameErr != nil {
 		return nameErr
 	}
 
-	c := h.catalog(LocaleEN)
-	content := c.Format(textPreferencesSaved, render.Bold(name))
-	embed := withPreferences(c, render.Embed(c.Format(textTitlePreferences, render.Text(name)), ""), saved)
+	c := CatalogForExchange(summary.Language)
+	content := c.Format(textPreferencesSaved, render.Bold(summary.Name))
+	embed := withPreferences(c, render.Embed(c.Format(textTitlePreferences, render.Text(summary.Name)), ""), saved)
 	embeds := []discord.Embed{embed}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &content, Embeds: &embeds})
 	if editErr != nil {
@@ -106,13 +107,13 @@ func (h *Handlers) clearPreferences(
 		return fmt.Errorf("clear preferences: %w", err)
 	}
 
-	name, nameErr := h.questionExchangeName(e.Ctx, req, id, candidates)
+	summary, nameErr := h.questionExchangeSummary(e.Ctx, req, id, candidates)
 	if nameErr != nil {
 		return nameErr
 	}
 
-	c := h.catalog(LocaleEN)
-	content := c.Format(textPreferencesCleared, render.Bold(name))
+	c := CatalogForExchange(summary.Language)
+	content := c.Format(textPreferencesCleared, render.Bold(summary.Name))
 	embeds := []discord.Embed{}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &content, Embeds: &embeds})
 	if editErr != nil {
@@ -133,14 +134,14 @@ func (h *Handlers) viewPreferences(
 		return fmt.Errorf("read preferences: %w", err)
 	}
 
-	name, nameErr := h.questionExchangeName(e.Ctx, req, id, candidates)
+	summary, nameErr := h.questionExchangeSummary(e.Ctx, req, id, candidates)
 	if nameErr != nil {
 		return nameErr
 	}
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(summary.Language)
 	if prefs.IsEmpty() {
-		content := c.Format(textPreferencesNone, render.Bold(name))
+		content := c.Format(textPreferencesNone, render.Bold(summary.Name))
 		editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &content})
 		if editErr != nil {
 			return editErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -148,7 +149,7 @@ func (h *Handlers) viewPreferences(
 		return nil
 	}
 
-	embed := withPreferences(c, render.Embed(c.Format(textTitlePreferences, render.Text(name)), ""), prefs)
+	embed := withPreferences(c, render.Embed(c.Format(textTitlePreferences, render.Text(summary.Name)), ""), prefs)
 	embeds := []discord.Embed{embed}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
 	if editErr != nil {

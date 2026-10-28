@@ -59,7 +59,7 @@ func (h *Handlers) askCommand(data discord.SlashCommandInteractionData, e *handl
 
 	// The name is read before the question is committed, so a failed lookup cannot
 	// turn the reply into an error after the question is queued.
-	name, nameErr := h.questionExchangeName(e.Ctx, req, id, candidates)
+	summary, nameErr := h.questionExchangeSummary(e.Ctx, req, id, candidates)
 	if nameErr != nil {
 		return nameErr
 	}
@@ -69,8 +69,8 @@ func (h *Handlers) askCommand(data discord.SlashCommandInteractionData, e *handl
 		return fmt.Errorf("ask question: %w", askErr)
 	}
 
-	c := h.catalog(LocaleEN)
-	reply := c.Format(textAsked, render.Bold(name))
+	c := CatalogForExchange(summary.Language)
+	reply := c.Format(textAsked, render.Bold(summary.Name))
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &reply})
 	if editErr != nil {
 		return editErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -79,32 +79,68 @@ func (h *Handlers) askCommand(data discord.SlashCommandInteractionData, e *handl
 	return nil
 }
 
-// questionExchangeName returns the name of the exchange. A typed exchange ID may name an
-// exchange of another guild, which is not among the candidates; the caller's own list has it.
-func (h *Handlers) questionExchangeName(
+// questionExchangeSummary returns the summary of the exchange and records its language on req.
+// A typed exchange ID may name an exchange of another guild, which is not among the
+// candidates; the caller's own list has it.
+func (h *Handlers) questionExchangeSummary(
 	ctx context.Context, req *router.Request, id giftexchange.ExchangeID, candidates []giftexchange.ExchangeSummary,
-) (string, error) {
+) (giftexchange.ExchangeSummary, error) {
 	for _, candidate := range candidates {
 		if candidate.ID == id {
-			return candidate.Name, nil
+			req.SetLocale(string(candidate.Language))
+			return candidate, nil
 		}
 	}
 
 	listed, err := h.svc.ExchangesFor(ctx, req.Actor, nil)
 	if err != nil {
-		return "", fmt.Errorf("list exchanges: %w", err)
+		return giftexchange.ExchangeSummary{}, fmt.Errorf("list exchanges: %w", err)
 	}
 	for _, summary := range listed {
 		if summary.ID == id {
-			return summary.Name, nil
+			req.SetLocale(string(summary.Language))
+			return summary, nil
 		}
 	}
 
-	return "", fmt.Errorf("exchange not listed for the caller: %w", giftexchange.ErrNotFound)
+	if req.Group != nil {
+		view, viewErr := h.svc.Exchange(ctx, req.Actor, *req.Group, id)
+		if viewErr == nil {
+			req.SetLocale(string(view.Language))
+		}
+	}
+
+	return giftexchange.ExchangeSummary{}, fmt.Errorf("exchange not listed for the caller: %w", giftexchange.ErrNotFound)
+}
+
+func (h *Handlers) questionCatalog(
+	ctx context.Context, req *router.Request, questionID giftexchange.QuestionID,
+) Catalog {
+	listed, err := h.svc.ExchangesFor(ctx, req.Actor, req.Group)
+	if err != nil {
+		return h.catalogFor(req)
+	}
+	for _, summary := range listed {
+		received, recvErr := h.svc.QuestionsReceived(ctx, req.Actor, summary.ID)
+		if recvErr != nil {
+			continue
+		}
+		for _, q := range received {
+			if q.ID == questionID {
+				req.SetLocale(string(summary.Language))
+				return CatalogForExchange(summary.Language)
+			}
+		}
+	}
+	if len(listed) > 0 {
+		req.SetLocale(string(listed[0].Language))
+		return CatalogForExchange(listed[0].Language)
+	}
+	return h.catalogFor(req)
 }
 
 // answerButton handles the Answer button of a question DM. It opens the answer modal as the
-// first response, without reading anything: the modal shows nothing about the question.
+// first response: the modal shows nothing about the question.
 func (h *Handlers) answerButton(e *handler.ComponentEvent) error {
 	req, found := router.FromContext(e.Ctx)
 	if !found {
@@ -119,7 +155,7 @@ func (h *Handlers) answerButton(e *handler.ComponentEvent) error {
 		return errBadCustomID
 	}
 
-	c := h.catalog(LocaleEN)
+	c := h.questionCatalog(e.Ctx, req, parsed.Question)
 	hint := c.Get(textQuestionModalHint)
 	input := discord.NewParagraphTextInput(questionAnswerInput)
 	input.MinLength = intPtr(1)
@@ -157,6 +193,8 @@ func (h *Handlers) answerModal(e *handler.ModalEvent) error {
 		return errBadCustomID
 	}
 
+	c := h.questionCatalog(e.Ctx, req, parsed.Question)
+
 	deferErr := req.DeferUpdate(e.Ctx)
 	if deferErr != nil {
 		return deferErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -170,7 +208,6 @@ func (h *Handlers) answerModal(e *handler.ModalEvent) error {
 
 	// The answer goes in an embed, whose room (4096) holds any answer (at most 1000 runes,
 	// at most doubled by escaping), so the question text of the DM is never cut for it.
-	c := h.catalog(LocaleEN)
 	shown := render.Truncate(strings.TrimSpace(text), giftexchange.MaxQuestionRunes, truncationMark)
 	embeds := []discord.Embed{render.Embed("", c.Get(textYourAnswer)+"\n"+render.Quote(shown))}
 	components := []discord.LayoutComponent{}
@@ -210,7 +247,7 @@ func (h *Handlers) questionsCommand(data discord.SlashCommandInteractionData, e 
 		return fmt.Errorf("list received questions: %w", err)
 	}
 
-	c := h.catalog(LocaleEN)
+	c := h.catalogFor(req)
 	embed := render.Embed(c.Get(textQuestionListTitle), "")
 	embed = render.WithField(embed, c.Get(textQuestionsAskedField), questionField(c, questionAskedEntries(c, asked)))
 	embed = render.WithField(embed, c.Get(textQuestionsReceivedField), questionField(c, questionReceivedEntries(c, received)))

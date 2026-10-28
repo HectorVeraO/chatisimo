@@ -89,13 +89,14 @@ func (h *Handlers) join(ctx context.Context, req *router.Request, id giftexchang
 	if err != nil {
 		return fmt.Errorf("read exchange: %w", err)
 	}
+	req.SetLocale(string(view.Language))
 
 	joinErr := h.svc.Join(ctx, req.Actor, *req.Group, id)
 	if joinErr != nil {
 		return fmt.Errorf("join exchange: %w", joinErr)
 	}
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(view.Language)
 	text := c.Format(textJoined, render.Bold(view.Name))
 	editErr := req.EditOriginal(ctx, discord.MessageUpdate{Content: &text})
 	if editErr != nil {
@@ -227,6 +228,7 @@ func (h *Handlers) membershipLeave(ctx context.Context, req *router.Request, id 
 	if err != nil {
 		return fmt.Errorf("read exchange: %w", err)
 	}
+	req.SetLocale(string(view.Language))
 
 	isDrawn := view.State == giftexchange.StateDrawn
 	if !isDrawn {
@@ -236,7 +238,7 @@ func (h *Handlers) membershipLeave(ctx context.Context, req *router.Request, id 
 		return giftexchange.ErrNotParticipant
 	}
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(view.Language)
 	text := c.Format(textConfirmLeave, render.Bold(view.Name))
 	return membershipEditWithButtons(ctx, req, c, text, customID{Action: actionLeaveConfirm, Exchange: id})
 }
@@ -254,6 +256,7 @@ func (h *Handlers) leaveConfirmButton(e *handler.ComponentEvent) error {
 	if err != nil {
 		return fmt.Errorf("read exchange: %w", err)
 	}
+	req.SetLocale(string(view.Language))
 
 	return h.membershipLeaveNow(e.Ctx, req, view)
 }
@@ -265,7 +268,7 @@ func (h *Handlers) membershipLeaveNow(ctx context.Context, req *router.Request, 
 		return fmt.Errorf("leave exchange: %w", err)
 	}
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(view.Language)
 	return membershipEdit(ctx, req, c.Format(textLeft, render.Bold(view.Name)))
 }
 
@@ -307,6 +310,7 @@ func (h *Handlers) removeCommand(data discord.SlashCommandInteractionData, e *ha
 	if err != nil {
 		return fmt.Errorf("read exchange: %w", err)
 	}
+	req.SetLocale(string(view.Language))
 
 	isDrawn := view.State == giftexchange.StateDrawn
 	if isDrawn {
@@ -318,7 +322,7 @@ func (h *Handlers) removeCommand(data discord.SlashCommandInteractionData, e *ha
 		return fmt.Errorf("remove participant: %w", removeErr)
 	}
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(view.Language)
 	return membershipEdit(e.Ctx, req, c.Format(textRemoved, mention, render.Bold(view.Name)))
 }
 
@@ -334,7 +338,7 @@ func (h *Handlers) membershipAskRemove(
 		return giftexchange.ErrNotParticipant
 	}
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(view.Language)
 	text := c.Format(textConfirmRemove, render.Bold(view.Name), mention)
 	confirm := customID{Action: actionRemoveConfirm, Exchange: view.ID, Person: target}
 	return membershipEditWithButtons(ctx, req, c, text, confirm)
@@ -354,6 +358,7 @@ func (h *Handlers) removeConfirmButton(e *handler.ComponentEvent) error {
 	if err != nil {
 		return fmt.Errorf("read exchange: %w", err)
 	}
+	req.SetLocale(string(view.Language))
 
 	outcome, err := h.svc.RemoveParticipant(e.Ctx, req.Actor, *req.Group, parsed.Exchange, parsed.Person)
 	if err != nil {
@@ -365,7 +370,7 @@ func (h *Handlers) removeConfirmButton(e *handler.ComponentEvent) error {
 		return fmt.Errorf("remove participant: %w", err)
 	}
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(view.Language)
 	return membershipEdit(e.Ctx, req, membershipOutcomeText(c, outcome, view.Name))
 }
 
@@ -396,8 +401,14 @@ func (h *Handlers) dismissButton(e *handler.ComponentEvent) error {
 		return errBadCustomID
 	}
 	req.SetExchange(parsed.Exchange)
+	if req.Group != nil {
+		view, viewErr := h.svc.Exchange(e.Ctx, req.Actor, *req.Group, parsed.Exchange)
+		if viewErr == nil {
+			req.SetLocale(string(view.Language))
+		}
+	}
 
-	c := h.catalog(LocaleEN)
+	c := h.catalogFor(req)
 	text := c.Get(textNothingChanged)
 	embeds := []discord.Embed{}
 	components := []discord.LayoutComponent{}

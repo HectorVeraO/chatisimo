@@ -123,6 +123,42 @@ export const reasonTooLong = "is too long";
 export const reasonBidi = "contains bidirectional control characters";
 export const reasonNoVisible = "has no visible character";
 
+// Source: internal/discord/internal/giftexchangecmd/catalog_es419.json.
+export const es = {
+  created:
+    "Creaste %s y lo organizas. No eres participante a menos que te unas. Configúralo con /ge rules.",
+  cardBody: "Organizado por %s. Únete con el botón o con /ge join.",
+  manual: "sin definir (lo ejecuta quien organiza)",
+  joined: "Te uniste a %s.",
+  noCandidates: "No tienes ningún intercambio donde puedas hacer esto.",
+  ruleLanguage: "Idioma",
+  buttonJoin: "Unirse",
+  buttonLeave: "Salir",
+  buttonRules: "Reglas",
+  buttonConfirm: "Confirmar",
+  buttonAnswer: "Responder",
+  fieldDraw: "Sorteo",
+  fieldReveal: "Revelación",
+  rulesTitle: "Reglas - %s",
+  confirmDraw: "¿Sortear %s ahora con %d participantes? Esto no se puede deshacer.",
+  drawn: "Sorteo realizado para %s.",
+  drawnPublic:
+    "El sorteo de %s está listo. Cada participante recibió un DM con la persona que le tocó, o puede usar /ge recipient.",
+  confirmReveal: "¿Revelar %s ahora? Cada participante sabrá quién le regaló.",
+  revealed: "%s fue revelado.",
+  revealedPublic: "%s fue revelado. Cada participante recibió un DM con quién le regaló, o puede usar /ge giver.",
+  asked: "Tu pregunta fue enviada de forma anónima a tu destinatario en %s.",
+  yourAnswer: "Tu respuesta:",
+  questionModalTitle: "Responder la pregunta",
+  titleRecipient: "Tu destinatario",
+  titleNewRecipient: "Tu nuevo destinatario",
+  titleGiver: "Quién te regaló",
+  dmDrawn: "El sorteo de %s (%s) está listo.",
+  dmRevealed: "%s (%s) fue revelado.",
+  dmQuestion: "Pregunta anónima de quien te regala en %s (%s):",
+  dmAnswer: "Tu destinatario respondió tu pregunta en %s (%s):",
+} as const;
+
 // Fills the formatting verbs of a Go template in order. A verb without a value, or a value
 // without a verb, is a mistake in the spec and throws.
 export function format(template: string, ...values: (string | number)[]): string {

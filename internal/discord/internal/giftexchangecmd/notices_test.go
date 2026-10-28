@@ -335,6 +335,30 @@ func TestRenderUsesUnknownServerWhenGuildNameIsEmpty(t *testing.T) {
 	}
 }
 
+func TestRenderNotificationUsesExchangeLanguage(t *testing.T) {
+	esNotice := notification(giftexchange.KindCancelled)
+	esNotice.Exchange.Language = giftexchange.LanguageES419
+
+	gotES, err := RenderNotification(esNotice, fakeGuildName)
+	if err != nil {
+		t.Fatalf("RenderNotification(es-419): %v", err)
+	}
+	if !strings.Contains(gotES.Content, "fue cancelado por quien lo organiza") {
+		t.Errorf("es-419 content = %q, want Spanish cancelled text", gotES.Content)
+	}
+
+	enNotice := notification(giftexchange.KindCancelled)
+	enNotice.Exchange.Language = giftexchange.LanguageEN
+
+	gotEN, err := RenderNotification(enNotice, fakeGuildName)
+	if err != nil {
+		t.Fatalf("RenderNotification(en): %v", err)
+	}
+	if !strings.Contains(gotEN.Content, "was cancelled by the organizer") {
+		t.Errorf("en content = %q, want English cancelled text", gotEN.Content)
+	}
+}
+
 func TestRenderEscapesUserSuppliedText(t *testing.T) {
 	hostile := []string{
 		"@everyone",

@@ -36,9 +36,21 @@ func (h *Handlers) createCommand(data discord.SlashCommandInteractionData, e *ha
 		return deferErr //nolint:wrapcheck // the router reduces REST errors to status and code
 	}
 
+	defaultLang := giftexchange.LanguageEN
+	if LocaleFromDiscord(req.GuildLocale()) == LocaleES419 {
+		defaultLang = giftexchange.LanguageES419
+	}
+	req.SetLocale(string(defaultLang))
+
 	rules, err := h.membershipTimeRules(data)
 	if err != nil {
 		return err
+	}
+	if defaultLang == giftexchange.LanguageES419 {
+		rules = append(rules, giftexchange.RuleChange{
+			Name: giftexchange.RuleLanguage,
+			Raw:  string(giftexchange.LanguageES419),
+		})
 	}
 
 	view, err := h.svc.CreateExchange(e.Ctx, req.Actor, giftexchange.CreateExchangeRequest{
@@ -50,8 +62,9 @@ func (h *Handlers) createCommand(data discord.SlashCommandInteractionData, e *ha
 		return fmt.Errorf("create exchange: %w", err)
 	}
 	req.SetExchange(view.ID)
+	req.SetLocale(string(view.Language))
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(view.Language)
 
 	// The exchange exists from here on, so a failed confirmation must not skip the public card.
 	editErr := membershipEdit(e.Ctx, req, c.Format(textCreated, render.Bold(view.Name)))

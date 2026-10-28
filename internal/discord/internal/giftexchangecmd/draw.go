@@ -118,13 +118,14 @@ func (h *Handlers) drawAsk(
 	if err != nil {
 		return fmt.Errorf("read exchange: %w", err)
 	}
+	req.SetLocale(string(view.Language))
 
 	guardErr := drawGuard(view, step)
 	if guardErr != nil {
 		return guardErr
 	}
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(view.Language)
 	text := step.prompt(c, view)
 	confirmID := formatCustomID(customID{Action: step.confirm, Exchange: id})
 	backID := formatCustomID(customID{Action: actionDismiss, Exchange: id})
@@ -183,13 +184,14 @@ func (h *Handlers) drawConfirm(e *handler.ComponentEvent, step drawStep) error {
 	if err != nil {
 		return fmt.Errorf("read exchange: %w", err)
 	}
+	req.SetLocale(string(view.Language))
 
 	runErr := step.run(e.Ctx, req.Actor, *req.Group, parsed.Exchange)
 	if runErr != nil {
 		return fmt.Errorf("%s exchange: %w", step.verb, runErr)
 	}
 
-	c := h.catalog(LocaleEN)
+	c := CatalogForExchange(view.Language)
 	h.drawAnnounce(e.Ctx, req, c, step, view.Name)
 
 	return nil

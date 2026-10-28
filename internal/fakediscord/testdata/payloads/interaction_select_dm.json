@@ -12,7 +12,7 @@
     "permissions": "0"
   },
   "user": {{json .User}},
-  "locale": "en-US",
+  "locale": {{json .Locale}},
   "app_permissions": "0",
   "context": 1,
   "authorizing_integration_owners": {"0": {{json .AppID}}},

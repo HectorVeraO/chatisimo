@@ -13,6 +13,14 @@
       <span>User</span>
       <select id="user-switcher" data-testid="user-switcher"></select>
     </label>
+    <label class="topbar-item">
+      <span>Locale</span>
+      <select id="user-locale" data-testid="user-locale">
+        <option value="en-US">en-US</option>
+        <option value="es-419">es-419</option>
+        <option value="es-ES">es-ES</option>
+      </select>
+    </label>
     <form id="new-user-form" class="topbar-item">
       <input type="text" id="new-user-name" data-testid="new-user-name" aria-label="New user name" placeholder="New user" autocomplete="off">
       <button type="submit" data-testid="new-user-submit">Add user</button>
@@ -35,6 +43,12 @@
 
       <form id="member-form" class="side-form">
         <div class="side-caption">Members of <strong id="member-server">no server</strong></div>
+        <label class="side-caption" for="server-locale">Server locale</label>
+        <select id="server-locale" data-testid="server-locale">
+          <option value="en-US">en-US</option>
+          <option value="es-419">es-419</option>
+          <option value="es-ES">es-ES</option>
+        </select>
         <ul id="member-list" class="member-list"></ul>
         <select id="member-select" data-testid="member-select" aria-label="User to add"></select>
         <button type="submit" data-testid="member-add">Add member</button>

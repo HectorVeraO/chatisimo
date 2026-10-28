@@ -37,6 +37,7 @@ func templateInputs(guild bool) fakediscord.TemplateData {
 		AppID:         tplAppID,
 		Bot:           tplBot,
 		User:          tplUser,
+		Locale:        "en-US",
 		InteractionID: tplInteractionID,
 		Token:         tplToken,
 		ChannelID:     tplDMChannelID,
@@ -77,6 +78,7 @@ func templateInputs(guild bool) fakediscord.TemplateData {
 	}
 	if guild {
 		data.GuildID = winterGuildID
+		data.GuildLocale = "en-US"
 		data.ChannelID = tplChannelID
 	}
 

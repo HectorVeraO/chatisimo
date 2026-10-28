@@ -52,7 +52,7 @@ func (h *Handlers) rulesExclude(data discord.SlashCommandInteractionData, e *han
 		return err
 	}
 
-	c := h.catalog(LocaleEN)
+	c := h.catalogFor(req)
 	pair, err := h.rulesResolvePair(e, c, data)
 	if err != nil {
 		return err
@@ -93,7 +93,7 @@ func (h *Handlers) rulesUnexclude(data discord.SlashCommandInteractionData, e *h
 		return err
 	}
 
-	c := h.catalog(LocaleEN)
+	c := h.catalogFor(req)
 	pair, err := h.rulesResolvePair(e, c, data)
 	if err != nil {
 		return err

@@ -48,10 +48,11 @@ func rejected(reason, text string) router.Rejection {
 	return router.Rejection{Text: text, Outcome: outcomeRejectedPrefix + reason}
 }
 
-// MapError turns an error a handler returned into the English reply and the log outcome.
-// The first match wins. requestID is the reference shown for unexpected failures.
+// MapError turns an error a handler returned into the reply for its attached locale (or
+// English when none is attached) and the log outcome. The first match wins. requestID is the
+// reference shown for unexpected failures.
 func MapError(requestID string, err error) router.Rejection {
-	return MapErrorIn(LocaleEN, requestID, err)
+	return MapErrorIn(LocaleFromDiscord(router.ErrorLocale(err)), requestID, err)
 }
 
 // MapErrorIn turns an error a handler returned into the reply in loc (falling back to
@@ -136,7 +137,7 @@ func invalidInputText(c Catalog, err error) string {
 }
 
 func collectLeaves(c Catalog, err error, lines *[]string, depth int) {
-	if depth > maxLeafDepth {
+	if depth > maxLeafDepth || err == nil {
 		return
 	}
 
@@ -150,6 +151,10 @@ func collectLeaves(c Catalog, err error, lines *[]string, depth int) {
 
 	var input *giftexchange.InputError
 	if errors.As(err, &input) {
+		if single, isSingle := err.(interface{ Unwrap() error }); isSingle {
+			collectLeaves(c, single.Unwrap(), lines, depth+1)
+			return
+		}
 		*lines = append(*lines, render.Text(formatInputProblem(c, input)))
 		return
 	}
@@ -194,6 +199,8 @@ func inputFieldMsgID(field string) (MsgID, bool) {
 		return textFieldNameAvoidLastRound, true
 	case "questions_enabled":
 		return textFieldNameQuestionsEnabled, true
+	case "language":
+		return textFieldNameLanguage, true
 	case "recipient":
 		return textFieldNameRecipient, true
 	case "giver":

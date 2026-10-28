@@ -111,7 +111,14 @@ func (h *harness) truePairs(t *testing.T) []truePair {
 	return pairs
 }
 
-var pairMarkers = []string{"Your recipient", "Your new recipient", "Your giver"}
+var pairMarkers = []string{
+	"Your recipient",
+	"Your new recipient",
+	"Your giver",
+	"Tu destinatario",
+	"Tu nuevo destinatario",
+	"Quién te regaló",
+}
 
 func (h *harness) checkConfidentiality(t *testing.T) {
 	t.Helper()
@@ -136,7 +143,7 @@ func (h *harness) checkOutbound(t *testing.T, pairs []truePair) {
 			text += string(embed)
 		}
 
-		isGiverView := strings.Contains(text, "Your giver")
+		isGiverView := strings.Contains(text, "Your giver") || strings.Contains(text, "Quién te regaló")
 		hasMarker := isGiverView
 		for _, marker := range pairMarkers {
 			if strings.Contains(text, marker) {
