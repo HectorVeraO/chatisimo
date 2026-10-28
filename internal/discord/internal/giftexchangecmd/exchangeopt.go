@@ -261,14 +261,14 @@ func (h *Handlers) setExchangeLocale(
 ) {
 	for _, summary := range listed {
 		if summary.ID == id {
-			req.SetLocale(string(summary.Language))
+			h.setGroupLocale(req, summary.Group.Subject)
 			return
 		}
 	}
 	if req.Group != nil {
 		view, err := h.svc.Exchange(ctx, req.Actor, *req.Group, id)
 		if err == nil {
-			req.SetLocale(string(view.Language))
+			h.setGroupLocale(req, view.Group.Subject)
 		}
 	}
 }
@@ -306,6 +306,7 @@ func (h *Handlers) autocompleteFor(verb string) handler.AutocompleteHandler {
 func (h *Handlers) choicesFor(
 	req *router.Request, candidates []giftexchange.ExchangeSummary, typed string,
 ) []discord.AutocompleteChoice {
+	loc := h.catalogFor(req).Locale()
 	needle := strings.ToLower(strings.TrimSpace(typed))
 	choices := make([]discord.AutocompleteChoice, 0, maxChoices)
 	for _, candidate := range candidates {
@@ -318,7 +319,7 @@ func (h *Handlers) choicesFor(
 
 		name := candidate.Name
 		if !req.InGuild() {
-			name += choiceSuffixSeparator + h.guildName(candidate.Group.Subject)
+			name += choiceSuffixSeparator + GuildNameOrUnknownIn(loc, h.guildName(candidate.Group.Subject))
 		}
 
 		choices = append(choices, discord.AutocompleteChoiceString{

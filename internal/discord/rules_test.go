@@ -220,12 +220,12 @@ func TestRulesViewIsEphemeralOnBothPathsAndLinksTheSelectToTheOrganizer(t *testi
 		if got.embed.Description != "State: open. Participants: 2. You are the organizer." {
 			t.Errorf("%s: description = %q", path, got.embed.Description)
 		}
-		if len(got.embed.Fields) != 16 {
-			t.Errorf("%s: %d fields, want 16 (14 rules, Participants, Exclusions)", path, len(got.embed.Fields))
+		if len(got.embed.Fields) != 15 {
+			t.Errorf("%s: %d fields, want 15 (13 rules, Participants, Exclusions)", path, len(got.embed.Fields))
 		}
 		if len(got.menus) != 1 || got.menus[0].CustomID != "/gx/rule-pick/"+id.String() ||
-			got.menus[0].Placeholder != "Change a rule" || len(got.menus[0].Options) != 7 {
-			t.Errorf("%s: menus = %+v, want one select of seven rules", path, got.menus)
+			got.menus[0].Placeholder != "Change a rule" || len(got.menus[0].Options) != 6 {
+			t.Errorf("%s: menus = %+v, want one select of six rules", path, got.menus)
 		}
 		for _, option := range got.menus[0].Options {
 			if option.Value == "exclusions" {
@@ -348,8 +348,8 @@ func TestRulesOrganizerSelectOffersOnlyTheFourRulesChangeableAfterTheDraw(t *tes
 
 	organizer := rulesShow(t, s, s.a, id)
 
-	if len(organizer.menus) != 1 || len(organizer.menus[0].Options) != 5 {
-		t.Errorf("organizer menus after the draw = %+v, want one select of five rules", organizer.menus)
+	if len(organizer.menus) != 1 || len(organizer.menus[0].Options) != 4 {
+		t.Errorf("organizer menus after the draw = %+v, want one select of four rules", organizer.menus)
 	}
 }
 
@@ -362,8 +362,6 @@ func TestRulesEnumAndBoolRulesChangeThroughTheSelect(t *testing.T) {
 		{"dropout_policy", "redraw"},
 		{"avoid_last_round", "on"},
 		{"questions_enabled", "off"},
-		{"language", "es-419"},
-		{"language", "en"},
 	}
 
 	for _, tc := range cases {
@@ -1076,7 +1074,7 @@ func TestRulesSelectsAndModalsInTheBotDMAnswerGuildOnly(t *testing.T) {
 	}
 }
 
-func TestCreateDefaultsLanguageFromGuildLocale(t *testing.T) {
+func TestLocaleResolutionUsesUserThenGuildLocaleAndFallsBackToEnglish(t *testing.T) {
 	s := newScene(t)
 
 	cases := []struct {
@@ -1084,34 +1082,46 @@ func TestCreateDefaultsLanguageFromGuildLocale(t *testing.T) {
 		guildLocale string
 		userLocale  string
 		exchange    string
-		wantLang    giftexchange.Language
 		wantConfirm string
 		wantCard    string
 	}{
 		{
-			name:        "es-419 guild defaults to es-419 even for en-US user",
-			guildLocale: "es-419",
-			userLocale:  "en-US",
+			name:        "es-CL user in en-US guild gets Spanish",
+			guildLocale: "en-US",
+			userLocale:  "es-CL",
 			exchange:    "Navidad",
-			wantLang:    giftexchange.LanguageES419,
 			wantConfirm: "Creaste **Navidad** y lo organizas.",
 			wantCard:    "Sorteo",
 		},
 		{
-			name:        "es-ES guild defaults to es-419",
+			name:        "es-419 user in fr guild gets Spanish",
+			guildLocale: "fr",
+			userLocale:  "es-419",
+			exchange:    "Invierno",
+			wantConfirm: "Creaste **Invierno** y lo organizas.",
+			wantCard:    "Sorteo",
+		},
+		{
+			name:        "unsupported user locale in es-ES guild falls back to guild Spanish",
 			guildLocale: "es-ES",
-			userLocale:  "en-US",
+			userLocale:  "fr",
 			exchange:    "Reyes",
-			wantLang:    giftexchange.LanguageES419,
 			wantConfirm: "Creaste **Reyes** y lo organizas.",
 			wantCard:    "Sorteo",
 		},
 		{
-			name:        "unsupported guild locale defaults to en even for es-419 user",
+			name:        "en-US user in es-419 guild gets guild Spanish",
+			guildLocale: "es-419",
+			userLocale:  "en-US",
+			exchange:    "Winter",
+			wantConfirm: "Creaste **Winter** y lo organizas.",
+			wantCard:    "Sorteo",
+		},
+		{
+			name:        "unsupported user and guild locales fall back to en-US",
 			guildLocale: "fr",
-			userLocale:  "es-419",
+			userLocale:  "de",
 			exchange:    "Hiver",
-			wantLang:    giftexchange.LanguageEN,
 			wantConfirm: "You created **Hiver** and you organize it.",
 			wantCard:    "Draw",
 		},
@@ -1150,49 +1160,32 @@ func TestCreateDefaultsLanguageFromGuildLocale(t *testing.T) {
 			if !strings.Contains(cardRaw, tc.wantCard) {
 				t.Errorf("card embed = %s, want field %q", cardRaw, tc.wantCard)
 			}
-
-			listed, err := s.svc.ExchangesFor(t.Context(), s.people[s.a].actor, &s.group)
-			if err != nil {
-				t.Fatalf("ExchangesFor: %v", err)
-			}
-			var found *giftexchange.ExchangeSummary
-			for i := range listed {
-				if listed[i].Name == tc.exchange {
-					found = &listed[i]
-					break
-				}
-			}
-			if found == nil || found.Language != tc.wantLang {
-				t.Fatalf("created exchange = %+v, want language %q", found, tc.wantLang)
-			}
 		})
 	}
 }
 
-func TestLanguageRuleSwitchesExchangeMessagesAndErrorsRegardlessOfUserLocale(t *testing.T) {
+func TestLocaleSwitchingRendersInteractionsAndDMsInSpanishOrEnglish(t *testing.T) {
 	s := newScene(t)
 	s.startRunner(t, s.world)
+
+	if err := s.fake.SetGuildLocale(s.guild, "es-419"); err != nil {
+		t.Fatalf("SetGuildLocale: %v", err)
+	}
+	for _, u := range []string{s.a, s.b, s.c} {
+		if err := s.fake.SetUserLocale(s.users[u], "es-419"); err != nil {
+			t.Fatalf("SetUserLocale(%s): %v", u, err)
+		}
+	}
+
 	id := rulesOpenExchange(t, s, "Winter")
 	s.joinAs(t, s.a, id)
 
-	// Switch exchange language to es-419 via /ge rules while user a has en-US locale.
 	view := rulesShow(t, s, s.a, id)
-	picked := rulesPick(t, s, s.a, view, id, "language")
-	options := rulesReplyOf(t, s, picked)
-	optionID := "/gx/rule-option/" + id.String() + "/language"
-	chosen, err := s.fake.Select(t.Context(), s.users[s.a], options.message, optionID, "es-419")
-	if err != nil {
-		t.Fatalf("Select es-419: %v", err)
-	}
-	refreshed := rulesReplyOf(t, s, chosen)
-	if refreshed.embed.Title != "Reglas - Winter" {
-		t.Errorf("refreshed rules title = %q, want Reglas - Winter", refreshed.embed.Title)
-	}
-	if got := rulesField(t, refreshed.embed, "Idioma"); got != "es-419" {
-		t.Errorf("Idioma field = %q, want es-419", got)
+	if view.embed.Title != "Reglas - Winter" {
+		t.Errorf("rules title = %q, want Reglas - Winter", view.embed.Title)
 	}
 
-	// Non-organizer attempting to draw gets Spanish forbidden error even with en-US user locale.
+	// Non-organizer attempting to draw gets Spanish forbidden error.
 	denied := replyTo(t, s.harness, slashOrFail(t, s.harness, s.b, s.ge("draw", true, map[string]any{"exchange": id.String()})))
 	if denied.content != "No tienes permiso para hacer eso en este intercambio." {
 		t.Errorf("forbidden draw reply = %q, want Spanish forbidden text", denied.content)
@@ -1221,23 +1214,18 @@ func TestLanguageRuleSwitchesExchangeMessagesAndErrorsRegardlessOfUserLocale(t *
 		t.Errorf("participant DM = %+v, want Spanish draw DM", dms)
 	}
 
-	// Switch language back to en while in drawn state; user a has es-419 locale.
-	if err := s.fake.SetUserLocale(s.users[s.a], "es-419"); err != nil {
+	// Switch guild and user a to en-US; subsequent interactions for user a render in English.
+	if err := s.fake.SetGuildLocale(s.guild, "en-US"); err != nil {
+		t.Fatalf("SetGuildLocale: %v", err)
+	}
+	if err := s.fake.SetUserLocale(s.users[s.a], "en-US"); err != nil {
 		t.Fatalf("SetUserLocale: %v", err)
 	}
 	drawnView := rulesShow(t, s, s.a, id)
-	pickedDrawn := rulesPick(t, s, s.a, drawnView, id, "language")
-	optionsDrawn := rulesReplyOf(t, s, pickedDrawn)
-	chosenEN, err := s.fake.Select(t.Context(), s.users[s.a], optionsDrawn.message, optionID, "en")
-	if err != nil {
-		t.Fatalf("Select en: %v", err)
-	}
-	refreshedEN := rulesReplyOf(t, s, chosenEN)
-	if refreshedEN.embed.Title != "Rules - Winter" {
-		t.Errorf("refreshed rules title = %q, want Rules - Winter", refreshedEN.embed.Title)
+	if drawnView.embed.Title != "Rules - Winter" {
+		t.Errorf("rules title = %q, want Rules - Winter", drawnView.embed.Title)
 	}
 
-	// Reveal prompt is now in English despite user a having es-419 locale.
 	revealAsk := rulesReplyOf(t, s, slashOrFail(t, s.harness, s.a, s.ge("reveal", true, map[string]any{"exchange": id.String()})))
 	if !strings.Contains(revealAsk.content, "Reveal **Winter** now? Each participant will learn their giver.") {
 		t.Errorf("reveal prompt = %q, want English prompt", revealAsk.content)

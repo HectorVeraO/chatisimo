@@ -53,7 +53,7 @@ func (h *Handlers) rulesExclude(data discord.SlashCommandInteractionData, e *han
 	}
 
 	c := h.catalogFor(req)
-	pair, err := h.rulesResolvePair(e, c, data)
+	pair, err := h.rulesResolvePair(e, data)
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func (h *Handlers) rulesExclude(data discord.SlashCommandInteractionData, e *han
 	both := data.Bool(rulesBothOption)
 	addErr := h.svc.AddExclusion(e.Ctx, req.Actor, *req.Group, id, pair.giver, pair.recipient, both)
 	if addErr != nil {
-		return rulesTranslate(c, addErr)
+		return rulesTranslate(addErr)
 	}
 
 	text := c.Format(textExcluded, pair.giverMention, pair.recipientMention)
@@ -94,14 +94,14 @@ func (h *Handlers) rulesUnexclude(data discord.SlashCommandInteractionData, e *h
 	}
 
 	c := h.catalogFor(req)
-	pair, err := h.rulesResolvePair(e, c, data)
+	pair, err := h.rulesResolvePair(e, data)
 	if err != nil {
 		return err
 	}
 
 	removeErr := h.svc.RemoveExclusion(e.Ctx, req.Actor, *req.Group, id, pair.giver, pair.recipient)
 	if removeErr != nil {
-		return rulesTranslate(c, removeErr)
+		return rulesTranslate(removeErr)
 	}
 
 	text := c.Format(textUnexcluded, pair.giverMention, pair.recipientMention)
@@ -120,16 +120,16 @@ func rulesReply(e *handler.CommandEvent, req *router.Request, text string) error
 // rulesResolvePair resolves the giver and recipient options to people, reporting every
 // problem with them together. A bot, or a user Discord did not resolve, is never a participant.
 func (h *Handlers) rulesResolvePair(
-	e *handler.CommandEvent, c Catalog, data discord.SlashCommandInteractionData,
+	e *handler.CommandEvent, data discord.SlashCommandInteractionData,
 ) (rulesPair, error) {
 	var pair rulesPair
 	var problems []error
 
-	giver, giverErr := h.rulesResolveUser(e.Ctx, c, data, rulesGiverOption)
+	giver, giverErr := h.rulesResolveUser(e.Ctx, data, rulesGiverOption)
 	if giverErr != nil {
 		problems = append(problems, giverErr)
 	}
-	recipient, recipientErr := h.rulesResolveUser(e.Ctx, c, data, rulesRecipientOption)
+	recipient, recipientErr := h.rulesResolveUser(e.Ctx, data, rulesRecipientOption)
 	if recipientErr != nil {
 		problems = append(problems, recipientErr)
 	}
@@ -152,17 +152,17 @@ type rulesUser struct {
 }
 
 func (h *Handlers) rulesResolveUser(
-	ctx context.Context, c Catalog, data discord.SlashCommandInteractionData, option string,
+	ctx context.Context, data discord.SlashCommandInteractionData, option string,
 ) (rulesUser, error) {
 	user, found := data.OptUser(option)
 	if !found || user.Bot {
-		return rulesUser{}, &giftexchange.InputError{Field: option, Reason: c.Get(textRulesNotAPersonReason)}
+		return rulesUser{}, &inputProblemError{field: option, reasonID: textRulesNotAPersonReason}
 	}
 
 	subject := user.ID.String()
 	mention, err := render.Mention(subject)
 	if err != nil {
-		return rulesUser{}, &giftexchange.InputError{Field: option, Reason: c.Get(textRulesNotAPersonReason)}
+		return rulesUser{}, &inputProblemError{field: option, reasonID: textRulesNotAPersonReason}
 	}
 
 	person, err := h.svc.ResolvePerson(ctx, giftexchange.IdentityRef{
@@ -178,9 +178,9 @@ func (h *Handlers) rulesResolveUser(
 
 // rulesTranslate words the module's not-a-participant refusal for the people the command
 // named; the module's text is about the caller.
-func rulesTranslate(c Catalog, err error) error {
+func rulesTranslate(err error) error {
 	if errors.Is(err, giftexchange.ErrNotParticipant) {
-		return &giftexchange.InputError{Field: "exclusion", Reason: c.Get(textRulesNotParticipantText)}
+		return &inputProblemError{field: "exclusion", reasonID: textRulesNotParticipantText}
 	}
 
 	return fmt.Errorf("change exclusion: %w", err)

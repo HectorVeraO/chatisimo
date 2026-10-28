@@ -146,9 +146,9 @@ func (h *Handlers) rulesPick(e *handler.ComponentEvent) error {
 	case giftexchange.RuleKindEnum, giftexchange.RuleKindBool:
 		return h.rulesOfferOptions(e.Ctx, c, req, parsed.Exchange, rule)
 	case giftexchange.RuleKindInt, giftexchange.RuleKindExclusions:
-		return &giftexchange.InputError{Field: string(rule.Name), Reason: c.Get(textRulesNotEditable)}
+		return &inputProblemError{field: string(rule.Name), reasonID: textRulesNotEditable}
 	default:
-		return &giftexchange.InputError{Field: string(rule.Name), Reason: c.Get(textRulesNotEditable)}
+		return &inputProblemError{field: string(rule.Name), reasonID: textRulesNotEditable}
 	}
 }
 
@@ -218,7 +218,7 @@ func (h *Handlers) rulesModal(e *handler.ModalEvent) error {
 		return deferErr //nolint:wrapcheck // the router reduces REST errors to status and code
 	}
 
-	change, err := h.rulesChangeFor(c, rule, e.Data.Text(rulesValueInputID))
+	change, err := h.rulesChangeFor(rule, e.Data.Text(rulesValueInputID))
 	if err != nil {
 		return h.rulesRejectInput(e.Ctx, c, req, parsed.Exchange, err)
 	}
@@ -252,7 +252,7 @@ func (h *Handlers) rulesEditable(
 	if err != nil {
 		return giftexchange.RuleView{}, Catalog{}, err
 	}
-	c := CatalogForExchange(view.Language)
+	c := h.catalogFor(req)
 	if !view.CallerIsOrganizer {
 		return giftexchange.RuleView{}, c, giftexchange.ErrForbidden
 	}
@@ -262,19 +262,19 @@ func (h *Handlers) rulesEditable(
 			continue
 		}
 
-		checked, checkErr := rulesCheckEditable(c, rule, view.State)
+		checked, checkErr := rulesCheckEditable(rule, view.State)
 		return checked, c, checkErr
 	}
 
 	return giftexchange.RuleView{}, c, fmt.Errorf("rule %q: %w", name, giftexchange.ErrUnknownRule)
 }
 
-func rulesCheckEditable(c Catalog, rule giftexchange.RuleView, state giftexchange.State) (giftexchange.RuleView, error) {
+func rulesCheckEditable(rule giftexchange.RuleView, state giftexchange.State) (giftexchange.RuleView, error) {
 	switch {
 	case !rule.Configurable:
 		return giftexchange.RuleView{}, giftexchange.ErrRuleFixed
 	case rule.Kind == giftexchange.RuleKindExclusions:
-		return giftexchange.RuleView{}, &giftexchange.InputError{Field: "rule", Reason: c.Get(textRulesExclusionsHint)}
+		return giftexchange.RuleView{}, &inputProblemError{field: "rule", reasonID: textRulesExclusionsHint}
 	case !rule.EditableNow:
 		return giftexchange.RuleView{}, &giftexchange.RuleLockedError{Rule: rule.Name, State: state}
 	default:
@@ -290,7 +290,6 @@ func (h *Handlers) rulesRead(
 	if err != nil {
 		return giftexchange.ExchangeView{}, nil, fmt.Errorf("read exchange: %w", err)
 	}
-	req.SetLocale(string(view.Language))
 
 	rules, err := h.svc.Rules(ctx, req.Actor, *req.Group, id)
 	if err != nil {
@@ -331,7 +330,7 @@ func (h *Handlers) rulesShow(
 		return err
 	}
 
-	c := CatalogForExchange(snapshot.view.Language)
+	c := h.catalogFor(req)
 	embeds := []discord.Embed{rulesEmbed(c, snapshot)}
 	components := rulesPickComponents(c, snapshot)
 	editErr := req.EditOriginal(ctx, discord.MessageUpdate{
@@ -375,11 +374,11 @@ func (h *Handlers) rulesRejectInput(
 
 // rulesChangeFor turns the text typed in the modal into the change the module takes. Empty
 // input clears a time rule; a duration goes through as typed, and the module reads it.
-func (h *Handlers) rulesChangeFor(c Catalog, rule giftexchange.RuleView, typed string) (giftexchange.RuleChange, error) {
+func (h *Handlers) rulesChangeFor(rule giftexchange.RuleView, typed string) (giftexchange.RuleChange, error) {
 	field := string(rule.Name)
 	isTooLong := utf8.RuneCountInString(typed) > rulesMaxModalInputRunes
 	if isTooLong {
-		return giftexchange.RuleChange{}, &giftexchange.InputError{Field: field, Reason: c.Get(textRulesTooLongReason)}
+		return giftexchange.RuleChange{}, &inputProblemError{field: field, reasonID: textRulesTooLongReason}
 	}
 
 	trimmed := strings.TrimSpace(typed)
@@ -389,7 +388,7 @@ func (h *Handlers) rulesChangeFor(c Catalog, rule giftexchange.RuleView, typed s
 
 	when, isEmpty, err := parseWhen(trimmed, h.now(), h.loc)
 	if err != nil {
-		return giftexchange.RuleChange{}, &giftexchange.InputError{Field: field, Reason: c.Get(textRulesBadTimeReason)}
+		return giftexchange.RuleChange{}, &inputProblemError{field: field, reasonID: textRulesBadTimeReason}
 	}
 	if isEmpty {
 		return giftexchange.RuleChange{Name: rule.Name, Raw: rulesUnsetRaw}, nil
@@ -528,8 +527,6 @@ func rulesLabel(c Catalog, name giftexchange.RuleName) (string, bool) {
 		return c.Get(textRuleExclusions), true
 	case giftexchange.RuleQuestionsEnabled:
 		return c.Get(textRuleQuestionsEnabled), true
-	case giftexchange.RuleLanguage:
-		return c.Get(textRuleLanguage), true
 	case giftexchange.RuleMinParticipants:
 		return c.Get(textRuleMinParticipants), true
 	case giftexchange.RuleMaxParticipants:

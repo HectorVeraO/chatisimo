@@ -51,14 +51,14 @@ func ParseQuestionText(raw string) (string, error) {
 // than uuid.Parse, and rejects the zero uuid.
 func parseCanonicalUUID(field, raw string) (uuid.UUID, error) {
 	if !isCanonicalUUIDForm(raw) {
-		return uuid.UUID{}, &InputError{Field: field, Code: InputCodeNotCanonicalUUID, Reason: "is not a canonical uuid"}
+		return uuid.UUID{}, &InputError{Field: field, Code: InputCodeNotCanonicalUUID}
 	}
 	parsed, err := uuid.Parse(raw)
 	if err != nil {
-		return uuid.UUID{}, &InputError{Field: field, Code: InputCodeNotCanonicalUUID, Reason: "is not a canonical uuid"}
+		return uuid.UUID{}, &InputError{Field: field, Code: InputCodeNotCanonicalUUID}
 	}
 	if parsed == (uuid.UUID{}) {
-		return uuid.UUID{}, &InputError{Field: field, Code: InputCodeZeroUUID, Reason: "must not be the zero uuid"}
+		return uuid.UUID{}, &InputError{Field: field, Code: InputCodeZeroUUID}
 	}
 	return parsed, nil
 }
@@ -100,28 +100,28 @@ func parseText(field, raw string, maxRunes int, allowNewline bool) (string, erro
 	text = strings.TrimSpace(text)
 	runeCount := utf8.RuneCountInString(text)
 	if runeCount == 0 {
-		return "", &InputError{Field: field, Code: InputCodeEmpty, Reason: "is empty"}
+		return "", &InputError{Field: field, Code: InputCodeEmpty}
 	}
 
 	var problems []error
 	if !utf8.ValidString(raw) {
-		problems = append(problems, &InputError{Field: field, Code: InputCodeInvalidUTF8, Reason: "is not valid UTF-8"})
+		problems = append(problems, &InputError{Field: field, Code: InputCodeInvalidUTF8})
 	}
 	if runeCount > maxRunes {
-		problems = append(problems, &InputError{Field: field, Code: InputCodeTooLong, Reason: "is too long", Max: maxRunes})
+		problems = append(problems, &InputError{Field: field, Code: InputCodeTooLong, Max: maxRunes})
 	}
 	flaws := scanText(text, allowNewline)
 	if flaws.hasControl {
-		problems = append(problems, &InputError{Field: field, Code: InputCodeControlChars, Reason: "contains control characters"})
+		problems = append(problems, &InputError{Field: field, Code: InputCodeControlChars})
 	}
 	if flaws.hasBreak {
-		problems = append(problems, &InputError{Field: field, Code: InputCodeLineBreaks, Reason: "contains line breaks"})
+		problems = append(problems, &InputError{Field: field, Code: InputCodeLineBreaks})
 	}
 	if flaws.hasBidi {
-		problems = append(problems, &InputError{Field: field, Code: InputCodeBidiChars, Reason: "contains bidirectional control characters"})
+		problems = append(problems, &InputError{Field: field, Code: InputCodeBidiChars})
 	}
 	if !flaws.hasVisible {
-		problems = append(problems, &InputError{Field: field, Code: InputCodeNoVisibleChar, Reason: "has no visible character"})
+		problems = append(problems, &InputError{Field: field, Code: InputCodeNoVisibleChar})
 	}
 	if len(problems) > 0 {
 		return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors

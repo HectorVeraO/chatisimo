@@ -84,7 +84,7 @@ func (h *Handlers) preferencesCommand(data discord.SlashCommandInteractionData, 
 		return nameErr
 	}
 
-	c := CatalogForExchange(summary.Language)
+	c := h.catalogFor(req)
 	content := c.Format(textPreferencesSaved, render.Bold(summary.Name))
 	embed := withPreferences(c, render.Embed(c.Format(textTitlePreferences, render.Text(summary.Name)), ""), saved)
 	embeds := []discord.Embed{embed}
@@ -112,7 +112,7 @@ func (h *Handlers) clearPreferences(
 		return nameErr
 	}
 
-	c := CatalogForExchange(summary.Language)
+	c := h.catalogFor(req)
 	content := c.Format(textPreferencesCleared, render.Bold(summary.Name))
 	embeds := []discord.Embed{}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &content, Embeds: &embeds})
@@ -139,7 +139,7 @@ func (h *Handlers) viewPreferences(
 		return nameErr
 	}
 
-	c := CatalogForExchange(summary.Language)
+	c := h.catalogFor(req)
 	if prefs.IsEmpty() {
 		content := c.Format(textPreferencesNone, render.Bold(summary.Name))
 		editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Content: &content})

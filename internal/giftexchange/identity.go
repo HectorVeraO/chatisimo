@@ -115,22 +115,22 @@ func (s *Service) createPerson(
 	return winner, nil
 }
 
-// validateProviderRef reports every flaw of a provider reference together. The reasons are
-// fixed phrases; the rejected subject never appears in them.
+// validateProviderRef reports every flaw of a provider reference together. The rejected subject
+// never appears in the error.
 func validateProviderRef(kind string, provider Provider, subject string) error {
 	var problems []error
 	if provider != ProviderDiscord {
-		problems = append(problems, &InputError{Field: kind + ".provider", Code: InputCodeUnknown, Reason: "is unknown"})
+		problems = append(problems, &InputError{Field: kind + ".provider", Code: InputCodeUnknown})
 	}
 	if subject == "" {
-		problems = append(problems, &InputError{Field: kind + ".subject", Code: InputCodeEmpty, Reason: "is empty"})
+		problems = append(problems, &InputError{Field: kind + ".subject", Code: InputCodeEmpty})
 	}
 	if len(subject) > maxSubjectBytes {
-		problems = append(problems, &InputError{Field: kind + ".subject", Code: InputCodeTooLong, Reason: "is too long", Max: maxSubjectBytes})
+		problems = append(problems, &InputError{Field: kind + ".subject", Code: InputCodeTooLong, Max: maxSubjectBytes})
 	}
 	isText := utf8.ValidString(subject) && !strings.ContainsRune(subject, 0)
 	if !isText {
-		problems = append(problems, &InputError{Field: kind + ".subject", Code: InputCodeInvalidText, Reason: "is not valid text"})
+		problems = append(problems, &InputError{Field: kind + ".subject", Code: InputCodeInvalidText})
 	}
 	if len(problems) > 0 {
 		return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors

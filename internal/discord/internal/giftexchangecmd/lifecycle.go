@@ -75,12 +75,11 @@ func (h *Handlers) cancelCommand(data discord.SlashCommandInteractionData, e *ha
 	if err != nil {
 		return fmt.Errorf("read exchange: %w", err)
 	}
-	req.SetLocale(string(view.Language))
 	if view.Organizer.ID != req.Actor.Person() {
 		return giftexchange.ErrForbidden
 	}
 
-	c := CatalogForExchange(view.Language)
+	c := h.catalogFor(req)
 	text := c.Format(textConfirmCancel, render.Bold(view.Name))
 	return membershipEditWithButtons(e.Ctx, req, c, text, customID{Action: actionCancelConfirm, Exchange: id})
 }
@@ -98,14 +97,13 @@ func (h *Handlers) cancelConfirmButton(e *handler.ComponentEvent) error {
 	if err != nil {
 		return fmt.Errorf("read exchange: %w", err)
 	}
-	req.SetLocale(string(view.Language))
 
 	cancelErr := h.svc.Cancel(e.Ctx, req.Actor, *req.Group, parsed.Exchange)
 	if cancelErr != nil {
 		return fmt.Errorf("cancel exchange: %w", cancelErr)
 	}
 
-	c := CatalogForExchange(view.Language)
+	c := h.catalogFor(req)
 	editErr := membershipEdit(e.Ctx, req, c.Format(textCancelled, render.Bold(view.Name)))
 
 	// The exchange is cancelled whether or not the confirmation edit worked, so the

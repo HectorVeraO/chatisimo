@@ -13,12 +13,13 @@ import (
 // Handlers is the handler set of the giftexchange feature.
 type Handlers struct {
 	svc Service
-	// guildName returns the name of the guild with the given snowflake, or the text for an
-	// unknown server.
+	// guildName returns the name of the guild with the given snowflake, or empty when unknown.
 	guildName func(subject string) string
-	now       func() time.Time
-	loc       *time.Location
-	logger    *slog.Logger
+	// guildLocale returns the last known Discord locale of the guild with the given snowflake.
+	guildLocale func(subject string) string
+	now         func() time.Time
+	loc         *time.Location
+	logger      *slog.Logger
 }
 
 // New validates its arguments, reporting every problem together, and returns the handlers.
@@ -88,6 +89,22 @@ func (h *Handlers) verb(
 	}
 
 	panic("giftexchangecmd: unknown verb " + name)
+}
+
+// SetGuildLocale sets the optional callback that returns a guild's preferred Discord locale
+// from its subject snowflake. When set, DM handlers resolve the exchange's server locale
+// alongside the user's locale.
+func (h *Handlers) SetGuildLocale(fn func(subject string) string) {
+	h.guildLocale = fn
+}
+
+func (h *Handlers) setGroupLocale(req *router.Request, groupSubject string) {
+	var guildLoc string
+	if h.guildLocale != nil && groupSubject != "" {
+		guildLoc = h.guildLocale(groupSubject)
+	}
+	loc := ResolveLocale(req.Locale(), req.GuildLocale(), guildLoc)
+	req.SetLocale(string(loc))
 }
 
 func (h *Handlers) catalogFor(req *router.Request) Catalog {

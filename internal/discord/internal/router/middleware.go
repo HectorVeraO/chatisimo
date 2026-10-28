@@ -132,6 +132,9 @@ func panicSite() string {
 func (r *Router) requestLog(next handler.Handler) handler.Handler {
 	return func(e *handler.InteractionEvent) error {
 		req := newRequest(e)
+		if r.observe != nil {
+			r.observe(req)
+		}
 		ctx, cancel := context.WithTimeout(withRequest(e.Ctx, req), interactionTimeout)
 		defer cancel()
 		e.Ctx = ctx

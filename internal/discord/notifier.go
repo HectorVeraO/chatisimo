@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/discord"
@@ -34,6 +35,10 @@ type Notifier struct {
 	logger *slog.Logger
 	// token is kept for the Gateway client that Adapter.Open builds over this notifier.
 	token config.Secret
+
+	localeMu     sync.RWMutex
+	userLocales  map[snowflake.ID]string
+	guildLocales map[snowflake.ID]string
 }
 
 // NewNotifier validates s and builds the REST client and the guild cache. It does no I/O. It
@@ -64,10 +69,12 @@ func NewNotifier(s Settings, logger *slog.Logger) (*Notifier, error) {
 	noMentions := render.NoMentions()
 
 	notifier := &Notifier{
-		rest:   rest.New(client, rest.WithDefaultAllowedMentions(noMentions)),
-		caches: cache.New(cache.WithCaches(cache.FlagGuilds)),
-		logger: logger,
-		token:  s.Token,
+		rest:         rest.New(client, rest.WithDefaultAllowedMentions(noMentions)),
+		caches:       cache.New(cache.WithCaches(cache.FlagGuilds)),
+		logger:       logger,
+		token:        s.Token,
+		userLocales:  make(map[snowflake.ID]string),
+		guildLocales: make(map[snowflake.ID]string),
 	}
 	return notifier, nil
 }
@@ -98,7 +105,8 @@ func (n *Notifier) Notify(ctx context.Context, msg giftexchange.Notification) er
 		return fmt.Errorf("notify %s %s: %w: %w", msg.ID, msg.Kind, err, giftexchange.ErrUndeliverable)
 	}
 
-	message, err := giftexchangecmd.RenderNotification(msg, n.guildName(msg.Exchange.Group))
+	loc := giftexchangecmd.ResolveLocale(n.userLocale(userID), n.guildLocale(msg.Exchange.Group))
+	message, err := giftexchangecmd.RenderNotificationIn(loc, msg, n.guildName(msg.Exchange.Group))
 	if err != nil {
 		return fmt.Errorf("notify %s %s: %w", msg.ID, msg.Kind, err)
 	}
@@ -178,6 +186,46 @@ func (n *Notifier) guildName(g giftexchange.Group) string {
 	}
 
 	return guild.Name
+}
+
+func (n *Notifier) recordInteractionLocales(userID, guildID snowflake.ID, userLocale, guildLocale string) {
+	n.localeMu.Lock()
+	defer n.localeMu.Unlock()
+
+	if userID != 0 && userLocale != "" {
+		n.userLocales[userID] = userLocale
+	}
+	if guildID != 0 && guildLocale != "" {
+		n.guildLocales[guildID] = guildLocale
+	}
+}
+
+func (n *Notifier) userLocale(userID snowflake.ID) string {
+	n.localeMu.RLock()
+	defer n.localeMu.RUnlock()
+
+	return n.userLocales[userID]
+}
+
+func (n *Notifier) guildLocale(g giftexchange.Group) string {
+	id, err := snowflake.Parse(g.Subject)
+	if err != nil {
+		return ""
+	}
+
+	n.localeMu.RLock()
+	loc := n.guildLocales[id]
+	n.localeMu.RUnlock()
+	if loc != "" {
+		return loc
+	}
+
+	guild, found := n.caches.Guild(id)
+	if !found {
+		return ""
+	}
+
+	return string(guild.PreferredLocale)
 }
 
 // Caches returns the guild cache the notifier reads guild names from. The Gateway client is

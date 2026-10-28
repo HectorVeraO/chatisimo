@@ -59,231 +59,253 @@ func loadTextConstants(t *testing.T) map[string]MsgID {
 // and this table disagree, so the catalog checks below never skip a key.
 func allTextIDs() map[string]MsgID {
 	return map[string]MsgID{
-		"textGuildOnly":                 textGuildOnly,
-		"textNoCandidates":              textNoCandidates,
-		"textChooseExchange":            textChooseExchange,
-		"textNoMatch":                   textNoMatch,
-		"textCreated":                   textCreated,
-		"textCardBody":                  textCardBody,
-		"textManual":                    textManual,
-		"textJoined":                    textJoined,
-		"textLeft":                      textLeft,
-		"textConfirmLeave":              textConfirmLeave,
-		"textConfirmRemove":             textConfirmRemove,
-		"textRemoved":                   textRemoved,
-		"textOutcomeRemoved":            textOutcomeRemoved,
-		"textOutcomePatched":            textOutcomePatched,
-		"textOutcomeRedrawn":            textOutcomeRedrawn,
-		"textOutcomeReopened":           textOutcomeReopened,
-		"textOwnRecipient":              textOwnRecipient,
-		"textExcluded":                  textExcluded,
-		"textExcludedBoth":              textExcludedBoth,
-		"textUnexcluded":                textUnexcluded,
-		"textRenamed":                   textRenamed,
-		"textConfirmDraw":               textConfirmDraw,
-		"textDrawn":                     textDrawn,
-		"textDrawnPublic":               textDrawnPublic,
-		"textConfirmReveal":             textConfirmReveal,
-		"textRevealed":                  textRevealed,
-		"textRevealedPublic":            textRevealedPublic,
-		"textConfirmCancel":             textConfirmCancel,
-		"textCancelled":                 textCancelled,
-		"textCancelledPublic":           textCancelledPublic,
-		"textNothingChanged":            textNothingChanged,
-		"textAsked":                     textAsked,
-		"textPreferencesSaved":          textPreferencesSaved,
-		"textPreferencesCleared":        textPreferencesCleared,
-		"textPreferencesNone":           textPreferencesNone,
-		"textYourAnswer":                textYourAnswer,
-		"textNotSaved":                  textNotSaved,
-		"textNotSavedLine":              textNotSavedLine,
-		"textInvalidInput":              textInvalidInput,
-		"textBadTime":                   textBadTime,
-		"textNotFound":                  textNotFound,
-		"textForbidden":                 textForbidden,
-		"textAlreadyParticipant":        textAlreadyParticipant,
-		"textNotParticipant":            textNotParticipant,
-		"textFull":                      textFull,
-		"textTooFew":                    textTooFew,
-		"textInfeasible":                textInfeasible,
-		"textRuleFixed":                 textRuleFixed,
-		"textRuleLocked":                textRuleLocked,
-		"textUnknownRule":               textUnknownRule,
-		"textQuestionsOff":              textQuestionsOff,
-		"textRateLimited":               textRateLimited,
-		"textRephraseFailed":            textRephraseFailed,
-		"textInvalidState":              textInvalidState,
-		"textInternal":                  textInternal,
-		"textQuestionClosed":            textQuestionClosed,
-		"textAlreadyAnswered":           textAlreadyAnswered,
-		"textRulesState":                textRulesState,
-		"textRoleOrganizer":             textRoleOrganizer,
-		"textRoleParticipant":           textRoleParticipant,
-		"textRoleBoth":                  textRoleBoth,
-		"textRoleNone":                  textRoleNone,
-		"textStateOpen":                 textStateOpen,
-		"textStateDrawn":                textStateDrawn,
-		"textStateRevealed":             textStateRevealed,
-		"textStateCancelled":            textStateCancelled,
-		"textListTitle":                 textListTitle,
-		"textListEmpty":                 textListEmpty,
-		"textListLine":                  textListLine,
-		"textHelpLead":                  textHelpLead,
-		"textHelpCreate":                textHelpCreate,
-		"textHelpList":                  textHelpList,
-		"textHelpJoin":                  textHelpJoin,
-		"textHelpLeave":                 textHelpLeave,
-		"textHelpRemove":                textHelpRemove,
-		"textHelpRules":                 textHelpRules,
-		"textHelpExclude":               textHelpExclude,
-		"textHelpUnexclude":             textHelpUnexclude,
-		"textHelpRename":                textHelpRename,
-		"textHelpDraw":                  textHelpDraw,
-		"textHelpRecipient":             textHelpRecipient,
-		"textHelpGiver":                 textHelpGiver,
-		"textHelpAsk":                   textHelpAsk,
-		"textHelpQuestions":             textHelpQuestions,
-		"textHelpPreferences":           textHelpPreferences,
-		"textHelpReveal":                textHelpReveal,
-		"textHelpCancel":                textHelpCancel,
-		"textHelpHelp":                  textHelpHelp,
-		"textRuleDrawAt":                textRuleDrawAt,
-		"textRuleRevealAt":              textRuleRevealAt,
-		"textRuleReminderLead":          textRuleReminderLead,
-		"textRuleDropoutPolicy":         textRuleDropoutPolicy,
-		"textRuleAvoidLastRound":        textRuleAvoidLastRound,
-		"textRuleExclusions":            textRuleExclusions,
-		"textRuleQuestionsEnabled":      textRuleQuestionsEnabled,
-		"textRuleLanguage":              textRuleLanguage,
-		"textRuleMinParticipants":       textRuleMinParticipants,
-		"textRuleMaxParticipants":       textRuleMaxParticipants,
-		"textRuleNoSelfAssignment":      textRuleNoSelfAssignment,
-		"textRuleRedrawBelow":           textRuleRedrawBelow,
-		"textRuleQuestionMaxLength":     textRuleQuestionMaxLength,
-		"textRuleQuestionsPerDay":       textRuleQuestionsPerDay,
-		"textTimeValue":                 textTimeValue,
-		"textReminderOff":               textReminderOff,
-		"textOn":                        textOn,
-		"textOff":                       textOff,
-		"textNever":                     textNever,
-		"textDropoutPatch":              textDropoutPatch,
-		"textDropoutRedraw":             textDropoutRedraw,
-		"textRedrawBelowValue":          textRedrawBelowValue,
-		"textQuestionLengthValue":       textQuestionLengthValue,
-		"textSuffixDefault":             textSuffixDefault,
-		"textSuffixFixed":               textSuffixFixed,
-		"textSuffixLocked":              textSuffixLocked,
-		"textRulesBadTimeReason":        textRulesBadTimeReason,
-		"textRulesTooLongReason":        textRulesTooLongReason,
-		"textRulesExclusionsHint":       textRulesExclusionsHint,
-		"textRulesNotEditable":          textRulesNotEditable,
-		"textRulesNotAPersonReason":     textRulesNotAPersonReason,
-		"textRulesNotParticipantText":   textRulesNotParticipantText,
-		"textFieldNameName":             textFieldNameName,
-		"textFieldNameText":             textFieldNameText,
-		"textFieldNameLikes":            textFieldNameLikes,
-		"textFieldNameDislikes":         textFieldNameDislikes,
-		"textFieldNameDetails":          textFieldNameDetails,
-		"textFieldNameDrawAt":           textFieldNameDrawAt,
-		"textFieldNameRevealAt":         textFieldNameRevealAt,
-		"textFieldNameReminderLead":     textFieldNameReminderLead,
-		"textFieldNameDropoutPolicy":    textFieldNameDropoutPolicy,
-		"textFieldNameAvoidLastRound":   textFieldNameAvoidLastRound,
-		"textFieldNameQuestionsEnabled": textFieldNameQuestionsEnabled,
-		"textFieldNameLanguage":         textFieldNameLanguage,
-		"textFieldNameRecipient":        textFieldNameRecipient,
-		"textFieldNameGiver":            textFieldNameGiver,
-		"textFieldNameRule":             textFieldNameRule,
-		"textFieldNameExclusion":        textFieldNameExclusion,
-		"textFieldNameExchangeID":       textFieldNameExchangeID,
-		"textFieldNameQuestionID":       textFieldNameQuestionID,
-		"textFieldNamePersonID":         textFieldNamePersonID,
-		"textFieldNameGroupID":          textFieldNameGroupID,
-		"textFieldNameGiverID":          textFieldNameGiverID,
-		"textFieldNameRecipientID":      textFieldNameRecipientID,
-		"textFieldNameIdentityProvider": textFieldNameIdentityProvider,
-		"textFieldNameIdentitySubject":  textFieldNameIdentitySubject,
-		"textFieldNameGroupProvider":    textFieldNameGroupProvider,
-		"textFieldNameGroupSubject":     textFieldNameGroupSubject,
-		"textFieldNameRegistry":         textFieldNameRegistry,
-		"textFieldNameDepsPool":         textFieldNameDepsPool,
-		"textFieldNameDepsScheduler":    textFieldNameDepsScheduler,
-		"textFieldNameDepsClock":        textFieldNameDepsClock,
-		"textFieldNameDepsRandom":       textFieldNameDepsRandom,
-		"textFieldNameDepsNotifier":     textFieldNameDepsNotifier,
-		"textFieldNameDepsRephraser":    textFieldNameDepsRephraser,
-		"textFieldNameDepsLogger":       textFieldNameDepsLogger,
-		"textReasonRequired":            textReasonRequired,
-		"textReasonUnknown":             textReasonUnknown,
-		"textReasonEmpty":               textReasonEmpty,
-		"textReasonTooLong":             textReasonTooLong,
-		"textReasonInvalidUTF8":         textReasonInvalidUTF8,
-		"textReasonInvalidText":         textReasonInvalidText,
-		"textReasonControlChars":        textReasonControlChars,
-		"textReasonLineBreaks":          textReasonLineBreaks,
-		"textReasonBidiChars":           textReasonBidiChars,
-		"textReasonNoVisibleChar":       textReasonNoVisibleChar,
-		"textReasonNotCanonicalUUID":    textReasonNotCanonicalUUID,
-		"textReasonZeroUUID":            textReasonZeroUUID,
-		"textReasonEditedViaExclusions": textReasonEditedViaExclusions,
-		"textReasonInvalidInstant":      textReasonInvalidInstant,
-		"textReasonYearOutOfRange":      textReasonYearOutOfRange,
-		"textReasonInvalidDuration":     textReasonInvalidDuration,
-		"textReasonDurationOutOfRange":  textReasonDurationOutOfRange,
-		"textReasonNotOneOf":            textReasonNotOneOf,
-		"textReasonInvalidBool":         textReasonInvalidBool,
-		"textReasonMustBeFuture":        textReasonMustBeFuture,
-		"textReasonBeforeRevealAt":      textReasonBeforeRevealAt,
-		"textReasonAfterDrawAt":         textReasonAfterDrawAt,
-		"textReasonSameAsGiver":         textReasonSameAsGiver,
-		"textButtonJoin":                textButtonJoin,
-		"textButtonLeave":               textButtonLeave,
-		"textButtonRules":               textButtonRules,
-		"textButtonConfirm":             textButtonConfirm,
-		"textButtonBack":                textButtonBack,
-		"textButtonAnswer":              textButtonAnswer,
-		"textFieldDraw":                 textFieldDraw,
-		"textFieldReveal":               textFieldReveal,
-		"textRulesTitle":                textRulesTitle,
-		"textParticipantsField":         textParticipantsField,
-		"textExclusionsField":           textExclusionsField,
-		"textAndMore":                   textAndMore,
-		"textQuestionModalTitle":        textQuestionModalTitle,
-		"textQuestionModalHint":         textQuestionModalHint,
-		"textQuestionListTitle":         textQuestionListTitle,
-		"textQuestionsAskedField":       textQuestionsAskedField,
-		"textQuestionsReceivedField":    textQuestionsReceivedField,
-		"textNoneYet":                   textNoneYet,
-		"textClosedMarker":              textClosedMarker,
-		"textTitleRecipient":            textTitleRecipient,
-		"textTitleNewRecipient":         textTitleNewRecipient,
-		"textTitleGiver":                textTitleGiver,
-		"textTitlePreferences":          textTitlePreferences,
-		"textFieldPreferences":          textFieldPreferences,
-		"textFieldLikes":                textFieldLikes,
-		"textFieldDislikes":             textFieldDislikes,
-		"textFieldDetails":              textFieldDetails,
-		"textSelectPlaceholder":         textSelectPlaceholder,
-		"textModalLabel":                textModalLabel,
-		"textModalTitle":                textModalTitle,
-		"textModalPlaceholderTime":      textModalPlaceholderTime,
-		"textModalPlaceholderReminder":  textModalPlaceholderReminder,
-		"textDMDrawn":                   textDMDrawn,
-		"textDMRedrawn":                 textDMRedrawn,
-		"textDMChanged":                 textDMChanged,
-		"textDMVoided":                  textDMVoided,
-		"textDMDrawFailed":              textDMDrawFailed,
-		"textDMDrawSoon":                textDMDrawSoon,
-		"textDMRevealSoon":              textDMRevealSoon,
-		"textDMRevealed":                textDMRevealed,
-		"textDMCancelled":               textDMCancelled,
-		"textDMQuestion":                textDMQuestion,
-		"textDMAnswer":                  textDMAnswer,
-		"textDMPreferencesUpdated":      textDMPreferencesUpdated,
-		"textDMFooter":                  textDMFooter,
-		"textReasonTooFew":              textReasonTooFew,
-		"textReasonNoValid":             textReasonNoValid,
-		"textUnknownServer":             textUnknownServer,
+		"textGuildOnly":                  textGuildOnly,
+		"textNoCandidates":               textNoCandidates,
+		"textChooseExchange":             textChooseExchange,
+		"textNoMatch":                    textNoMatch,
+		"textCreated":                    textCreated,
+		"textCardBody":                   textCardBody,
+		"textManual":                     textManual,
+		"textJoined":                     textJoined,
+		"textLeft":                       textLeft,
+		"textConfirmLeave":               textConfirmLeave,
+		"textConfirmRemove":              textConfirmRemove,
+		"textRemoved":                    textRemoved,
+		"textOutcomeRemoved":             textOutcomeRemoved,
+		"textOutcomePatched":             textOutcomePatched,
+		"textOutcomeRedrawn":             textOutcomeRedrawn,
+		"textOutcomeReopened":            textOutcomeReopened,
+		"textOwnRecipient":               textOwnRecipient,
+		"textExcluded":                   textExcluded,
+		"textExcludedBoth":               textExcludedBoth,
+		"textUnexcluded":                 textUnexcluded,
+		"textRenamed":                    textRenamed,
+		"textConfirmDraw":                textConfirmDraw,
+		"textDrawn":                      textDrawn,
+		"textDrawnPublic":                textDrawnPublic,
+		"textConfirmReveal":              textConfirmReveal,
+		"textRevealed":                   textRevealed,
+		"textRevealedPublic":             textRevealedPublic,
+		"textConfirmCancel":              textConfirmCancel,
+		"textCancelled":                  textCancelled,
+		"textCancelledPublic":            textCancelledPublic,
+		"textNothingChanged":             textNothingChanged,
+		"textAsked":                      textAsked,
+		"textPreferencesSaved":           textPreferencesSaved,
+		"textPreferencesCleared":         textPreferencesCleared,
+		"textPreferencesNone":            textPreferencesNone,
+		"textYourAnswer":                 textYourAnswer,
+		"textNotSaved":                   textNotSaved,
+		"textNotSavedLine":               textNotSavedLine,
+		"textInvalidInput":               textInvalidInput,
+		"textBadTime":                    textBadTime,
+		"textNotFound":                   textNotFound,
+		"textForbidden":                  textForbidden,
+		"textAlreadyParticipant":         textAlreadyParticipant,
+		"textNotParticipant":             textNotParticipant,
+		"textFull":                       textFull,
+		"textTooFew":                     textTooFew,
+		"textInfeasible":                 textInfeasible,
+		"textRuleFixed":                  textRuleFixed,
+		"textRuleLocked":                 textRuleLocked,
+		"textUnknownRule":                textUnknownRule,
+		"textQuestionsOff":               textQuestionsOff,
+		"textRateLimited":                textRateLimited,
+		"textRephraseFailed":             textRephraseFailed,
+		"textInvalidState":               textInvalidState,
+		"textInternal":                   textInternal,
+		"textQuestionClosed":             textQuestionClosed,
+		"textAlreadyAnswered":            textAlreadyAnswered,
+		"textRulesState":                 textRulesState,
+		"textRoleOrganizer":              textRoleOrganizer,
+		"textRoleParticipant":            textRoleParticipant,
+		"textRoleBoth":                   textRoleBoth,
+		"textRoleNone":                   textRoleNone,
+		"textStateOpen":                  textStateOpen,
+		"textStateDrawn":                 textStateDrawn,
+		"textStateRevealed":              textStateRevealed,
+		"textStateCancelled":             textStateCancelled,
+		"textListTitle":                  textListTitle,
+		"textListEmpty":                  textListEmpty,
+		"textListLine":                   textListLine,
+		"textHelpLead":                   textHelpLead,
+		"textHelpCreate":                 textHelpCreate,
+		"textHelpList":                   textHelpList,
+		"textHelpJoin":                   textHelpJoin,
+		"textHelpLeave":                  textHelpLeave,
+		"textHelpRemove":                 textHelpRemove,
+		"textHelpRules":                  textHelpRules,
+		"textHelpExclude":                textHelpExclude,
+		"textHelpUnexclude":              textHelpUnexclude,
+		"textHelpRename":                 textHelpRename,
+		"textHelpDraw":                   textHelpDraw,
+		"textHelpRecipient":              textHelpRecipient,
+		"textHelpGiver":                  textHelpGiver,
+		"textHelpAsk":                    textHelpAsk,
+		"textHelpQuestions":              textHelpQuestions,
+		"textHelpPreferences":            textHelpPreferences,
+		"textHelpReveal":                 textHelpReveal,
+		"textHelpCancel":                 textHelpCancel,
+		"textHelpHelp":                   textHelpHelp,
+		"textRuleDrawAt":                 textRuleDrawAt,
+		"textRuleRevealAt":               textRuleRevealAt,
+		"textRuleReminderLead":           textRuleReminderLead,
+		"textRuleDropoutPolicy":          textRuleDropoutPolicy,
+		"textRuleAvoidLastRound":         textRuleAvoidLastRound,
+		"textRuleExclusions":             textRuleExclusions,
+		"textRuleQuestionsEnabled":       textRuleQuestionsEnabled,
+		"textRuleMinParticipants":        textRuleMinParticipants,
+		"textRuleMaxParticipants":        textRuleMaxParticipants,
+		"textRuleNoSelfAssignment":       textRuleNoSelfAssignment,
+		"textRuleRedrawBelow":            textRuleRedrawBelow,
+		"textRuleQuestionMaxLength":      textRuleQuestionMaxLength,
+		"textRuleQuestionsPerDay":        textRuleQuestionsPerDay,
+		"textTimeValue":                  textTimeValue,
+		"textReminderOff":                textReminderOff,
+		"textOn":                         textOn,
+		"textOff":                        textOff,
+		"textNever":                      textNever,
+		"textDropoutPatch":               textDropoutPatch,
+		"textDropoutRedraw":              textDropoutRedraw,
+		"textRedrawBelowValue":           textRedrawBelowValue,
+		"textQuestionLengthValue":        textQuestionLengthValue,
+		"textSuffixDefault":              textSuffixDefault,
+		"textSuffixFixed":                textSuffixFixed,
+		"textSuffixLocked":               textSuffixLocked,
+		"textRulesBadTimeReason":         textRulesBadTimeReason,
+		"textRulesTooLongReason":         textRulesTooLongReason,
+		"textRulesExclusionsHint":        textRulesExclusionsHint,
+		"textRulesNotEditable":           textRulesNotEditable,
+		"textRulesNotAPersonReason":      textRulesNotAPersonReason,
+		"textRulesNotParticipantText":    textRulesNotParticipantText,
+		"textFieldNameName":              textFieldNameName,
+		"textFieldNameText":              textFieldNameText,
+		"textFieldNameLikes":             textFieldNameLikes,
+		"textFieldNameDislikes":          textFieldNameDislikes,
+		"textFieldNameDetails":           textFieldNameDetails,
+		"textFieldNameDrawAt":            textFieldNameDrawAt,
+		"textFieldNameRevealAt":          textFieldNameRevealAt,
+		"textFieldNameReminderLead":      textFieldNameReminderLead,
+		"textFieldNameDropoutPolicy":     textFieldNameDropoutPolicy,
+		"textFieldNameAvoidLastRound":    textFieldNameAvoidLastRound,
+		"textFieldNameQuestionsEnabled":  textFieldNameQuestionsEnabled,
+		"textFieldNameRecipient":         textFieldNameRecipient,
+		"textFieldNameGiver":             textFieldNameGiver,
+		"textFieldNameRule":              textFieldNameRule,
+		"textFieldNameExclusion":         textFieldNameExclusion,
+		"textFieldNameExchangeID":        textFieldNameExchangeID,
+		"textFieldNameQuestionID":        textFieldNameQuestionID,
+		"textFieldNamePersonID":          textFieldNamePersonID,
+		"textFieldNameGroupID":           textFieldNameGroupID,
+		"textFieldNameGiverID":           textFieldNameGiverID,
+		"textFieldNameRecipientID":       textFieldNameRecipientID,
+		"textReasonRequired":             textReasonRequired,
+		"textReasonUnknown":              textReasonUnknown,
+		"textReasonEmpty":                textReasonEmpty,
+		"textReasonTooLong":              textReasonTooLong,
+		"textReasonInvalidUTF8":          textReasonInvalidUTF8,
+		"textReasonInvalidText":          textReasonInvalidText,
+		"textReasonControlChars":         textReasonControlChars,
+		"textReasonLineBreaks":           textReasonLineBreaks,
+		"textReasonBidiChars":            textReasonBidiChars,
+		"textReasonNoVisibleChar":        textReasonNoVisibleChar,
+		"textReasonNotCanonicalUUID":     textReasonNotCanonicalUUID,
+		"textReasonZeroUUID":             textReasonZeroUUID,
+		"textReasonEditedViaExclusions":  textReasonEditedViaExclusions,
+		"textReasonInvalidInstant":       textReasonInvalidInstant,
+		"textReasonYearOutOfRange":       textReasonYearOutOfRange,
+		"textReasonInvalidDuration":      textReasonInvalidDuration,
+		"textReasonDurationOutOfRange":   textReasonDurationOutOfRange,
+		"textReasonNotOneOf":             textReasonNotOneOf,
+		"textReasonInvalidBool":          textReasonInvalidBool,
+		"textReasonMustBeFuture":         textReasonMustBeFuture,
+		"textReasonBeforeRevealAt":       textReasonBeforeRevealAt,
+		"textReasonAfterDrawAt":          textReasonAfterDrawAt,
+		"textReasonSameAsGiver":          textReasonSameAsGiver,
+		"textButtonJoin":                 textButtonJoin,
+		"textButtonLeave":                textButtonLeave,
+		"textButtonRules":                textButtonRules,
+		"textButtonConfirm":              textButtonConfirm,
+		"textButtonBack":                 textButtonBack,
+		"textButtonAnswer":               textButtonAnswer,
+		"textFieldDraw":                  textFieldDraw,
+		"textFieldReveal":                textFieldReveal,
+		"textRulesTitle":                 textRulesTitle,
+		"textParticipantsField":          textParticipantsField,
+		"textExclusionsField":            textExclusionsField,
+		"textAndMore":                    textAndMore,
+		"textQuestionModalTitle":         textQuestionModalTitle,
+		"textQuestionModalHint":          textQuestionModalHint,
+		"textQuestionListTitle":          textQuestionListTitle,
+		"textQuestionsAskedField":        textQuestionsAskedField,
+		"textQuestionsReceivedField":     textQuestionsReceivedField,
+		"textNoneYet":                    textNoneYet,
+		"textClosedMarker":               textClosedMarker,
+		"textTitleRecipient":             textTitleRecipient,
+		"textTitleNewRecipient":          textTitleNewRecipient,
+		"textTitleGiver":                 textTitleGiver,
+		"textTitlePreferences":           textTitlePreferences,
+		"textFieldPreferences":           textFieldPreferences,
+		"textFieldLikes":                 textFieldLikes,
+		"textFieldDislikes":              textFieldDislikes,
+		"textFieldDetails":               textFieldDetails,
+		"textSelectPlaceholder":          textSelectPlaceholder,
+		"textModalLabel":                 textModalLabel,
+		"textModalTitle":                 textModalTitle,
+		"textModalPlaceholderTime":       textModalPlaceholderTime,
+		"textModalPlaceholderReminder":   textModalPlaceholderReminder,
+		"textDMDrawn":                    textDMDrawn,
+		"textDMRedrawn":                  textDMRedrawn,
+		"textDMChanged":                  textDMChanged,
+		"textDMVoided":                   textDMVoided,
+		"textDMDrawFailed":               textDMDrawFailed,
+		"textDMDrawSoon":                 textDMDrawSoon,
+		"textDMRevealSoon":               textDMRevealSoon,
+		"textDMRevealed":                 textDMRevealed,
+		"textDMCancelled":                textDMCancelled,
+		"textDMQuestion":                 textDMQuestion,
+		"textDMAnswer":                   textDMAnswer,
+		"textDMPreferencesUpdated":       textDMPreferencesUpdated,
+		"textDMFooter":                   textDMFooter,
+		"textReasonTooFew":               textReasonTooFew,
+		"textReasonNoValid":              textReasonNoValid,
+		"textUnknownServer":              textUnknownServer,
+		"textCmdChatisimoDesc":           textCmdChatisimoDesc,
+		"textCmdGiftexchangeDesc":        textCmdGiftexchangeDesc,
+		"textCmdCreateDesc":              textCmdCreateDesc,
+		"textCmdListDesc":                textCmdListDesc,
+		"textCmdJoinDesc":                textCmdJoinDesc,
+		"textCmdLeaveDesc":               textCmdLeaveDesc,
+		"textCmdRemoveDesc":              textCmdRemoveDesc,
+		"textCmdRulesDesc":               textCmdRulesDesc,
+		"textCmdExcludeDesc":             textCmdExcludeDesc,
+		"textCmdUnexcludeDesc":           textCmdUnexcludeDesc,
+		"textCmdRenameDesc":              textCmdRenameDesc,
+		"textCmdDrawDesc":                textCmdDrawDesc,
+		"textCmdRecipientDesc":           textCmdRecipientDesc,
+		"textCmdGiverDesc":               textCmdGiverDesc,
+		"textCmdAskDesc":                 textCmdAskDesc,
+		"textCmdQuestionsDesc":           textCmdQuestionsDesc,
+		"textCmdPreferencesDesc":         textCmdPreferencesDesc,
+		"textCmdRevealDesc":              textCmdRevealDesc,
+		"textCmdCancelDesc":              textCmdCancelDesc,
+		"textCmdHelpDesc":                textCmdHelpDesc,
+		"textOptExchangeDesc":            textOptExchangeDesc,
+		"textOptCreateNameDesc":          textOptCreateNameDesc,
+		"textOptCreateDrawAtDesc":        textOptCreateDrawAtDesc,
+		"textOptCreateRevealAtDesc":      textOptCreateRevealAtDesc,
+		"textOptRemoveParticipantDesc":   textOptRemoveParticipantDesc,
+		"textOptExcludeGiverDesc":        textOptExcludeGiverDesc,
+		"textOptExcludeRecipientDesc":    textOptExcludeRecipientDesc,
+		"textOptExcludeBothDesc":         textOptExcludeBothDesc,
+		"textOptUnexcludeGiverDesc":      textOptUnexcludeGiverDesc,
+		"textOptUnexcludeRecipientDesc":  textOptUnexcludeRecipientDesc,
+		"textOptRenameNameDesc":          textOptRenameNameDesc,
+		"textOptAskQuestionDesc":         textOptAskQuestionDesc,
+		"textOptPreferencesLikesDesc":    textOptPreferencesLikesDesc,
+		"textOptPreferencesDislikesDesc": textOptPreferencesDislikesDesc,
+		"textOptPreferencesDetailsDesc":  textOptPreferencesDetailsDesc,
+		"textOptPreferencesClearDesc":    textOptPreferencesClearDesc,
 	}
 }
 
@@ -317,26 +339,26 @@ func TestHandlerTextsAreNonEmptyPrintableASCII(t *testing.T) {
 		t.Fatal("no texts to check")
 	}
 
-	en := catalogEN()
+	en := catalogENUS()
 	for name, id := range ids {
 		text, ok := en[id]
 		if !ok {
-			t.Errorf("%s is missing from catalogEN", name)
+			t.Errorf("%s is missing from catalogENUS", name)
 			continue
 		}
 		if strings.TrimSpace(text) == "" {
-			t.Errorf("%s is blank in catalogEN", name)
+			t.Errorf("%s is blank in catalogENUS", name)
 		}
 		for _, r := range text {
 			isPrintableASCII := r >= 0x20 && r <= 0x7e
 			if !isPrintableASCII {
-				t.Errorf("%s in catalogEN has the non-ASCII or control rune %U", name, r)
+				t.Errorf("%s in catalogENUS has the non-ASCII or control rune %U", name, r)
 			}
 		}
 	}
 }
 
-var formatVerbPattern = regexp.MustCompile(`%[+-0# ]*[0-9]*(\.[0-9]+)?[a-zA-Z%]`)
+var formatVerbPattern = regexp.MustCompile(`%(?:\[[0-9]+\])?[+-0# ]*[0-9]*(\.[0-9]+)?[a-zA-Z%]`)
 
 func formatVerbs(s string) []string {
 	matches := formatVerbPattern.FindAllString(s, -1)
@@ -350,11 +372,11 @@ func formatVerbs(s string) []string {
 func TestCatalogsAreCompleteAndSharePlaceholders(t *testing.T) {
 	ids := allTextIDs()
 	catalogs := map[Locale]map[MsgID]string{
-		LocaleEN:    catalogEN(),
-		LocaleES419: catalogES419(),
+		LocaleENUS: catalogENUS(),
+		LocaleESCL: catalogESCL(),
 	}
 
-	en := catalogs[LocaleEN]
+	en := catalogs[LocaleENUS]
 	for loc, catalog := range catalogs {
 		for name, id := range ids {
 			text, ok := catalog[id]
@@ -389,20 +411,26 @@ func TestCatalogsAreCompleteAndSharePlaceholders(t *testing.T) {
 }
 
 func TestCatalogFallbackToEnglishForUnsupportedLocales(t *testing.T) {
-	en := CatalogFor(LocaleEN)
-	if en.Locale() != LocaleEN {
-		t.Fatalf("CatalogFor(LocaleEN).Locale() = %q, want %q", en.Locale(), LocaleEN)
+	en := CatalogFor(LocaleENUS)
+	if en.Locale() != LocaleENUS {
+		t.Fatalf("CatalogFor(LocaleENUS).Locale() = %q, want %q", en.Locale(), LocaleENUS)
 	}
-	es := CatalogFor(LocaleES419)
-	if es.Locale() != LocaleES419 {
-		t.Fatalf("CatalogFor(LocaleES419).Locale() = %q, want %q", es.Locale(), LocaleES419)
+	es := CatalogFor(LocaleESCL)
+	if es.Locale() != LocaleESCL {
+		t.Fatalf("CatalogFor(LocaleESCL).Locale() = %q, want %q", es.Locale(), LocaleESCL)
 	}
 
-	for _, unsupported := range []Locale{"", "fr", "pt-BR", "es", "de", "en-US"} {
+	for _, spanish := range []Locale{"es-CL", "es-419", "es-ES", "es"} {
+		if got := CatalogFor(spanish).Locale(); got != LocaleESCL {
+			t.Errorf("CatalogFor(%q).Locale() = %q, want %q", spanish, got, LocaleESCL)
+		}
+	}
+
+	for _, unsupported := range []Locale{"", "fr", "pt-BR", "de", "en-GB"} {
 		t.Run(string(unsupported), func(t *testing.T) {
 			c := CatalogFor(unsupported)
-			if c.Locale() != LocaleEN {
-				t.Errorf("CatalogFor(%q).Locale() = %q, want %q", unsupported, c.Locale(), LocaleEN)
+			if c.Locale() != LocaleENUS {
+				t.Errorf("CatalogFor(%q).Locale() = %q, want %q", unsupported, c.Locale(), LocaleENUS)
 			}
 			for name, id := range allTextIDs() {
 				if got, want := c.Get(id), en.Get(id); got != want {
@@ -413,17 +441,17 @@ func TestCatalogFallbackToEnglishForUnsupportedLocales(t *testing.T) {
 	}
 
 	var zero Catalog
-	if zero.Locale() != LocaleEN {
-		t.Errorf("zero Catalog.Locale() = %q, want %q", zero.Locale(), LocaleEN)
+	if zero.Locale() != LocaleENUS {
+		t.Errorf("zero Catalog.Locale() = %q, want %q", zero.Locale(), LocaleENUS)
 	}
 	if got, want := zero.Get(textGuildOnly), en.Get(textGuildOnly); got != want {
 		t.Errorf("zero Catalog.Get(textGuildOnly) = %q, want %q", got, want)
 	}
 }
 
-func TestES419CatalogTranslatesProseAndAvoidsVoseo(t *testing.T) {
-	en := catalogEN()
-	es := catalogES419()
+func TestESCLCatalogTranslatesProseAndAvoidsVoseo(t *testing.T) {
+	en := catalogENUS()
+	es := catalogESCL()
 
 	// Format-only templates that contain no natural-language words are identical across locales.
 	formatOnly := map[MsgID]bool{
@@ -440,10 +468,10 @@ func TestES419CatalogTranslatesProseAndAvoidsVoseo(t *testing.T) {
 	for name, id := range allTextIDs() {
 		esText := es[id]
 		if !formatOnly[id] && esText == en[id] {
-			t.Errorf("catalogES419 key %s is identical to English: %q", name, esText)
+			t.Errorf("catalogESCL key %s is identical to English: %q", name, esText)
 		}
 		if match := voseoPattern.FindString(esText); match != "" {
-			t.Errorf("catalogES419 key %s contains voseo or banned regional form %q in %q", name, match, esText)
+			t.Errorf("catalogESCL key %s contains voseo or banned regional form %q in %q", name, match, esText)
 		}
 	}
 }
@@ -457,11 +485,14 @@ func TestPlaywrightTextsMatchEnglishCatalog(t *testing.T) {
 
 	// Constants in texts.ts that belong to packages outside giftexchangecmd.
 	external := map[string]bool{
-		"mustBeInTheFuture": true,
-		"composerTooLong":   true,
-		"reasonTooLong":     true,
-		"reasonBidi":        true,
-		"reasonNoVisible":   true,
+		"composerTooLong": true,
+	}
+
+	// Constants in texts.ts whose camelCase name differs slightly from the MsgID constant.
+	mapped := map[string]MsgID{
+		"mustBeInTheFuture": textReasonMustBeFuture,
+		"reasonBidi":        textReasonBidiChars,
+		"reasonNoVisible":   textReasonNoVisibleChar,
 	}
 
 	declPattern := regexp.MustCompile(`(?m)^export const ([a-zA-Z0-9_]+)\s*=\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+);`)
@@ -472,7 +503,7 @@ func TestPlaywrightTextsMatchEnglishCatalog(t *testing.T) {
 		t.Fatalf("no export const declarations parsed from %s", path)
 	}
 
-	en := CatalogFor(LocaleEN)
+	en := CatalogFor(LocaleENUS)
 	checked := 0
 	for _, m := range matches {
 		tsName := m[1]
@@ -497,9 +528,12 @@ func TestPlaywrightTextsMatchEnglishCatalog(t *testing.T) {
 			continue
 		}
 
-		msgID := MsgID("text" + strings.ToUpper(tsName[:1]) + tsName[1:])
-		if after, isDM := strings.CutPrefix(tsName, "dm"); isDM {
-			msgID = MsgID("textDM" + after)
+		msgID, hasMapped := mapped[tsName]
+		if !hasMapped {
+			msgID = MsgID("text" + strings.ToUpper(tsName[:1]) + tsName[1:])
+			if after, isDM := strings.CutPrefix(tsName, "dm"); isDM {
+				msgID = MsgID("textDM" + after)
+			}
 		}
 		want := en.Get(msgID)
 		if tsValue.String() != want {

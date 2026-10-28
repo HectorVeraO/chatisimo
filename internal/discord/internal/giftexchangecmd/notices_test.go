@@ -318,12 +318,12 @@ func TestRenderUsesUnknownServerWhenGuildNameIsEmpty(t *testing.T) {
 		t.Errorf("content = %q, want unknown server", got.Content)
 	}
 
-	gotES, err := RenderNotificationIn(LocaleES419, notification(giftexchange.KindCancelled), "")
+	gotES, err := RenderNotificationIn(LocaleESCL, notification(giftexchange.KindCancelled), "")
 	if err != nil {
-		t.Fatalf("RenderNotificationIn(es-419): %v", err)
+		t.Fatalf("RenderNotificationIn(es-CL): %v", err)
 	}
 	if !strings.Contains(gotES.Content, "(servidor desconocido)") {
-		t.Errorf("es-419 content = %q, want servidor desconocido", gotES.Content)
+		t.Errorf("es-CL content = %q, want servidor desconocido", gotES.Content)
 	}
 
 	gotFallback, err := RenderNotificationIn("fr", notification(giftexchange.KindCancelled), "")
@@ -335,27 +335,23 @@ func TestRenderUsesUnknownServerWhenGuildNameIsEmpty(t *testing.T) {
 	}
 }
 
-func TestRenderNotificationUsesExchangeLanguage(t *testing.T) {
-	esNotice := notification(giftexchange.KindCancelled)
-	esNotice.Exchange.Language = giftexchange.LanguageES419
+func TestRenderNotificationInRendersSpanishAndEnglishCatalogs(t *testing.T) {
+	notice := notification(giftexchange.KindCancelled)
 
-	gotES, err := RenderNotification(esNotice, fakeGuildName)
+	gotES, err := RenderNotificationIn(LocaleESCL, notice, fakeGuildName)
 	if err != nil {
-		t.Fatalf("RenderNotification(es-419): %v", err)
+		t.Fatalf("RenderNotificationIn(es-CL): %v", err)
 	}
 	if !strings.Contains(gotES.Content, "fue cancelado por quien lo organiza") {
-		t.Errorf("es-419 content = %q, want Spanish cancelled text", gotES.Content)
+		t.Errorf("es-CL content = %q, want Spanish cancelled text", gotES.Content)
 	}
 
-	enNotice := notification(giftexchange.KindCancelled)
-	enNotice.Exchange.Language = giftexchange.LanguageEN
-
-	gotEN, err := RenderNotification(enNotice, fakeGuildName)
+	gotEN, err := RenderNotificationIn(LocaleENUS, notice, fakeGuildName)
 	if err != nil {
-		t.Fatalf("RenderNotification(en): %v", err)
+		t.Fatalf("RenderNotificationIn(en-US): %v", err)
 	}
 	if !strings.Contains(gotEN.Content, "was cancelled by the organizer") {
-		t.Errorf("en content = %q, want English cancelled text", gotEN.Content)
+		t.Errorf("en-US content = %q, want English cancelled text", gotEN.Content)
 	}
 }
 

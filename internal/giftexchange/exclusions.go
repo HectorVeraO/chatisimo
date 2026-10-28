@@ -83,7 +83,7 @@ func (s *Service) AddExclusion(
 
 	isSelfPair := giver == recipient
 	if isSelfPair {
-		return &InputError{Field: "recipient", Code: InputCodeSameAsGiver, Reason: "must differ from the giver"}
+		return &InputError{Field: "recipient", Code: InputCodeSameAsGiver}
 	}
 
 	return s.inTx(ctx, func(q *db.Queries, _ pgx.Tx) error {

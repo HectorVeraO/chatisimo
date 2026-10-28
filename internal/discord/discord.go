@@ -87,15 +87,25 @@ func New(n *Notifier, gx GiftExchange, logger *slog.Logger) (*Adapter, error) {
 	}
 
 	guildName := func(subject string) string {
-		name := n.guildName(giftexchange.Group{Subject: subject})
-		return giftexchangecmd.GuildNameOrUnknown(name)
+		return n.guildName(giftexchange.Group{Subject: subject})
 	}
 	handlers, err := giftexchangecmd.New(gx, guildName, time.Now, location, logger)
 	if err != nil {
 		return nil, fmt.Errorf("discord adapter: %w", err)
 	}
+	handlers.SetGuildLocale(func(subject string) string {
+		return n.guildLocale(giftexchange.Group{Subject: subject})
+	})
 
-	r, err := router.New(router.Config{Resolver: gx, MapError: giftexchangecmd.MapError, Logger: logger})
+	observe := func(req *router.Request) {
+		n.recordInteractionLocales(req.UserID(), req.GuildID(), req.Locale(), req.GuildLocale())
+	}
+	r, err := router.New(router.Config{
+		Resolver: gx,
+		MapError: giftexchangecmd.MapError,
+		Observe:  observe,
+		Logger:   logger,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("discord adapter: %w", err)
 	}

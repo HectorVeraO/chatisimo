@@ -122,7 +122,7 @@ func (q *Queries) DeleteExclusionsOfPerson(ctx context.Context, arg DeleteExclus
 
 const getExchangeSummary = `-- name: GetExchangeSummary :one
 SELECT
-    e.id, e.group_id, e.organizer_id, e.name, e.state, e.round, e.draw_at, e.reveal_at, e.reminder_lead_seconds, e.dropout_policy, e.avoid_last_round, e.questions_enabled, e.draw_reminder_sent_for, e.reveal_reminder_sent_for, e.created_at, e.drawn_at, e.revealed_at, e.cancelled_at, e.language,
+    e.id, e.group_id, e.organizer_id, e.name, e.state, e.round, e.draw_at, e.reveal_at, e.reminder_lead_seconds, e.dropout_policy, e.avoid_last_round, e.questions_enabled, e.draw_reminder_sent_for, e.reveal_reminder_sent_for, e.created_at, e.drawn_at, e.revealed_at, e.cancelled_at,
     g.provider AS group_provider,
     g.subject AS group_subject,
     (SELECT count(*) FROM giftexchange.participants p
@@ -170,7 +170,6 @@ func (q *Queries) GetExchangeSummary(ctx context.Context, arg GetExchangeSummary
 		&i.GiftexchangeExchange.DrawnAt,
 		&i.GiftexchangeExchange.RevealedAt,
 		&i.GiftexchangeExchange.CancelledAt,
-		&i.GiftexchangeExchange.Language,
 		&i.GroupProvider,
 		&i.GroupSubject,
 		&i.ParticipantCount,
@@ -227,11 +226,11 @@ func (q *Queries) GetParticipant(ctx context.Context, arg GetParticipantParams) 
 const insertExchange = `-- name: InsertExchange :exec
 INSERT INTO giftexchange.exchanges (
     id, group_id, organizer_id, name, state, round, draw_at, reveal_at, reminder_lead_seconds,
-    dropout_policy, avoid_last_round, questions_enabled, language, created_at
+    dropout_policy, avoid_last_round, questions_enabled, created_at
 )
 VALUES (
     $1, $2, $3, $4, 'open', 0, $5, $6, $7,
-    $8, $9, $10, $11, $12
+    $8, $9, $10, $11
 )
 `
 
@@ -246,7 +245,6 @@ type InsertExchangeParams struct {
 	DropoutPolicy       string
 	AvoidLastRound      bool
 	QuestionsEnabled    bool
-	Language            string
 	CreatedAt           pgtype.Timestamptz
 }
 
@@ -262,7 +260,6 @@ func (q *Queries) InsertExchange(ctx context.Context, arg InsertExchangeParams) 
 		arg.DropoutPolicy,
 		arg.AvoidLastRound,
 		arg.QuestionsEnabled,
-		arg.Language,
 		arg.CreatedAt,
 	)
 	return err
@@ -378,7 +375,7 @@ func (q *Queries) ListActiveParticipants(ctx context.Context, exchangeID uuid.UU
 
 const listCallerExchanges = `-- name: ListCallerExchanges :many
 SELECT
-    e.id, e.group_id, e.organizer_id, e.name, e.state, e.round, e.draw_at, e.reveal_at, e.reminder_lead_seconds, e.dropout_policy, e.avoid_last_round, e.questions_enabled, e.draw_reminder_sent_for, e.reveal_reminder_sent_for, e.created_at, e.drawn_at, e.revealed_at, e.cancelled_at, e.language,
+    e.id, e.group_id, e.organizer_id, e.name, e.state, e.round, e.draw_at, e.reveal_at, e.reminder_lead_seconds, e.dropout_policy, e.avoid_last_round, e.questions_enabled, e.draw_reminder_sent_for, e.reveal_reminder_sent_for, e.created_at, e.drawn_at, e.revealed_at, e.cancelled_at,
     g.provider AS group_provider,
     g.subject AS group_subject,
     (SELECT count(*) FROM giftexchange.participants p
@@ -431,7 +428,6 @@ func (q *Queries) ListCallerExchanges(ctx context.Context, callerID uuid.UUID) (
 			&i.GiftexchangeExchange.DrawnAt,
 			&i.GiftexchangeExchange.RevealedAt,
 			&i.GiftexchangeExchange.CancelledAt,
-			&i.GiftexchangeExchange.Language,
 			&i.GroupProvider,
 			&i.GroupSubject,
 			&i.ParticipantCount,
@@ -481,7 +477,7 @@ func (q *Queries) ListExclusions(ctx context.Context, exchangeID uuid.UUID) ([]L
 
 const listGroupExchanges = `-- name: ListGroupExchanges :many
 SELECT
-    e.id, e.group_id, e.organizer_id, e.name, e.state, e.round, e.draw_at, e.reveal_at, e.reminder_lead_seconds, e.dropout_policy, e.avoid_last_round, e.questions_enabled, e.draw_reminder_sent_for, e.reveal_reminder_sent_for, e.created_at, e.drawn_at, e.revealed_at, e.cancelled_at, e.language,
+    e.id, e.group_id, e.organizer_id, e.name, e.state, e.round, e.draw_at, e.reveal_at, e.reminder_lead_seconds, e.dropout_policy, e.avoid_last_round, e.questions_enabled, e.draw_reminder_sent_for, e.reveal_reminder_sent_for, e.created_at, e.drawn_at, e.revealed_at, e.cancelled_at,
     g.provider AS group_provider,
     g.subject AS group_subject,
     (SELECT count(*) FROM giftexchange.participants p
@@ -536,7 +532,6 @@ func (q *Queries) ListGroupExchanges(ctx context.Context, arg ListGroupExchanges
 			&i.GiftexchangeExchange.DrawnAt,
 			&i.GiftexchangeExchange.RevealedAt,
 			&i.GiftexchangeExchange.CancelledAt,
-			&i.GiftexchangeExchange.Language,
 			&i.GroupProvider,
 			&i.GroupSubject,
 			&i.ParticipantCount,
@@ -630,7 +625,7 @@ func (q *Queries) ListLastRoundAssignments(ctx context.Context, arg ListLastRoun
 }
 
 const lockExchange = `-- name: LockExchange :one
-SELECT id, group_id, organizer_id, name, state, round, draw_at, reveal_at, reminder_lead_seconds, dropout_policy, avoid_last_round, questions_enabled, draw_reminder_sent_for, reveal_reminder_sent_for, created_at, drawn_at, revealed_at, cancelled_at, language
+SELECT id, group_id, organizer_id, name, state, round, draw_at, reveal_at, reminder_lead_seconds, dropout_policy, avoid_last_round, questions_enabled, draw_reminder_sent_for, reveal_reminder_sent_for, created_at, drawn_at, revealed_at, cancelled_at
 FROM giftexchange.exchanges
 WHERE id = $1
 FOR UPDATE
@@ -659,7 +654,6 @@ func (q *Queries) LockExchange(ctx context.Context, id uuid.UUID) (GiftexchangeE
 		&i.DrawnAt,
 		&i.RevealedAt,
 		&i.CancelledAt,
-		&i.Language,
 	)
 	return i, err
 }
@@ -807,9 +801,8 @@ SET draw_at = $1,
     reminder_lead_seconds = $3,
     dropout_policy = $4,
     avoid_last_round = $5,
-    questions_enabled = $6,
-    language = $7
-WHERE id = $8
+    questions_enabled = $6
+WHERE id = $7
 `
 
 type UpdateExchangeRulesParams struct {
@@ -819,7 +812,6 @@ type UpdateExchangeRulesParams struct {
 	DropoutPolicy       string
 	AvoidLastRound      bool
 	QuestionsEnabled    bool
-	Language            string
 	ID                  uuid.UUID
 }
 
@@ -831,7 +823,6 @@ func (q *Queries) UpdateExchangeRules(ctx context.Context, arg UpdateExchangeRul
 		arg.DropoutPolicy,
 		arg.AvoidLastRound,
 		arg.QuestionsEnabled,
-		arg.Language,
 		arg.ID,
 	)
 	return err

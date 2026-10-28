@@ -32,6 +32,21 @@ func (e *chooseExchangeError) Error() string {
 	return text
 }
 
+// inputProblemError reports an adapter-level invalid field with a catalog reason MsgID.
+type inputProblemError struct {
+	field    string
+	reasonID MsgID
+}
+
+func (e *inputProblemError) Error() string {
+	text := "giftexchangecmd: invalid input: " + e.field + " (" + string(e.reasonID) + ")"
+	return text
+}
+
+func (e *inputProblemError) Is(target error) bool {
+	return target == giftexchange.ErrInvalidInput
+}
+
 const (
 	// maxListedLines bounds the lines of a reply that lists names or problems.
 	maxListedLines = 20
@@ -56,7 +71,7 @@ func MapError(requestID string, err error) router.Rejection {
 }
 
 // MapErrorIn turns an error a handler returned into the reply in loc (falling back to
-// LocaleEN) and the log outcome.
+// LocaleENUS) and the log outcome.
 func MapErrorIn(loc Locale, requestID string, err error) router.Rejection {
 	c := CatalogFor(loc)
 	var (
@@ -149,12 +164,20 @@ func collectLeaves(c Catalog, err error, lines *[]string, depth int) {
 		return
 	}
 
+	if single, isSingle := err.(interface{ Unwrap() error }); isSingle {
+		collectLeaves(c, single.Unwrap(), lines, depth+1)
+		return
+	}
+
+	var adapterInput *inputProblemError
+	if errors.As(err, &adapterInput) {
+		problem := inputFieldLabel(c, adapterInput.field) + " " + c.Get(adapterInput.reasonID)
+		*lines = append(*lines, render.Text(problem))
+		return
+	}
+
 	var input *giftexchange.InputError
 	if errors.As(err, &input) {
-		if single, isSingle := err.(interface{ Unwrap() error }); isSingle {
-			collectLeaves(c, single.Unwrap(), lines, depth+1)
-			return
-		}
 		*lines = append(*lines, render.Text(formatInputProblem(c, input)))
 		return
 	}
@@ -199,8 +222,6 @@ func inputFieldMsgID(field string) (MsgID, bool) {
 		return textFieldNameAvoidLastRound, true
 	case "questions_enabled":
 		return textFieldNameQuestionsEnabled, true
-	case "language":
-		return textFieldNameLanguage, true
 	case "recipient":
 		return textFieldNameRecipient, true
 	case "giver":
@@ -221,30 +242,6 @@ func inputFieldMsgID(field string) (MsgID, bool) {
 		return textFieldNameGiverID, true
 	case "recipient_id":
 		return textFieldNameRecipientID, true
-	case "identity.provider":
-		return textFieldNameIdentityProvider, true
-	case "identity.subject":
-		return textFieldNameIdentitySubject, true
-	case "group.provider":
-		return textFieldNameGroupProvider, true
-	case "group.subject":
-		return textFieldNameGroupSubject, true
-	case "registry":
-		return textFieldNameRegistry, true
-	case "deps.Pool":
-		return textFieldNameDepsPool, true
-	case "deps.Scheduler":
-		return textFieldNameDepsScheduler, true
-	case "deps.Clock":
-		return textFieldNameDepsClock, true
-	case "deps.Random":
-		return textFieldNameDepsRandom, true
-	case "deps.Notifier":
-		return textFieldNameDepsNotifier, true
-	case "deps.Rephraser":
-		return textFieldNameDepsRephraser, true
-	case "deps.Logger":
-		return textFieldNameDepsLogger, true
 	default:
 		return "", false
 	}
@@ -299,9 +296,6 @@ func inputReasonText(c Catalog, input *giftexchange.InputError) string {
 	case giftexchange.InputCodeSameAsGiver:
 		return c.Get(textReasonSameAsGiver)
 	default:
-		if input.Reason != "" {
-			return input.Reason
-		}
 		return c.Get(textInvalidInput)
 	}
 }
@@ -337,7 +331,7 @@ func listText(c Catalog, lead string, lines []string) string {
 // GuildNameOrUnknown returns the guild name, or the English text shown when the Gateway has
 // not reported the guild.
 func GuildNameOrUnknown(name string) string {
-	return GuildNameOrUnknownIn(LocaleEN, name)
+	return GuildNameOrUnknownIn(LocaleENUS, name)
 }
 
 // GuildNameOrUnknownIn returns the guild name, or the text in loc shown when the Gateway has

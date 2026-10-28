@@ -80,7 +80,7 @@ func New(deps Deps) (*Service, error) {
 }
 
 func missingDep(field string) error {
-	return &InputError{Field: field, Code: InputCodeRequired, Reason: "is required"}
+	return &InputError{Field: field, Code: InputCodeRequired}
 }
 
 // now reads the clock at the precision Postgres stores.
@@ -126,7 +126,7 @@ func requireActor(a Actor) error {
 
 func requireID(field string, isZero bool) error {
 	if isZero {
-		return &InputError{Field: field, Code: InputCodeRequired, Reason: "is required"}
+		return &InputError{Field: field, Code: InputCodeRequired}
 	}
 	return nil
 }

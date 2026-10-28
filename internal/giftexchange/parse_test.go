@@ -130,7 +130,7 @@ func TestParseTextReportsEveryProblem(t *testing.T) {
 	if !errors.Is(err, giftexchange.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
-	for _, want := range []string{"not valid UTF-8", "control characters"} {
+	for _, want := range []string{"(invalid_utf8)", "(control_chars)"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not mention %q", err.Error(), want)
 		}
@@ -236,7 +236,7 @@ func TestParseTextReportsEveryProblemTogether(t *testing.T) {
 		t.Fatalf("err = %v, want an *InputError", err)
 	}
 	text := err.Error()
-	for _, want := range []string{"too long", "line breaks", "bidirectional"} {
+	for _, want := range []string{"(too_long)", "(line_breaks)", "(bidi_chars)"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("error %q does not mention %q", text, want)
 		}

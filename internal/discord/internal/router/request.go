@@ -11,6 +11,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
+	"github.com/HectorVeraO/chatisimo/internal/platform/i18n"
 )
 
 // Interaction kinds, as RequestLog logs them.
@@ -153,8 +154,8 @@ func (r *Request) SetLocale(locale string) {
 	r.locale = locale
 }
 
-// EffectiveLocale returns the locale override set by SetLocale when non-empty, or Locale()
-// otherwise.
+// EffectiveLocale returns the locale override set by SetLocale when non-empty, or the best
+// supported locale resolved from Locale() and GuildLocale().
 func (r *Request) EffectiveLocale() string {
 	r.mu.Lock()
 	override := r.locale
@@ -162,7 +163,7 @@ func (r *Request) EffectiveLocale() string {
 	if override != "" {
 		return override
 	}
-	return r.Locale()
+	return string(i18n.ResolveLocale(r.Locale(), r.GuildLocale()))
 }
 
 // SetExchange records the exchange the interaction is about, so its ID appears in the log.
