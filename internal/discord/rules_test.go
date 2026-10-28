@@ -220,12 +220,12 @@ func TestRulesViewIsEphemeralOnBothPathsAndLinksTheSelectToTheOrganizer(t *testi
 		if got.embed.Description != "State: open. Participants: 2. You are the organizer." {
 			t.Errorf("%s: description = %q", path, got.embed.Description)
 		}
-		if len(got.embed.Fields) != 15 {
-			t.Errorf("%s: %d fields, want 15 (13 rules, Participants, Exclusions)", path, len(got.embed.Fields))
+		if len(got.embed.Fields) != 16 {
+			t.Errorf("%s: %d fields, want 16 (14 rules, Participants, Exclusions)", path, len(got.embed.Fields))
 		}
 		if len(got.menus) != 1 || got.menus[0].CustomID != "/gx/rule-pick/"+id.String() ||
-			got.menus[0].Placeholder != "Change a rule" || len(got.menus[0].Options) != 6 {
-			t.Errorf("%s: menus = %+v, want one select of six rules", path, got.menus)
+			got.menus[0].Placeholder != "Change a rule" || len(got.menus[0].Options) != 7 {
+			t.Errorf("%s: menus = %+v, want one select of seven rules", path, got.menus)
 		}
 		for _, option := range got.menus[0].Options {
 			if option.Value == "exclusions" {
@@ -348,8 +348,8 @@ func TestRulesOrganizerSelectOffersOnlyTheFourRulesChangeableAfterTheDraw(t *tes
 
 	organizer := rulesShow(t, s, s.a, id)
 
-	if len(organizer.menus) != 1 || len(organizer.menus[0].Options) != 4 {
-		t.Errorf("organizer menus after the draw = %+v, want one select of four rules", organizer.menus)
+	if len(organizer.menus) != 1 || len(organizer.menus[0].Options) != 5 {
+		t.Errorf("organizer menus after the draw = %+v, want one select of five rules", organizer.menus)
 	}
 }
 
@@ -358,7 +358,13 @@ func TestRulesEnumAndBoolRulesChangeThroughTheSelect(t *testing.T) {
 	id := rulesOpenExchange(t, s, "Winter")
 	cases := []struct {
 		rule, option string
-	}{{"dropout_policy", "redraw"}, {"avoid_last_round", "on"}, {"questions_enabled", "off"}}
+	}{
+		{"dropout_policy", "redraw"},
+		{"avoid_last_round", "on"},
+		{"questions_enabled", "off"},
+		{"language", "es-419"},
+		{"language", "en"},
+	}
 
 	for _, tc := range cases {
 		view := rulesShow(t, s, s.a, id)
@@ -1067,5 +1073,210 @@ func TestRulesSelectsAndModalsInTheBotDMAnswerGuildOnly(t *testing.T) {
 	}
 	if after := rulesViewOf(t, s, s.a, id); !rulesSameValues(before, after) {
 		t.Errorf("rules changed: %+v -> %+v", before, after)
+	}
+}
+
+func TestCreateDefaultsLanguageFromGuildLocale(t *testing.T) {
+	s := newScene(t)
+
+	cases := []struct {
+		name        string
+		guildLocale string
+		userLocale  string
+		exchange    string
+		wantLang    giftexchange.Language
+		wantConfirm string
+		wantCard    string
+	}{
+		{
+			name:        "es-419 guild defaults to es-419 even for en-US user",
+			guildLocale: "es-419",
+			userLocale:  "en-US",
+			exchange:    "Navidad",
+			wantLang:    giftexchange.LanguageES419,
+			wantConfirm: "Creaste **Navidad** y lo organizas.",
+			wantCard:    "Sorteo",
+		},
+		{
+			name:        "es-ES guild defaults to es-419",
+			guildLocale: "es-ES",
+			userLocale:  "en-US",
+			exchange:    "Reyes",
+			wantLang:    giftexchange.LanguageES419,
+			wantConfirm: "Creaste **Reyes** y lo organizas.",
+			wantCard:    "Sorteo",
+		},
+		{
+			name:        "unsupported guild locale defaults to en even for es-419 user",
+			guildLocale: "fr",
+			userLocale:  "es-419",
+			exchange:    "Hiver",
+			wantLang:    giftexchange.LanguageEN,
+			wantConfirm: "You created **Hiver** and you organize it.",
+			wantCard:    "Draw",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := s.fake.SetGuildLocale(s.guild, tc.guildLocale); err != nil {
+				t.Fatalf("SetGuildLocale: %v", err)
+			}
+			if err := s.fake.SetUserLocale(s.users[s.a], tc.userLocale); err != nil {
+				t.Fatalf("SetUserLocale: %v", err)
+			}
+
+			before := len(s.fake.Outbound())
+			res := slashOrFail(t, s.harness, s.a, s.ge("create", true, map[string]any{"name": tc.exchange}))
+			got := replyTo(t, s.harness, res)
+			if !strings.HasPrefix(got.content, tc.wantConfirm) {
+				t.Errorf("create confirmation = %q, want prefix %q", got.content, tc.wantConfirm)
+			}
+
+			waitFor(t, "public card followup", func() bool {
+				for _, rec := range s.fake.Outbound()[before:] {
+					if rec.Source == "followup" && !rec.Ephemeral {
+						return true
+					}
+				}
+				return false
+			})
+			var cardRaw string
+			for _, rec := range s.fake.Outbound()[before:] {
+				if rec.Source == "followup" && !rec.Ephemeral && len(rec.Embeds) > 0 {
+					cardRaw = string(rec.Embeds[0])
+				}
+			}
+			if !strings.Contains(cardRaw, tc.wantCard) {
+				t.Errorf("card embed = %s, want field %q", cardRaw, tc.wantCard)
+			}
+
+			listed, err := s.svc.ExchangesFor(t.Context(), s.people[s.a].actor, &s.group)
+			if err != nil {
+				t.Fatalf("ExchangesFor: %v", err)
+			}
+			var found *giftexchange.ExchangeSummary
+			for i := range listed {
+				if listed[i].Name == tc.exchange {
+					found = &listed[i]
+					break
+				}
+			}
+			if found == nil || found.Language != tc.wantLang {
+				t.Fatalf("created exchange = %+v, want language %q", found, tc.wantLang)
+			}
+		})
+	}
+}
+
+func TestLanguageRuleSwitchesExchangeMessagesAndErrorsRegardlessOfUserLocale(t *testing.T) {
+	s := newScene(t)
+	s.startRunner(t, s.world)
+	id := rulesOpenExchange(t, s, "Winter")
+	s.joinAs(t, s.a, id)
+
+	// Switch exchange language to es-419 via /ge rules while user a has en-US locale.
+	view := rulesShow(t, s, s.a, id)
+	picked := rulesPick(t, s, s.a, view, id, "language")
+	options := rulesReplyOf(t, s, picked)
+	optionID := "/gx/rule-option/" + id.String() + "/language"
+	chosen, err := s.fake.Select(t.Context(), s.users[s.a], options.message, optionID, "es-419")
+	if err != nil {
+		t.Fatalf("Select es-419: %v", err)
+	}
+	refreshed := rulesReplyOf(t, s, chosen)
+	if refreshed.embed.Title != "Reglas - Winter" {
+		t.Errorf("refreshed rules title = %q, want Reglas - Winter", refreshed.embed.Title)
+	}
+	if got := rulesField(t, refreshed.embed, "Idioma"); got != "es-419" {
+		t.Errorf("Idioma field = %q, want es-419", got)
+	}
+
+	// Non-organizer attempting to draw gets Spanish forbidden error even with en-US user locale.
+	denied := replyTo(t, s.harness, slashOrFail(t, s.harness, s.b, s.ge("draw", true, map[string]any{"exchange": id.String()})))
+	if denied.content != "No tienes permiso para hacer eso en este intercambio." {
+		t.Errorf("forbidden draw reply = %q, want Spanish forbidden text", denied.content)
+	}
+
+	// Organizer draws in Spanish and participants receive Spanish draw DMs.
+	drawAsk := rulesReplyOf(t, s, slashOrFail(t, s.harness, s.a, s.ge("draw", true, map[string]any{"exchange": id.String()})))
+	if !strings.Contains(drawAsk.content, "¿Sortear **Winter** ahora con 3 ") {
+		t.Errorf("draw prompt = %q, want Spanish prompt", drawAsk.content)
+	}
+	confirmed, err := s.fake.Click(t.Context(), s.users[s.a], drawAsk.message, "/gx/draw-confirm/"+id.String())
+	if err != nil {
+		t.Fatalf("Click draw-confirm: %v", err)
+	}
+	if got := replyTo(t, s.harness, confirmed); got.content != "Sorteo realizado para **Winter**." {
+		t.Errorf("draw confirm reply = %q, want Spanish drawn text", got.content)
+	}
+	if got := rulesReplyOf(t, s, confirmed); !strings.HasPrefix(got.content, "El sorteo de **Winter** está listo.") {
+		t.Errorf("draw public followup = %q, want Spanish public drawn text", got.content)
+	}
+	waitFor(t, "the three Spanish draw DMs", func() bool {
+		return finishedCount(t, id, "delivered") == 3
+	})
+	dms := s.fake.DMs(s.users[s.b])
+	if len(dms) == 0 || !strings.Contains(dms[len(dms)-1].Content, "El sorteo de **Winter** (Test server) está listo.") {
+		t.Errorf("participant DM = %+v, want Spanish draw DM", dms)
+	}
+
+	// Switch language back to en while in drawn state; user a has es-419 locale.
+	if err := s.fake.SetUserLocale(s.users[s.a], "es-419"); err != nil {
+		t.Fatalf("SetUserLocale: %v", err)
+	}
+	drawnView := rulesShow(t, s, s.a, id)
+	pickedDrawn := rulesPick(t, s, s.a, drawnView, id, "language")
+	optionsDrawn := rulesReplyOf(t, s, pickedDrawn)
+	chosenEN, err := s.fake.Select(t.Context(), s.users[s.a], optionsDrawn.message, optionID, "en")
+	if err != nil {
+		t.Fatalf("Select en: %v", err)
+	}
+	refreshedEN := rulesReplyOf(t, s, chosenEN)
+	if refreshedEN.embed.Title != "Rules - Winter" {
+		t.Errorf("refreshed rules title = %q, want Rules - Winter", refreshedEN.embed.Title)
+	}
+
+	// Reveal prompt is now in English despite user a having es-419 locale.
+	revealAsk := rulesReplyOf(t, s, slashOrFail(t, s.harness, s.a, s.ge("reveal", true, map[string]any{"exchange": id.String()})))
+	if !strings.Contains(revealAsk.content, "Reveal **Winter** now? Each participant will learn their giver.") {
+		t.Errorf("reveal prompt = %q, want English prompt", revealAsk.content)
+	}
+}
+
+func TestExchangeLessRepliesUseInteractionLocaleWithFallbackToEnglish(t *testing.T) {
+	s := newScene(t)
+
+	if err := s.fake.SetUserLocale(s.users[s.a], "es-419"); err != nil {
+		t.Fatalf("SetUserLocale(es-419): %v", err)
+	}
+
+	helpES := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, s.ge("help", true, nil)))
+	if !strings.Contains(helpES.content, "/ge create - crear un intercambio y organizarlo") {
+		t.Errorf("help (es-419) = %q, want Spanish help line", helpES.content)
+	}
+
+	listES := rulesReplyOf(t, s, slashOrFail(t, s.harness, s.a, s.ge("list", true, nil)))
+	if listES.embed.Title != "Intercambios en este servidor" {
+		t.Errorf("list (es-419) title = %q, want Intercambios en este servidor", listES.embed.Title)
+	}
+
+	dmCreateES := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, s.ge("create", false, map[string]any{"name": "X"})))
+	if !strings.HasSuffix(dmCreateES.content, "solo funciona en un servidor.") {
+		t.Errorf("guild-only in DM (es-419) = %q, want Spanish guild-only text", dmCreateES.content)
+	}
+
+	noCandES := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, s.ge("join", true, nil)))
+	if noCandES.content != "No tienes ningún intercambio donde puedas hacer esto." {
+		t.Errorf("no candidates (es-419) = %q, want Spanish text", noCandES.content)
+	}
+
+	// Unsupported user locale falls back to English.
+	if err := s.fake.SetUserLocale(s.users[s.a], "de"); err != nil {
+		t.Fatalf("SetUserLocale(de): %v", err)
+	}
+	helpFallback := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, s.ge("help", true, nil)))
+	if !strings.Contains(helpFallback.content, "Every command also works as /chatisimo giftexchange <verb>.") {
+		t.Errorf("help (de fallback) = %q, want English lead", helpFallback.content)
 	}
 }

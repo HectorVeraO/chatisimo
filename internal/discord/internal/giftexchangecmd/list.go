@@ -43,7 +43,7 @@ func (h *Handlers) list(_ discord.SlashCommandInteractionData, e *handler.Comman
 	}
 	sortByName(listed)
 
-	c := h.catalog(LocaleEN)
+	c := h.catalogFor(req)
 	embeds := []discord.Embed{render.Embed(c.Get(textListTitle), listDescription(c, listed))}
 	editErr := req.EditOriginal(e.Ctx, discord.MessageUpdate{Embeds: &embeds})
 	if editErr != nil {

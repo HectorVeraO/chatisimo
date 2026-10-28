@@ -731,6 +731,58 @@ func TestClosingTheServerEndsEventStreams(t *testing.T) {
 	}
 }
 
+func TestUserAndGuildLocaleThroughGoAndControlAPI(t *testing.T) {
+	w := newInteractionWorld(t, fakediscord.Options{})
+
+	if err := w.srv.SetUserLocale(w.alice, "es-419"); err != nil {
+		t.Fatalf("SetUserLocale: %v", err)
+	}
+	if err := w.srv.SetGuildLocale(w.guild, "es-ES"); err != nil {
+		t.Fatalf("SetGuildLocale: %v", err)
+	}
+
+	done := w.controlInteraction(t, `{"as":"`+aliceID+`","kind":"slash","guild_id":"`+winterGuildID+`","path":"/ping"}`)
+	sent := w.bot.nextInteraction(t)
+	if got := w.respond(t, sent, `{"type":4,"data":{"content":"pong"}}`); got.status != http.StatusNoContent {
+		t.Fatalf("callback = %d %s", got.status, got.body)
+	}
+	waitChan(t, done, actionTimeout, "the control API to answer")
+
+	if sent.Locale != "es-419" || sent.GuildLocale != "es-ES" {
+		t.Errorf("interaction locales = (%q, %q), want (es-419, es-ES)", sent.Locale, sent.GuildLocale)
+	}
+
+	patchedUser := control(t, w.srv, http.MethodPatch, "/users/"+aliceID, `{"locale":"en-GB"}`)
+	if patchedUser.status != http.StatusOK || patchedUser.json(t)["locale"] != "en-GB" {
+		t.Errorf("patch user locale = %d %s", patchedUser.status, patchedUser.body)
+	}
+	patchedGuild := control(t, w.srv, http.MethodPatch, "/guilds/"+winterGuildID, `{"locale":"es-419"}`)
+	if patchedGuild.status != http.StatusOK || patchedGuild.json(t)["locale"] != "es-419" {
+		t.Errorf("patch guild locale = %d %s", patchedGuild.status, patchedGuild.body)
+	}
+
+	for name, tc := range map[string]struct {
+		path       string
+		body       string
+		wantStatus int
+	}{
+		"empty user patch":   {"/users/" + aliceID, `{}`, http.StatusBadRequest},
+		"blank user locale":  {"/users/" + aliceID, `{"locale":""}`, http.StatusBadRequest},
+		"long user locale":   {"/users/" + aliceID, `{"locale":"` + strings.Repeat("x", 101) + `"}`, http.StatusBadRequest},
+		"unknown user":       {"/users/999999999999999999", `{"locale":"es-419"}`, http.StatusNotFound},
+		"empty guild patch":  {"/guilds/" + winterGuildID, `{}`, http.StatusBadRequest},
+		"blank guild locale": {"/guilds/" + winterGuildID, `{"locale":""}`, http.StatusBadRequest},
+		"long guild locale":  {"/guilds/" + winterGuildID, `{"locale":"` + strings.Repeat("x", 101) + `"}`, http.StatusBadRequest},
+		"unknown guild":      {"/guilds/999999999999999999", `{"locale":"es-419"}`, http.StatusNotFound},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := control(t, w.srv, http.MethodPatch, tc.path, tc.body); got.status != tc.wantStatus {
+				t.Errorf("status = %d (%s), want %d", got.status, got.body, tc.wantStatus)
+			}
+		})
+	}
+}
+
 func FuzzControlWorldBodies(f *testing.F) {
 	targets := []struct {
 		method string
@@ -739,6 +791,7 @@ func FuzzControlWorldBodies(f *testing.F) {
 		{http.MethodPost, "/users"},
 		{http.MethodPatch, "/users/" + aliceID},
 		{http.MethodPost, "/guilds"},
+		{http.MethodPatch, "/guilds/" + winterGuildID},
 		{http.MethodPost, "/guilds/" + winterGuildID + "/members"},
 		{http.MethodPost, "/faults"},
 	}

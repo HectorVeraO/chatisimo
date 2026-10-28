@@ -25,6 +25,7 @@ func ruleTable() []ruleExpectation {
 	openOrDrawn := []giftexchange.State{giftexchange.StateOpen, giftexchange.StateDrawn}
 	onOff := []string{"on", "off"}
 	policies := []string{"patch", "redraw"}
+	languages := []string{"en", "es-419"}
 
 	return []ruleExpectation{
 		{giftexchange.RuleDrawAt, giftexchange.RuleKindTime, "unset", nil, true, open},
@@ -34,6 +35,7 @@ func ruleTable() []ruleExpectation {
 		{giftexchange.RuleAvoidLastRound, giftexchange.RuleKindBool, "off", onOff, true, open},
 		{giftexchange.RuleExclusions, giftexchange.RuleKindExclusions, "0", nil, true, open},
 		{giftexchange.RuleQuestionsEnabled, giftexchange.RuleKindBool, "on", onOff, true, openOrDrawn},
+		{giftexchange.RuleLanguage, giftexchange.RuleKindEnum, "en", languages, true, openOrDrawn},
 		{giftexchange.RuleMinParticipants, giftexchange.RuleKindInt, "3", nil, false, nil},
 		{giftexchange.RuleMaxParticipants, giftexchange.RuleKindInt, "100", nil, false, nil},
 		{giftexchange.RuleNoSelfAssignment, giftexchange.RuleKindBool, "on", onOff, false, nil},
@@ -189,6 +191,7 @@ func TestSetRuleStoresEveryConfigurableRuleInCanonicalForm(t *testing.T) {
 		{giftexchange.RuleDropoutPolicy, "redraw", "redraw"},
 		{giftexchange.RuleAvoidLastRound, "true", "on"},
 		{giftexchange.RuleQuestionsEnabled, "false", "off"},
+		{giftexchange.RuleLanguage, "es-419", "es-419"},
 	}
 
 	for _, tc := range tests {
@@ -212,6 +215,7 @@ func TestSetRuleStoresEveryConfigurableRuleInCanonicalForm(t *testing.T) {
 		giftexchange.RuleDrawAt: draw, giftexchange.RuleRevealAt: reveal,
 		giftexchange.RuleReminderLead: "3d", giftexchange.RuleDropoutPolicy: "redraw",
 		giftexchange.RuleAvoidLastRound: "on", giftexchange.RuleQuestionsEnabled: "off",
+		giftexchange.RuleLanguage: "es-419",
 	}
 	for name, want := range stored {
 		if got := ruleNamed(t, views, name).Value; got != want {
@@ -221,6 +225,9 @@ func TestSetRuleStoresEveryConfigurableRuleInCanonicalForm(t *testing.T) {
 	exchangeView, err := s.h.svc.Exchange(t.Context(), s.organizer.actor, s.group, s.exchange)
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
+	}
+	if exchangeView.Language != giftexchange.LanguageES419 {
+		t.Errorf("summary Language = %q, want %q", exchangeView.Language, giftexchange.LanguageES419)
 	}
 	if exchangeView.DrawAt == nil || exchangeView.RevealAt == nil {
 		t.Fatalf("summary times = %v/%v, want both set", exchangeView.DrawAt, exchangeView.RevealAt)
@@ -319,11 +326,14 @@ func TestSetRuleReportsLockedRulesWithTheirState(t *testing.T) {
 		{"reminder_lead stays open once drawn", drawn, giftexchange.RuleReminderLead, "2d", false, "2d"},
 		{"dropout_policy stays open once drawn", drawn, giftexchange.RuleDropoutPolicy, "redraw", false, "redraw"},
 		{"questions_enabled stays open once drawn", drawn, giftexchange.RuleQuestionsEnabled, "off", false, "off"},
+		{"language stays open once drawn", drawn, giftexchange.RuleLanguage, "es-419", false, "es-419"},
 		{"reveal_at stays open once drawn", drawn, giftexchange.RuleRevealAt, "2099-01-02T03:04:05Z", false, "2099-01-02T03:04:05Z"},
 		{"reminder_lead is locked once revealed", revealed, giftexchange.RuleReminderLead, "2d", true, ""},
 		{"reveal_at is locked once revealed", revealed, giftexchange.RuleRevealAt, "unset", true, ""},
 		{"dropout_policy is locked once revealed", revealed, giftexchange.RuleDropoutPolicy, "redraw", true, ""},
+		{"language is locked once revealed", revealed, giftexchange.RuleLanguage, "es-419", true, ""},
 		{"questions_enabled is locked once cancelled", cancelled, giftexchange.RuleQuestionsEnabled, "off", true, ""},
+		{"language is locked once cancelled", cancelled, giftexchange.RuleLanguage, "es-419", true, ""},
 	}
 
 	for _, tc := range tests {

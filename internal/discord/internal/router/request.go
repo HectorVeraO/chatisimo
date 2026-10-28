@@ -60,6 +60,7 @@ type Request struct {
 	stage           responseStage
 	sourceEphemeral bool
 	exchange        giftexchange.ExchangeID
+	locale          string
 	finished        bool
 }
 
@@ -121,6 +122,47 @@ func (r *Request) UserID() snowflake.ID {
 func (r *Request) InGuild() bool {
 	isGuild := r.guildID != 0
 	return isGuild
+}
+
+// Locale returns the interacting user's Discord locale tag (e.g. "en-US", "es-419").
+func (r *Request) Locale() string {
+	if r.event == nil || r.event.Interaction == nil {
+		return ""
+	}
+	return string(r.event.Locale())
+}
+
+// GuildLocale returns the guild's preferred Discord locale tag, or empty in a DM.
+func (r *Request) GuildLocale() string {
+	if r.event == nil || r.event.Interaction == nil {
+		return ""
+	}
+	guildLocale := r.event.GuildLocale()
+	if guildLocale == nil {
+		return ""
+	}
+	return string(*guildLocale)
+}
+
+// SetLocale overrides the locale used for error replies on this request (e.g. once an exchange's
+// language is resolved).
+func (r *Request) SetLocale(locale string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.locale = locale
+}
+
+// EffectiveLocale returns the locale override set by SetLocale when non-empty, or Locale()
+// otherwise.
+func (r *Request) EffectiveLocale() string {
+	r.mu.Lock()
+	override := r.locale
+	r.mu.Unlock()
+	if override != "" {
+		return override
+	}
+	return r.Locale()
 }
 
 // SetExchange records the exchange the interaction is about, so its ID appears in the log.

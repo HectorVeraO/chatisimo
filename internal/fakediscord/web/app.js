@@ -34,6 +34,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 const dom = {
   userSwitcher: $('user-switcher'),
+  userLocale: $('user-locale'),
   newUserForm: $('new-user-form'),
   newUserName: $('new-user-name'),
   botStatus: $('bot-status'),
@@ -42,6 +43,7 @@ const dom = {
   newServerName: $('new-server-name'),
   memberForm: $('member-form'),
   memberServer: $('member-server'),
+  serverLocale: $('server-locale'),
   memberList: $('member-list'),
   memberSelect: $('member-select'),
   dmLink: $('dm-link'),
@@ -112,6 +114,9 @@ function fillSelect(select, options, selected) {
 function renderTopbar() {
   const options = state.users.map((user) => ({ value: user.id, label: user.name }));
   fillSelect(dom.userSwitcher, options, state.userId || '');
+  const current = state.userId ? userById(state.userId) : null;
+  dom.userLocale.disabled = !current;
+  dom.userLocale.value = current && current.locale ? current.locale : 'en-US';
   dom.botStatus.textContent = state.bot;
 }
 
@@ -154,6 +159,8 @@ function selectedGuild() {
 function renderMembers() {
   const guild = selectedGuild();
   dom.memberServer.textContent = guild ? guild.name : 'no server';
+  dom.serverLocale.disabled = !guild;
+  dom.serverLocale.value = guild && guild.locale ? guild.locale : 'en-US';
   const members = guild ? guild.members.map((id) => ({ id, name: userName(id) || id })) : [];
   syncChildren(
     dom.memberList,
@@ -596,6 +603,35 @@ const modal = createModal(dom.modalRoot, { submit: submitModal });
 
 dom.userSwitcher.addEventListener('change', () => {
   switchUser(dom.userSwitcher.value || null);
+});
+
+dom.userLocale.addEventListener('change', async () => {
+  clearError();
+  if (state.userId === null) {
+    return;
+  }
+  try {
+    await api.setUserLocale(state.userId, dom.userLocale.value);
+    await loadWorld();
+    renderChrome();
+  } catch (error) {
+    showError(describeError(error));
+  }
+});
+
+dom.serverLocale.addEventListener('change', async () => {
+  clearError();
+  const guild = selectedGuild();
+  if (guild === null) {
+    return;
+  }
+  try {
+    await api.setGuildLocale(guild.id, dom.serverLocale.value);
+    await loadWorld();
+    renderChrome();
+  } catch (error) {
+    showError(describeError(error));
+  }
 });
 
 dom.newUserForm.addEventListener('submit', async (event) => {

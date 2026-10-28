@@ -309,6 +309,12 @@ func TestMapErrorInRendersAggregatedInputErrorsAndFieldNamesInBothLocales(t *tes
 			Allowed: []string{"patch", "redraw"},
 		},
 		&giftexchange.InputError{
+			Field:   "language",
+			Code:    giftexchange.InputCodeNotOneOf,
+			Reason:  "is not one of en, es-419",
+			Allowed: []string{"en", "es-419"},
+		},
+		&giftexchange.InputError{
 			Field:  "name",
 			Code:   giftexchange.InputCodeTooLong,
 			Reason: "is too long",
@@ -323,6 +329,7 @@ func TestMapErrorInRendersAggregatedInputErrorsAndFieldNamesInBothLocales(t *tes
 		`- reveal\_at must be after draw\_at`,
 		`- reminder\_lead is outside 0 to 14 days in whole seconds`,
 		`- dropout\_policy is not one of patch, redraw`,
+		"- language is not one of en, es-419",
 		"- name is too long",
 	} {
 		if !strings.Contains(en.Text, want) {
@@ -337,6 +344,7 @@ func TestMapErrorInRendersAggregatedInputErrorsAndFieldNamesInBothLocales(t *tes
 		"- fecha de revelación debe ser posterior a la fecha de sorteo",
 		"- recordatorio previo está fuera del rango de 0 a 14 días en segundos enteros",
 		"- política ante bajas no es uno de patch, redraw",
+		"- idioma no es uno de en, es-419",
 		"- nombre es demasiado largo",
 	} {
 		if !strings.Contains(es.Text, want) {

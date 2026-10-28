@@ -137,17 +137,24 @@ func filterFor(verb string) exchangeFilter {
 func (h *Handlers) candidates(
 	ctx context.Context, req *router.Request, filter exchangeFilter,
 ) ([]giftexchange.ExchangeSummary, error) {
+	kept, _, err := h.listCandidates(ctx, req, filter)
+	return kept, err
+}
+
+func (h *Handlers) listCandidates(
+	ctx context.Context, req *router.Request, filter exchangeFilter,
+) ([]giftexchange.ExchangeSummary, []giftexchange.ExchangeSummary, error) {
 	var group *giftexchange.GroupID
 	if filter.scope == scopeGuild {
 		if req.Group == nil {
-			return nil, errGuildOnly
+			return nil, nil, errGuildOnly
 		}
 		group = req.Group
 	}
 
 	listed, err := h.svc.ExchangesFor(ctx, req.Actor, group)
 	if err != nil {
-		return nil, fmt.Errorf("list exchanges: %w", err)
+		return nil, nil, fmt.Errorf("list exchanges: %w", err)
 	}
 
 	kept := make([]giftexchange.ExchangeSummary, 0, len(listed))
@@ -160,7 +167,7 @@ func (h *Handlers) candidates(
 	}
 
 	sortByName(kept)
-	return kept, nil
+	return kept, listed, nil
 }
 
 func sortByName(summaries []giftexchange.ExchangeSummary) {
@@ -231,7 +238,7 @@ func resolveEmpty(candidates []giftexchange.ExchangeSummary) (giftexchange.Excha
 func (h *Handlers) exchangeFor(
 	ctx context.Context, req *router.Request, verb, raw string,
 ) (giftexchange.ExchangeID, error) {
-	candidates, err := h.candidates(ctx, req, filterFor(verb))
+	candidates, listed, err := h.listCandidates(ctx, req, filterFor(verb))
 	if err != nil {
 		return giftexchange.ExchangeID{}, err
 	}
@@ -242,7 +249,28 @@ func (h *Handlers) exchangeFor(
 	}
 
 	req.SetExchange(id)
+	h.setExchangeLocale(ctx, req, id, listed)
 	return id, nil
+}
+
+func (h *Handlers) setExchangeLocale(
+	ctx context.Context,
+	req *router.Request,
+	id giftexchange.ExchangeID,
+	listed []giftexchange.ExchangeSummary,
+) {
+	for _, summary := range listed {
+		if summary.ID == id {
+			req.SetLocale(string(summary.Language))
+			return
+		}
+	}
+	if req.Group != nil {
+		view, err := h.svc.Exchange(ctx, req.Actor, *req.Group, id)
+		if err == nil {
+			req.SetLocale(string(view.Language))
+		}
+	}
 }
 
 // autocompleteFor returns the autocomplete handler of the exchange option of a verb. It

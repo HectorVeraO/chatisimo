@@ -113,6 +113,7 @@ func (s *Service) createExchange(
 		DropoutPolicy:       settings.dropoutPolicy,
 		AvoidLastRound:      settings.avoidLastRound,
 		QuestionsEnabled:    settings.questionsEnabled,
+		Language:            settings.language,
 		CreatedAt:           timestamptz(s.now()),
 	})
 	if insertErr != nil {

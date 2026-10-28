@@ -28,6 +28,7 @@ const (
 	RuleAvoidLastRound    RuleName = "avoid_last_round"
 	RuleExclusions        RuleName = "exclusions"
 	RuleQuestionsEnabled  RuleName = "questions_enabled"
+	RuleLanguage          RuleName = "language"
 	RuleMinParticipants   RuleName = "min_participants"
 	RuleMaxParticipants   RuleName = "max_participants"
 	RuleNoSelfAssignment  RuleName = "no_self_assignment"
@@ -163,6 +164,14 @@ func ruleDescriptors() []ruleDescriptor {
 		{
 			name: RuleQuestionsEnabled, kind: RuleKindBool, configurable: true,
 			defaultValue: "on", editableIn: openOrDrawn,
+		},
+		{
+			name:         RuleLanguage,
+			kind:         RuleKindEnum,
+			options:      []string{string(LanguageEN), string(LanguageES419)},
+			configurable: true,
+			defaultValue: string(LanguageEN),
+			editableIn:   openOrDrawn,
 		},
 		{name: RuleMinParticipants, kind: RuleKindInt, defaultValue: strconv.Itoa(MinParticipants)},
 		{name: RuleMaxParticipants, kind: RuleKindInt, defaultValue: strconv.Itoa(MaxParticipants)},
@@ -335,7 +344,7 @@ func parseFlag(field, raw string) (bool, error) {
 	}
 }
 
-// ruleSettings holds the six stored values of an exchange's configurable rules. A zero time is
+// ruleSettings holds the stored values of an exchange's configurable rules. A zero time is
 // "unset"; times are UTC.
 type ruleSettings struct {
 	drawAt           time.Time
@@ -344,6 +353,7 @@ type ruleSettings struct {
 	dropoutPolicy    string
 	avoidLastRound   bool
 	questionsEnabled bool
+	language         string
 }
 
 func defaultSettings() ruleSettings {
@@ -351,6 +361,7 @@ func defaultSettings() ruleSettings {
 		reminderLead:     defaultReminderLead,
 		dropoutPolicy:    string(DropoutPatch),
 		questionsEnabled: true,
+		language:         string(LanguageEN),
 	}
 	return settings
 }
@@ -361,6 +372,7 @@ func settingsOf(exchange db.GiftexchangeExchange) ruleSettings {
 		dropoutPolicy:    exchange.DropoutPolicy,
 		avoidLastRound:   exchange.AvoidLastRound,
 		questionsEnabled: exchange.QuestionsEnabled,
+		language:         exchange.Language,
 	}
 	if exchange.DrawAt.Valid {
 		settings.drawAt = exchange.DrawAt.Time.UTC()
@@ -393,6 +405,8 @@ func (c ruleSettings) assign(value RuleValue) ruleSettings {
 		c.avoidLastRound = value.flag
 	case RuleQuestionsEnabled:
 		c.questionsEnabled = value.flag
+	case RuleLanguage:
+		c.language = value.text
 	}
 	return c
 }
@@ -577,6 +591,7 @@ func (s *Service) setRuleLocked(
 			DropoutPolicy:       after.dropoutPolicy,
 			AvoidLastRound:      after.avoidLastRound,
 			QuestionsEnabled:    after.questionsEnabled,
+			Language:            after.language,
 		})
 		if updateErr != nil {
 			return RuleView{}, fmt.Errorf("update rules of %s: %w", exchange.ID, updateErr)

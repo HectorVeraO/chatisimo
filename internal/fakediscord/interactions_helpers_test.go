@@ -41,6 +41,8 @@ type sentInteraction struct {
 	Type          int             `json:"type"`
 	GuildID       string          `json:"guild_id"`
 	ChannelID     string          `json:"channel_id"`
+	Locale        string          `json:"locale"`
+	GuildLocale   string          `json:"guild_locale"`
 	Data          json.RawMessage `json:"data"`
 	Message       json.RawMessage `json:"message"`
 	Member        json.RawMessage `json:"member"`

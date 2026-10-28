@@ -45,8 +45,10 @@ type templateData struct {
 	Token         string
 	GuildID       string
 	GuildName     string
+	GuildLocale   string
 	OwnerID       string
 	ChannelID     string
+	Locale        string
 
 	CommandID          string
 	CommandName        string

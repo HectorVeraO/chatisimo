@@ -42,12 +42,22 @@ export function getCommands() {
   return request('GET', '/commands');
 }
 
-export function addUser(name) {
-  return request('POST', '/users', { name });
+export function addUser(name, locale) {
+  const body = locale ? { name, locale } : { name };
+  return request('POST', '/users', body);
 }
 
-export function addGuild(name, memberIds) {
-  return request('POST', '/guilds', { name, members: memberIds });
+export function setUserLocale(userId, locale) {
+  return request('PATCH', '/users/' + encodeURIComponent(userId), { locale });
+}
+
+export function addGuild(name, memberIds, locale) {
+  const body = locale ? { name, members: memberIds, locale } : { name, members: memberIds };
+  return request('POST', '/guilds', body);
+}
+
+export function setGuildLocale(guildId, locale) {
+  return request('PATCH', '/guilds/' + encodeURIComponent(guildId), { locale });
 }
 
 export function addMember(guildId, userId) {

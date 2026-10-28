@@ -53,7 +53,7 @@ func (h *Handlers) help(_ discord.SlashCommandInteractionData, e *handler.Comman
 		panic("giftexchangecmd: help ran without a request")
 	}
 
-	c := h.catalog(LocaleEN)
+	c := h.catalogFor(req)
 	err := req.Ephemeral(e.Ctx, discord.MessageCreate{Content: helpText(c)})
 	if err != nil {
 		return err //nolint:wrapcheck // the router reduces REST errors to status and code

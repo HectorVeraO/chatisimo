@@ -74,8 +74,7 @@ func (h *Handlers) rulesCommand(data discord.SlashCommandInteractionData, e *han
 		return err
 	}
 
-	c := h.catalog(LocaleEN)
-	return h.rulesShow(e.Ctx, c, req, id, "")
+	return h.rulesShow(e.Ctx, req, id, "")
 }
 
 // rulesButton handles the Rules button of an exchange card. It answers with a deferred
@@ -103,8 +102,7 @@ func (h *Handlers) rulesButton(e *handler.ComponentEvent) error {
 	}
 	req.SetExchange(parsed.Exchange)
 
-	c := h.catalog(LocaleEN)
-	return h.rulesShow(e.Ctx, c, req, parsed.Exchange, "")
+	return h.rulesShow(e.Ctx, req, parsed.Exchange, "")
 }
 
 // rulesPick handles the choice of a rule in the select of the rules view. A time or duration
@@ -137,8 +135,7 @@ func (h *Handlers) rulesPick(e *handler.ComponentEvent) error {
 	}
 	req.SetExchange(parsed.Exchange)
 
-	c := h.catalog(LocaleEN)
-	rule, err := h.rulesEditable(e.Ctx, c, req, parsed.Exchange, name)
+	rule, c, err := h.rulesEditable(e.Ctx, req, parsed.Exchange, name)
 	if err != nil {
 		return err
 	}
@@ -178,8 +175,7 @@ func (h *Handlers) rulesOption(e *handler.ComponentEvent) error {
 	}
 	req.SetExchange(parsed.Exchange)
 
-	c := h.catalog(LocaleEN)
-	_, err = h.rulesEditable(e.Ctx, c, req, parsed.Exchange, parsed.Rule)
+	_, c, err := h.rulesEditable(e.Ctx, req, parsed.Exchange, parsed.Rule)
 	if err != nil {
 		return err
 	}
@@ -212,8 +208,7 @@ func (h *Handlers) rulesModal(e *handler.ModalEvent) error {
 	}
 	req.SetExchange(parsed.Exchange)
 
-	c := h.catalog(LocaleEN)
-	rule, err := h.rulesEditable(e.Ctx, c, req, parsed.Exchange, parsed.Rule)
+	rule, c, err := h.rulesEditable(e.Ctx, req, parsed.Exchange, parsed.Rule)
 	if err != nil {
 		return err
 	}
@@ -246,19 +241,20 @@ func rulesSelectedValue(data discord.ComponentInteractionData) (string, error) {
 // The module re-checks every change; asking first lets a refusal come before any modal or
 // select is shown, and tells the kind of the rule.
 func (h *Handlers) rulesEditable(
-	ctx context.Context, c Catalog, req *router.Request, id giftexchange.ExchangeID, name giftexchange.RuleName,
-) (giftexchange.RuleView, error) {
+	ctx context.Context, req *router.Request, id giftexchange.ExchangeID, name giftexchange.RuleName,
+) (giftexchange.RuleView, Catalog, error) {
 	_, parseErr := giftexchange.ParseRuleName(string(name))
 	if parseErr != nil {
-		return giftexchange.RuleView{}, fmt.Errorf("parse rule name: %w", parseErr)
+		return giftexchange.RuleView{}, Catalog{}, fmt.Errorf("parse rule name: %w", parseErr)
 	}
 
 	view, rules, err := h.rulesRead(ctx, req, id)
 	if err != nil {
-		return giftexchange.RuleView{}, err
+		return giftexchange.RuleView{}, Catalog{}, err
 	}
+	c := CatalogForExchange(view.Language)
 	if !view.CallerIsOrganizer {
-		return giftexchange.RuleView{}, giftexchange.ErrForbidden
+		return giftexchange.RuleView{}, c, giftexchange.ErrForbidden
 	}
 
 	for _, rule := range rules {
@@ -266,10 +262,11 @@ func (h *Handlers) rulesEditable(
 			continue
 		}
 
-		return rulesCheckEditable(c, rule, view.State)
+		checked, checkErr := rulesCheckEditable(c, rule, view.State)
+		return checked, c, checkErr
 	}
 
-	return giftexchange.RuleView{}, fmt.Errorf("rule %q: %w", name, giftexchange.ErrUnknownRule)
+	return giftexchange.RuleView{}, c, fmt.Errorf("rule %q: %w", name, giftexchange.ErrUnknownRule)
 }
 
 func rulesCheckEditable(c Catalog, rule giftexchange.RuleView, state giftexchange.State) (giftexchange.RuleView, error) {
@@ -293,6 +290,7 @@ func (h *Handlers) rulesRead(
 	if err != nil {
 		return giftexchange.ExchangeView{}, nil, fmt.Errorf("read exchange: %w", err)
 	}
+	req.SetLocale(string(view.Language))
 
 	rules, err := h.svc.Rules(ctx, req.Actor, *req.Group, id)
 	if err != nil {
@@ -326,13 +324,14 @@ func (h *Handlers) rulesSnapshotOf(
 
 // rulesShow edits the original reply into the rules view, with notice as its content.
 func (h *Handlers) rulesShow(
-	ctx context.Context, c Catalog, req *router.Request, id giftexchange.ExchangeID, notice string,
+	ctx context.Context, req *router.Request, id giftexchange.ExchangeID, notice string,
 ) error {
 	snapshot, err := h.rulesSnapshotOf(ctx, req, id)
 	if err != nil {
 		return err
 	}
 
+	c := CatalogForExchange(snapshot.view.Language)
 	embeds := []discord.Embed{rulesEmbed(c, snapshot)}
 	components := rulesPickComponents(c, snapshot)
 	editErr := req.EditOriginal(ctx, discord.MessageUpdate{
@@ -357,7 +356,7 @@ func (h *Handlers) rulesApply(
 		return h.rulesRejectInput(ctx, c, req, id, fmt.Errorf("set rule: %w", err))
 	}
 
-	return h.rulesShow(ctx, c, req, id, "")
+	return h.rulesShow(ctx, req, id, "")
 }
 
 // rulesRejectInput shows the view with the problems of invalid input. Any other error goes to
@@ -371,7 +370,7 @@ func (h *Handlers) rulesRejectInput(
 	}
 
 	notice := MapErrorIn(c.Locale(), req.ID.String(), err).Text
-	return h.rulesShow(ctx, c, req, id, notice)
+	return h.rulesShow(ctx, req, id, notice)
 }
 
 // rulesChangeFor turns the text typed in the modal into the change the module takes. Empty
@@ -529,6 +528,8 @@ func rulesLabel(c Catalog, name giftexchange.RuleName) (string, bool) {
 		return c.Get(textRuleExclusions), true
 	case giftexchange.RuleQuestionsEnabled:
 		return c.Get(textRuleQuestionsEnabled), true
+	case giftexchange.RuleLanguage:
+		return c.Get(textRuleLanguage), true
 	case giftexchange.RuleMinParticipants:
 		return c.Get(textRuleMinParticipants), true
 	case giftexchange.RuleMaxParticipants:

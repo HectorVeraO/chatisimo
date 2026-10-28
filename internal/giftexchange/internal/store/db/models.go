@@ -35,6 +35,7 @@ type GiftexchangeExchange struct {
 	DrawnAt               pgtype.Timestamptz
 	RevealedAt            pgtype.Timestamptz
 	CancelledAt           pgtype.Timestamptz
+	Language              string
 }
 
 type GiftexchangeExclusion struct {

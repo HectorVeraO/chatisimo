@@ -24,11 +24,12 @@ const (
 // kind, or a kind missing the data it needs.
 var ErrCannotRender = errors.New("giftexchangecmd: cannot render notification")
 
-// RenderNotification builds the direct message for n in English. guildName is the name of the
-// server the exchange belongs to; an empty name renders as "unknown server". It is pure: the
-// pair mention comes only from n.Counterpart and the question text only from n.Question.
+// RenderNotification builds the direct message for n in the exchange's language (falling back
+// to English). guildName is the name of the server the exchange belongs to; an empty name
+// renders as "unknown server" (or its translation). It is pure: the pair mention comes only
+// from n.Counterpart and the question text only from n.Question.
 func RenderNotification(n giftexchange.Notification, guildName string) (discord.MessageCreate, error) {
-	return RenderNotificationIn(LocaleEN, n, guildName)
+	return RenderNotificationIn(Locale(n.Exchange.Language), n, guildName)
 }
 
 // RenderNotificationIn builds the direct message for n in the catalog for loc, falling back to

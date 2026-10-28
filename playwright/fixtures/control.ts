@@ -4,6 +4,7 @@ export interface FakeUser {
   id: string;
   name: string;
   dms_open: boolean;
+  locale: string;
 }
 
 export interface FakeGuild {
@@ -11,6 +12,7 @@ export interface FakeGuild {
   name: string;
   channel_id: string;
   channel: string;
+  locale: string;
   members: string[];
 }
 
@@ -106,9 +108,23 @@ export class Control {
     return (await this.json(response, "PATCH users")) as FakeUser;
   }
 
+  async setUserLocale(userId: string, locale: string): Promise<FakeUser> {
+    const response = await this.api.patch(`${CONTROL}/users/${encodeURIComponent(userId)}`, {
+      data: { locale },
+    });
+    return (await this.json(response, "PATCH users")) as FakeUser;
+  }
+
   async createGuild(name: string, memberIds: string[]): Promise<FakeGuild> {
     const response = await this.api.post(`${CONTROL}/guilds`, { data: { name, members: memberIds } });
     return (await this.json(response, "POST guilds")) as FakeGuild;
+  }
+
+  async setGuildLocale(guildId: string, locale: string): Promise<FakeGuild> {
+    const response = await this.api.patch(`${CONTROL}/guilds/${encodeURIComponent(guildId)}`, {
+      data: { locale },
+    });
+    return (await this.json(response, "PATCH guilds")) as FakeGuild;
   }
 
   async addMember(guildId: string, userId: string): Promise<void> {

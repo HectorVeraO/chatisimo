@@ -201,7 +201,7 @@ func FuzzParseRuleValue(f *testing.F) {
 	seeds := []string{
 		"", "unset", "2026-12-24T23:00:00-03:00", "2026-12-25T02:00:00.5Z", "1999-12-31T23:59:59Z",
 		"10000-01-01T00:00:00Z", "0", "3d", "1d12h", "36h", "48h", "14d", "14d1s", "-1h", "1.5s",
-		"99999999999d", "patch", "redraw", "on", "off", "true", "false", "ON", string([]byte{0xff}),
+		"99999999999d", "patch", "redraw", "en", "es-419", "es-ES", "on", "off", "true", "false", "ON", string([]byte{0xff}),
 	}
 	for i := range allRuleNames {
 		for _, s := range seeds {
