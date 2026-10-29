@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -35,13 +36,53 @@ var abuseCases = []string{
 	"bad \xff\xfe bytes",
 	strings.Repeat("@everyone <@100000000000000001> ", 4),
 	strings.Repeat("\u05d0", 100),
+	"<:CatHmph:123456789012345678>",
+	"<a:party_cat_2:123456789012345678>",
+	"**bold** <@12345> <:cat_smile:987654321098765432> _italics_",
+	"<:a:123>",
+	"<:" + strings.Repeat("a", 33) + ":123>",
+	"<:ab:0>",
+	"<:ab:00123>",
+	"<:ab:99999999999999999999>",
+	"<:<:ab:123>:123>",
+	"<:ab:123",
+	`\<:CatHmph:123456789012345678>`,
 }
 
 // escapedPair matches a backslash and the control character it protects.
-var escapedPair = regexp.MustCompile(`\\[\\*_~|>#` + "`" + `<@\[\]]`)
+var (
+	escapedPair       = regexp.MustCompile(`\\[\\*_~|>#` + "`" + `<@\[\]]`)
+	customEmojiFormat = regexp.MustCompile(`<a?:[A-Za-z0-9_]{2,32}:([1-9][0-9]{0,19})>`)
+)
 
-// assertEscaped checks that Text keeps the output valid UTF-8 and that, once every protected
-// pair is set aside, no control character is left.
+func stripValidCustomEmojis(s string) string {
+	var b strings.Builder
+	cursor := 0
+	for cursor < len(s) {
+		if s[cursor] == '\\' && cursor+1 < len(s) {
+			b.WriteString(s[cursor : cursor+2])
+			cursor += 2
+			continue
+		}
+		if s[cursor] == '<' {
+			loc := customEmojiFormat.FindStringSubmatchIndex(s[cursor:])
+			if loc != nil && loc[0] == 0 {
+				id := s[cursor+loc[2] : cursor+loc[3]]
+				_, err := strconv.ParseUint(id, 10, 64)
+				if err == nil {
+					cursor += loc[1]
+					continue
+				}
+			}
+		}
+		b.WriteByte(s[cursor])
+		cursor++
+	}
+	return b.String()
+}
+
+// assertEscaped checks that Text keeps the output valid UTF-8 and that, once every valid
+// custom emoji and protected pair are set aside, no control character is left.
 func assertEscaped(t *testing.T, input string) {
 	t.Helper()
 
@@ -49,8 +90,9 @@ func assertEscaped(t *testing.T, input string) {
 	if !utf8.ValidString(got) {
 		t.Fatalf("Text(%q) = %q is not valid UTF-8", input, got)
 	}
-	if rest := escapedPair.ReplaceAllString(got, ""); strings.ContainsAny(rest, escapeChars) {
-		t.Fatalf("Text(%q) = %q has an unescaped control character", input, got)
+	withoutEmojis := stripValidCustomEmojis(got)
+	if rest := escapedPair.ReplaceAllString(withoutEmojis, ""); strings.ContainsAny(rest, escapeChars) {
+		t.Fatalf("Text(%q) = %q has an unescaped control character outside custom emojis", input, got)
 	}
 }
 
@@ -63,14 +105,43 @@ func TestTextEscapesAbuseCases(t *testing.T) {
 func TestTextTurnsMentionsAndEveryoneIntoLiteralText(t *testing.T) {
 	tests := []struct{ name, input, want string }{
 		{"user mention", "<@100000000000000001>", `\<\@100000000000000001\>`},
+		{"nickname mention", "<@!100000000000000001>", `\<\@!100000000000000001\>`},
+		{"role mention", "<@&100000000000000002>", `\<\@&100000000000000002\>`},
+		{"channel link", "<#100000000000000003>", `\<\#100000000000000003\>`},
 		{"everyone", "@everyone", `\@everyone`},
 		{"markdown", "*a* _b_", `\*a\* \_b\_`},
 		{"backslash", `a\b`, `a\\b`},
 		{"plain text stays", "Winter exchange", "Winter exchange"},
 		{"masked link", "[click](https://example.com)", `\[click\](https://example.com)`},
+		{"autolink", "<https://example.com>", `\<https://example.com\>`},
 		{"timestamp", "<t:1:R>", `\<t:1:R\>`},
+		{"full timestamp", "<t:1700000000:F>", `\<t:1700000000:F\>`},
 		{"spoiler and code", "||spoiler|| `code`", `\|\|spoiler\|\| ` + "\\`code\\`"},
-		{"invalid bytes", "bad \xff bytes", "bad � bytes"},
+		{"invalid bytes", "bad \xff bytes", "bad " + string(utf8.RuneError) + " bytes"},
+		{"static custom emoji", "<:CatHmph:123456789012345678>", "<:CatHmph:123456789012345678>"},
+		{"animated custom emoji with underscores", "<a:party_cat_2:123456789012345678>", "<a:party_cat_2:123456789012345678>"},
+		{"min length emoji name and id", "<:ab:1>", "<:ab:1>"},
+		{"max length emoji name and max uint64 id", "<:" + strings.Repeat("A", 32) + ":18446744073709551615>", "<:" + strings.Repeat("A", 32) + ":18446744073709551615>"},
+		{
+			"adjacent markdown and mentions around custom emoji",
+			"**bold** <@12345> <:cat_smile:987654321098765432> _italics_",
+			`\*\*bold\*\* \<\@12345\> <:cat_smile:987654321098765432> \_italics\_`,
+		},
+		{
+			"underscores adjacent to custom emoji",
+			"_italic_ <:cat_hmph:123456789012345678> _more_",
+			`\_italic\_ <:cat_hmph:123456789012345678> \_more\_`,
+		},
+		{"rejected 1-char emoji name", "<:a:123>", `\<:a:123\>`},
+		{"rejected 33-char emoji name", "<:" + strings.Repeat("a", 33) + ":123>", `\<:` + strings.Repeat("a", 33) + `:123\>`},
+		{"rejected zero emoji id", "<:ab:0>", `\<:ab:0\>`},
+		{"rejected leading-zero emoji id", "<:ab:00123>", `\<:ab:00123\>`},
+		{"rejected uint64 overflow emoji id", "<:ab:99999999999999999999>", `\<:ab:99999999999999999999\>`},
+		{"rejected negative emoji id", "<:ab:-123>", `\<:ab:-123\>`},
+		{"rejected non-digit emoji id", "<:ab:12a3>", `\<:ab:12a3\>`},
+		{"rejected nested custom emoji", "<:<:ab:123>:123>", `\<:<:ab:123>:123\>`},
+		{"rejected unclosed custom emoji", "<:ab:123", `\<:ab:123`},
+		{"rejected non-ascii emoji name", "<:cat_\u00e9:123>", `\<:cat\_` + "\u00e9" + `:123\>`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -82,6 +153,16 @@ func TestTextTurnsMentionsAndEveryoneIntoLiteralText(t *testing.T) {
 }
 
 func FuzzEscapeText(f *testing.F) {
+	for _, seed := range abuseCases {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, input string) {
+		assertEscaped(t, input)
+	})
+}
+
+func FuzzText(f *testing.F) {
 	for _, seed := range abuseCases {
 		f.Add(seed)
 	}

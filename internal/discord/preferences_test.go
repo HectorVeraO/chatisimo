@@ -206,6 +206,72 @@ func TestPreferencesEscapesMarkdownAndMentionsAndValidatesInput(t *testing.T) {
 	q.assertLogsClean(t, hostileLikes, "everyone")
 }
 
+func TestPreferencesPreservesCustomEmojisAndEscapesAdjacentMarkup(t *testing.T) {
+	q := newQuestionScene(t)
+	recipient := q.recipientOf(t, q.a)
+
+	likes := "Cats <:CatHmph:123456789012345678> <@100000000000000001> *bold*"
+	dislikes := "Loud noises <a:cat_dance:123456789012345678> _italic_"
+	details := "Size M <:CatHmph:123456789012345678>"
+
+	slashIn := q.ge("preferences", true, map[string]any{
+		"likes":    likes,
+		"dislikes": dislikes,
+		"details":  details,
+	})
+	slashIn.BypassValidation = true
+	savedRec := q.outcome(t, slashOrFail(t, q.harness, recipient, slashIn))
+	if savedRec.Content != prefTextSaved {
+		t.Fatalf("saved reply = %q, want %q", savedRec.Content, prefTextSaved)
+	}
+	fields := questionFields(t, savedRec)
+	wantLikes := `Cats <:CatHmph:123456789012345678> \<\@100000000000000001\> \*bold\*`
+	wantDislikes := `Loud noises <a:cat_dance:123456789012345678> \_italic\_`
+	wantDetails := `Size M <:CatHmph:123456789012345678>`
+	if fields["Likes and hobbies"] != wantLikes {
+		t.Errorf("saved Likes field = %q, want %q", fields["Likes and hobbies"], wantLikes)
+	}
+	if fields["Dislikes / avoid"] != wantDislikes {
+		t.Errorf("saved Dislikes field = %q, want %q", fields["Dislikes / avoid"], wantDislikes)
+	}
+	if fields["Helpful details"] != wantDetails {
+		t.Errorf("saved Details field = %q, want %q", fields["Helpful details"], wantDetails)
+	}
+
+	recipRec := q.outcome(t, slashOrFail(t, q.harness, q.a, q.ge("recipient", true, nil)))
+	recipFields := questionFields(t, recipRec)
+	if recipFields["Likes and hobbies"] != wantLikes {
+		t.Errorf("/ge recipient Likes field = %q, want %q", recipFields["Likes and hobbies"], wantLikes)
+	}
+	if recipFields["Dislikes / avoid"] != wantDislikes {
+		t.Errorf("/ge recipient Dislikes field = %q, want %q", recipFields["Dislikes / avoid"], wantDislikes)
+	}
+	if recipFields["Helpful details"] != wantDetails {
+		t.Errorf("/ge recipient Details field = %q, want %q", recipFields["Helpful details"], wantDetails)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), deliveryDeadline)
+	defer cancel()
+	dm, err := q.fake.WaitDM(ctx, q.users[q.a], func(m fakediscord.Message) bool {
+		return strings.Contains(m.Content, "updated their gift preferences")
+	})
+	if err != nil {
+		t.Fatalf("WaitDM: %v", err)
+	}
+	dmEmbedFields := questionFields(t, fakediscord.Record{Embeds: dm.Embeds})
+	if dmEmbedFields["Likes and hobbies"] != wantLikes {
+		t.Errorf("DM Likes field = %q, want %q", dmEmbedFields["Likes and hobbies"], wantLikes)
+	}
+	if dmEmbedFields["Dislikes / avoid"] != wantDislikes {
+		t.Errorf("DM Dislikes field = %q, want %q", dmEmbedFields["Dislikes / avoid"], wantDislikes)
+	}
+	if dmEmbedFields["Helpful details"] != wantDetails {
+		t.Errorf("DM Details field = %q, want %q", dmEmbedFields["Helpful details"], wantDetails)
+	}
+
+	assertNoPings(t, q.fake)
+}
+
 func TestPreferencesDeniesNonParticipants(t *testing.T) {
 	s := newScene(t)
 	id := s.createExchange(t, s.a, questionExchange)

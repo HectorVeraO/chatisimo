@@ -10,6 +10,8 @@ const MAX_COMPONENT_DEPTH = 5;
 const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/;
 const MENTION_PATTERN = /<@!?(\d{1,20})>/y;
 const TIMESTAMP_PATTERN = /<t:(-?\d{1,13})(?::([tTdDfFR]))?>/y;
+const CUSTOM_EMOJI_PATTERN = /<(a?):([A-Za-z0-9_]{2,32}):([1-9]\d{0,19})>/y;
+const MAX_SNOWFLAKE = 18446744073709551615n;
 const WORD_CHARACTER = /[\p{L}\p{N}]/u;
 const WHITESPACE = /\s/;
 
@@ -145,7 +147,7 @@ function readToken(text, index, ctx, depth) {
     case '`':
       return readCode(text, index);
     case '<':
-      return readMention(text, index, ctx) || readTimestamp(text, index);
+      return readMention(text, index, ctx) || readTimestamp(text, index) || readCustomEmoji(text, index);
     case '*':
       return readEmphasis(text, index, ctx, depth);
     case '_':
@@ -222,6 +224,26 @@ function readTimestamp(text, index) {
   node.setAttribute('datetime', date.toISOString());
   node.textContent = formatTimestamp(date, match[2] || 'f');
   return { node, end: TIMESTAMP_PATTERN.lastIndex };
+}
+
+function readCustomEmoji(text, index) {
+  CUSTOM_EMOJI_PATTERN.lastIndex = index;
+  const match = CUSTOM_EMOJI_PATTERN.exec(text);
+  if (match === null) {
+    return null;
+  }
+  const animated = match[1] === 'a';
+  const name = match[2];
+  const id = match[3];
+  if (BigInt(id) > MAX_SNOWFLAKE) {
+    return null;
+  }
+  const node = make('span', 'custom-emoji', 'custom-emoji');
+  node.setAttribute('data-emoji-name', name);
+  node.setAttribute('data-emoji-id', id);
+  node.setAttribute('data-animated', animated ? 'true' : 'false');
+  node.textContent = ':' + name + ':';
+  return { node, end: CUSTOM_EMOJI_PATTERN.lastIndex };
 }
 
 const TIMESTAMP_FORMATS = {
