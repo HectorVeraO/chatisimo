@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/llm"
@@ -17,13 +18,16 @@ const (
 	settingLLMKey            = "llm.api_key"
 	settingLLMModel          = "llm.model"
 	settingLLMBaseURL        = "llm.base_url"
+	settingLLMPrompt         = "llm.prompt"
 
 	defaultDiscordAPIBaseURL = "https://discord.com/api/v10"
 	defaultLLMModel          = llm.DefaultModel
 	defaultLLMBaseURL        = llm.DefaultBaseURL
+	defaultLLMPrompt         = llm.DefaultPrompt
 
 	maxDiscordTokenBytes = 256
 	maxLLMModelBytes     = 128
+	maxLLMPromptBytes    = 16 << 10
 )
 
 // settingKeys declares every setting the process knows. Owners of a setting read it through
@@ -59,6 +63,13 @@ func settingKeys() []config.Key {
 			Default:  defaultLLMBaseURL,
 			Validate: validateLLMBaseURL,
 			Doc:      "Vertex AI publisher models base URL",
+		},
+		{
+			Name:      settingLLMPrompt,
+			Multiline: true,
+			Default:   defaultLLMPrompt,
+			Validate:  validateLLMPrompt,
+			Doc:       "Vertex AI question rephrase system prompt",
 		},
 	}
 
@@ -147,6 +158,34 @@ func validateLLMModel(value string, _ config.Environment) error {
 
 	if strings.ContainsAny(value, "/\\?#:") {
 		problems = append(problems, errors.New("must not contain URL path or query characters"))
+	}
+
+	return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+}
+
+// validateLLMPrompt accepts 1-16384 bytes of valid UTF-8 text with non-empty trimmed content and
+// no control characters other than '\n'. Its errors never carry the value.
+func validateLLMPrompt(value string, _ config.Environment) error {
+	var problems []error
+
+	if len(value) < 1 || len(value) > maxLLMPromptBytes {
+		problems = append(problems, fmt.Errorf("must be 1-%d bytes", maxLLMPromptBytes))
+	}
+
+	if strings.TrimSpace(value) == "" {
+		problems = append(problems, errors.New("must not be blank"))
+	}
+
+	if !utf8.ValidString(value) {
+		problems = append(problems, errors.New("must be valid UTF-8"))
+	}
+
+	for _, r := range value {
+		if r != '\n' && unicode.IsControl(r) {
+			problems = append(problems, errors.New("must not contain control characters other than newline"))
+
+			break
+		}
 	}
 
 	return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors

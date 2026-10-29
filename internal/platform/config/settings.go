@@ -47,6 +47,9 @@ type Key struct {
 	Name string
 	// Secret values are sealed at rest and never printed.
 	Secret bool
+	// Multiline allows interior line feeds ("\n") in a plain setting's input. Secrets cannot be
+	// multiline.
+	Multiline bool
 	// Default is returned by Get when the key is unset; "" means no default. Secrets have none.
 	Default string
 	// Validate checks a value for env; nil accepts any non-empty value. It runs on Set and on
@@ -169,6 +172,10 @@ func indexKeys(keys []Key) (map[string]Key, error) {
 
 		if key.Secret && key.Default != "" {
 			problems = append(problems, fmt.Errorf("setting %q: a secret cannot have a default", key.Name))
+		}
+
+		if key.Secret && key.Multiline {
+			problems = append(problems, fmt.Errorf("setting %q: a secret cannot be multiline", key.Name))
 		}
 
 		byName[key.Name] = key

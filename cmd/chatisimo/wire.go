@@ -246,12 +246,18 @@ func (s *server) openStorage(ctx context.Context, env config.Env) (runtimeSettin
 		return runtimeSettings{}, fmt.Errorf("read settings: %w", err)
 	}
 
+	llmPrompt, err := store.Get(ctx, settingLLMPrompt)
+	if err != nil {
+		return runtimeSettings{}, fmt.Errorf("read settings: %w", err)
+	}
+
 	out := runtimeSettings{
 		discord: discord.Settings{Token: token, APIBaseURL: baseURL},
 		llm: llm.Config{
 			APIKey:  llmKey.Reveal(),
 			Model:   llmModel,
 			BaseURL: llmBaseURL,
+			Prompt:  llmPrompt,
 			Logger:  s.logger,
 		},
 	}

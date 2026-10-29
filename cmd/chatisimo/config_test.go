@@ -223,7 +223,8 @@ func TestConfigListFormat(t *testing.T) {
 		"discord.token\tsecret\t(unset)\tDiscord bot token\n" +
 		"llm.api_key\tsecret\t(unset)\tVertex AI API key\n" +
 		"llm.base_url\tplain\t" + defaultLLMBaseURL + " (default)\tVertex AI publisher models base URL\n" +
-		"llm.model\tplain\t" + defaultLLMModel + " (default)\tVertex AI model\n"
+		"llm.model\tplain\t" + defaultLLMModel + " (default)\tVertex AI model\n" +
+		"llm.prompt\tplain\t" + defaultLLMPrompt + " (default)\tVertex AI question rephrase system prompt\n"
 	if before.code != 0 || before.stdout != wantBefore {
 		t.Errorf("before = %+v, want stdout %q", before, wantBefore)
 	}
@@ -239,7 +240,8 @@ func TestConfigListFormat(t *testing.T) {
 		"discord.token\tsecret\t(unset)\tDiscord bot token\n" +
 		"llm.api_key\tsecret\t(unset)\tVertex AI API key\n" +
 		"llm.base_url\tplain\t" + defaultLLMBaseURL + " (default)\tVertex AI publisher models base URL\n" +
-		"llm.model\tplain\t" + defaultLLMModel + " (default)\tVertex AI model\n"
+		"llm.model\tplain\t" + defaultLLMModel + " (default)\tVertex AI model\n" +
+		"llm.prompt\tplain\t" + defaultLLMPrompt + " (default)\tVertex AI question rephrase system prompt\n"
 	if after.stdout != wantAfter {
 		t.Errorf("after stdout = %q, want %q", after.stdout, wantAfter)
 	}
@@ -282,6 +284,67 @@ func TestConfigLLMSettings(t *testing.T) {
 	}
 	if got := invoke(t, local, strings.NewReader(localLLMURL+"\n"), "config", "set", "llm.base_url"); got.code != 0 {
 		t.Errorf("llm.base_url override in local = %+v, want exit 0", got)
+	}
+}
+
+func TestConfigSetMultilineLLMPrompt(t *testing.T) {
+	database := newClone(t)
+	env := envFor(database, "local")
+
+	defaultGet := invoke(t, env, strings.NewReader(""), "config", "get", "llm.prompt")
+	if defaultGet.code != 0 || defaultGet.stdout != defaultLLMPrompt+"\n" {
+		t.Fatalf("default get llm.prompt = %+v, want default prompt", defaultGet)
+	}
+
+	const multilinePrompt = "Rule 1: Keep 2nd person singular.\nRule 2: Use neutral Spanish tuteo.\nRule 3: Drop vocative slang."
+
+	for _, rawInput := range []string{
+		multilinePrompt + "\n",
+		strings.ReplaceAll(multilinePrompt, "\n", "\r\n") + "\r\n",
+	} {
+		set := invoke(t, env, strings.NewReader(rawInput), "config", "set", "llm.prompt")
+		if set.code != 0 || set.stdout != "llm.prompt set\n" {
+			t.Fatalf("set llm.prompt = %+v, want exit 0", set)
+		}
+
+		get := invoke(t, env, strings.NewReader(""), "config", "get", "llm.prompt")
+		if get.code != 0 || get.stdout != multilinePrompt+"\n" {
+			t.Errorf("get llm.prompt = %q, want %q", get.stdout, multilinePrompt+"\n")
+		}
+
+		list := invoke(t, env, strings.NewReader(""), "config", "list")
+		if list.code != 0 {
+			t.Fatalf("list = %+v, want exit 0", list)
+		}
+
+		rows := strings.Split(strings.TrimSuffix(list.stdout, "\n"), "\n")
+		if len(rows) != len(settingKeys()) {
+			t.Errorf("config list returned %d rows, want strictly %d (one per setting): %q", len(rows), len(settingKeys()), list.stdout)
+		}
+
+		wantRow := "llm.prompt\tplain\t" + strings.ReplaceAll(multilinePrompt, "\n", `\n`) + "\tVertex AI question rephrase system prompt"
+		if !strings.Contains(list.stdout, wantRow+"\n") {
+			t.Errorf("list stdout = %q, want row %q", list.stdout, wantRow)
+		}
+	}
+
+	for _, badPrompt := range []string{
+		"",
+		"\n\n",
+		"   \r\n  ",
+		"prompt-with-nul\x00marker\n",
+		"prompt-with-lone-cr\rmarker\n",
+		"prompt-with-tab\tmarker\n",
+		strings.Repeat("p", maxLLMPromptBytes+1) + "\n",
+	} {
+		got := invoke(t, env, strings.NewReader(badPrompt), "config", "set", "llm.prompt")
+		if got.code != 1 || got.stdout != "" {
+			t.Errorf("bad llm.prompt accepted: %+v", got)
+		}
+
+		if strings.Contains(got.all(), "marker") {
+			t.Errorf("error output echoed prompt input: %q", got.all())
+		}
 	}
 }
 
