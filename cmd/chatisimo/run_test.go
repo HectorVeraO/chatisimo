@@ -128,6 +128,31 @@ func TestRunRejectsAnLLMBaseURLThatProductionForbids(t *testing.T) {
 	assertNoneOf(t, got, storedLLMURL, token, masterKey, database.URL().Reveal())
 }
 
+func TestRunRejectsAnAIzaLLMKeyThatProductionForbids(t *testing.T) {
+	noLeaks(t)
+
+	const aizaKey = "AIza-synthetic-test-key"
+
+	database := newClone(t)
+	local := envFor(database, "local")
+	token := syntheticToken(t, 48)
+
+	storeSetting(t, local, "discord.token", token)
+	storeSetting(t, local, "llm.api_key", aizaKey)
+
+	got := invoke(t, envFor(database, "production"), strings.NewReader(""), "run")
+
+	if got.code != 1 || got.stdout != "" {
+		t.Fatalf("got code %d and stdout %q, want exit 1 and empty stdout", got.code, got.stdout)
+	}
+
+	if !strings.Contains(got.stderr, "llm.api_key") {
+		t.Errorf("stderr = %q, want the name of the invalid setting", got.stderr)
+	}
+
+	assertNoneOf(t, got, aizaKey, "synthetic-test-key", token, masterKey, database.URL().Reveal())
+}
+
 func TestRunReportsEveryEnvironmentErrorWithoutValues(t *testing.T) {
 	noLeaks(t)
 
