@@ -324,9 +324,9 @@ func (h *Handlers) autocompleteFor(verb string) handler.AutocompleteHandler {
 	}
 }
 
-// choicesFor builds the choices for the candidates whose name contains typed. The name is
-// plain text, because choices render no markdown, includes the localized state when showState
-// is true, and carries the server name in a DM.
+// choicesFor builds the choices for the candidates whose formatted label contains typed. The
+// label is plain text, because choices render no markdown, includes the localized state when
+// showState is true, and carries the server name in a DM.
 func (h *Handlers) choicesFor(
 	req *router.Request, candidates []giftexchange.ExchangeSummary, typed string, showState bool,
 ) []discord.AutocompleteChoice {
@@ -338,9 +338,6 @@ func (h *Handlers) choicesFor(
 		if len(choices) == maxChoices {
 			break
 		}
-		if !strings.Contains(strings.ToLower(candidate.Name), needle) {
-			continue
-		}
 
 		name := candidate.Name
 		if showState {
@@ -348,6 +345,9 @@ func (h *Handlers) choicesFor(
 		}
 		if !req.InGuild() {
 			name += choiceSuffixSeparator + GuildNameOrUnknownIn(loc, h.guildName(candidate.Group.Subject))
+		}
+		if !strings.Contains(strings.ToLower(name), needle) {
+			continue
 		}
 
 		choices = append(choices, discord.AutocompleteChoiceString{

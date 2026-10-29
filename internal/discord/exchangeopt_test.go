@@ -635,6 +635,10 @@ func TestActiveExchangesRankAheadOfRevealedAndRecipientAutoResolvesToTheOnlyDraw
 			t.Errorf("autocomplete %s = %v, want %v", verb, got, wantMulti)
 		}
 	}
+	wantDrawnOnly := []string{"Spring Swap (drawn)"}
+	if got := choiceNames(s.complete(t, s.a, true, "cancel", "Spring Swap (drawn)")); !slices.Equal(got, wantDrawnOnly) {
+		t.Errorf("autocomplete cancel with state suffix = %v, want %v", got, wantDrawnOnly)
+	}
 
 	wantDM := []string{"Spring Swap (drawn) - " + guildName, "Last Autumn (revealed) - " + guildName}
 	if got := choiceNames(s.complete(t, s.b, false, "recipient", "")); !slices.Equal(got, wantDM) {

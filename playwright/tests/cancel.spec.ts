@@ -10,7 +10,7 @@ test("cancelling announces it publicly, tells each participant by DM and closes 
   await world.createExchange("Olga", EXCHANGE, PARTICIPANTS);
   await world.draw("Olga", EXCHANGE, PARTICIPANTS.length);
 
-  await world.runConfirmed("Olga", "/ge cancel", EXCHANGE, texts.format(texts.confirmCancel, EXCHANGE), [
+  await world.runConfirmed("Olga", "/ge cancel", `${EXCHANGE} (drawn)`, texts.format(texts.confirmCancel, EXCHANGE), [
     texts.format(texts.cancelled, EXCHANGE),
     texts.format(texts.cancelledPublic, EXCHANGE),
   ]);
