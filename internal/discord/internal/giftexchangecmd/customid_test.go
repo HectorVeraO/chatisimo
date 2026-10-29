@@ -30,6 +30,7 @@ func allActions() []action {
 		actionJoin, actionLeave, actionRules, actionLeaveConfirm, actionDrawConfirm,
 		actionRevealConfirm, actionCancelConfirm, actionRemoveConfirm, actionDismiss,
 		actionRulePick, actionRuleOption, actionRuleModal, actionAnswer, actionAnswerModal,
+		actionPreferencesEdit, actionPreferencesModal,
 	}
 }
 

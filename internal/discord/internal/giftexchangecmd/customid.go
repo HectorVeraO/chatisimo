@@ -11,20 +11,22 @@ type action string
 
 // The actions of the custom ID table. Every component and modal of the adapter carries one.
 const (
-	actionJoin          action = "join"
-	actionLeave         action = "leave"
-	actionRules         action = "rules"
-	actionLeaveConfirm  action = "leave-confirm"
-	actionDrawConfirm   action = "draw-confirm"
-	actionRevealConfirm action = "reveal-confirm"
-	actionCancelConfirm action = "cancel-confirm"
-	actionRemoveConfirm action = "remove-confirm"
-	actionDismiss       action = "dismiss"
-	actionRulePick      action = "rule-pick"
-	actionRuleOption    action = "rule-option"
-	actionRuleModal     action = "rule-modal"
-	actionAnswer        action = "answer"
-	actionAnswerModal   action = "answer-modal"
+	actionJoin             action = "join"
+	actionLeave            action = "leave"
+	actionRules            action = "rules"
+	actionLeaveConfirm     action = "leave-confirm"
+	actionDrawConfirm      action = "draw-confirm"
+	actionRevealConfirm    action = "reveal-confirm"
+	actionCancelConfirm    action = "cancel-confirm"
+	actionRemoveConfirm    action = "remove-confirm"
+	actionDismiss          action = "dismiss"
+	actionRulePick         action = "rule-pick"
+	actionRuleOption       action = "rule-option"
+	actionRuleModal        action = "rule-modal"
+	actionAnswer           action = "answer"
+	actionAnswerModal      action = "answer-modal"
+	actionPreferencesEdit  action = "preferences-edit"
+	actionPreferencesModal action = "preferences-modal"
 )
 
 const (
@@ -75,7 +77,7 @@ func shapeOf(a action) (customIDShape, bool) {
 	switch a {
 	case actionJoin, actionLeave, actionRules,
 		actionLeaveConfirm, actionDrawConfirm, actionRevealConfirm, actionCancelConfirm,
-		actionDismiss, actionRulePick:
+		actionDismiss, actionRulePick, actionPreferencesEdit, actionPreferencesModal:
 		return customIDShape{id: idExchange, arg: argNone}, true
 	case actionRemoveConfirm:
 		return customIDShape{id: idExchange, arg: argPerson}, true

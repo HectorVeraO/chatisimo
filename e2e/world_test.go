@@ -253,8 +253,8 @@ func (s *scene) replyTo(t *testing.T, as fakediscord.User, result fakediscord.Re
 	return reply{message: found, text: textOf(t, found)}
 }
 
-// slash runs a slash command in the guild as a user and returns the bot's answer.
-func (s *scene) slash(t *testing.T, as fakediscord.User, path string, options map[string]any) reply {
+// slashResult runs a slash command in the guild as a user and returns the raw interaction result.
+func (s *scene) slashResult(t *testing.T, as fakediscord.User, path string, options map[string]any) fakediscord.Result {
 	t.Helper()
 
 	guild := s.guild
@@ -263,7 +263,14 @@ func (s *scene) slash(t *testing.T, as fakediscord.User, path string, options ma
 		t.Fatalf("slash %s: %v", path, err)
 	}
 
-	return s.replyTo(t, as, result)
+	return result
+}
+
+// slash runs a slash command in the guild as a user and returns the bot's answer.
+func (s *scene) slash(t *testing.T, as fakediscord.User, path string, options map[string]any) reply {
+	t.Helper()
+
+	return s.replyTo(t, as, s.slashResult(t, as, path, options))
 }
 
 // click presses a button of a message as a user and returns the bot's answer.
@@ -574,6 +581,64 @@ func (s *scene) submit(t *testing.T, as fakediscord.User, modal *fakediscord.Mod
 	}
 
 	return s.replyTo(t, as, result)
+}
+
+type modalInput struct {
+	label     string
+	customID  string
+	style     int
+	maxLength int
+	required  bool
+	value     string
+}
+
+func modalInputsOf(t *testing.T, m *fakediscord.Modal) []modalInput {
+	t.Helper()
+	if m == nil {
+		t.Fatal("modal is nil")
+	}
+
+	inputs := make([]modalInput, 0, len(m.Components))
+	for _, raw := range m.Components {
+		var c struct {
+			Label     string `json:"label"`
+			Component struct {
+				CustomID  string `json:"custom_id"`
+				Style     int    `json:"style"`
+				MaxLength int    `json:"max_length"`
+				Required  bool   `json:"required"`
+				Value     string `json:"value"`
+			} `json:"component"`
+			CustomID  string `json:"custom_id"`
+			Style     int    `json:"style"`
+			MaxLength int    `json:"max_length"`
+			Required  bool   `json:"required"`
+			Value     string `json:"value"`
+		}
+		if err := json.Unmarshal(raw, &c); err != nil {
+			t.Fatalf("unmarshal modal component %s: %v", string(raw), err)
+		}
+		if c.Component.CustomID != "" {
+			inputs = append(inputs, modalInput{
+				label:     c.Label,
+				customID:  c.Component.CustomID,
+				style:     c.Component.Style,
+				maxLength: c.Component.MaxLength,
+				required:  c.Component.Required,
+				value:     c.Component.Value,
+			})
+		} else {
+			inputs = append(inputs, modalInput{
+				label:     c.Label,
+				customID:  c.CustomID,
+				style:     c.Style,
+				maxLength: c.MaxLength,
+				required:  c.Required,
+				value:     c.Value,
+			})
+		}
+	}
+	return inputs
 }
 
 // rulesView opens the rules view of an exchange.
