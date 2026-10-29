@@ -888,6 +888,60 @@ func TestQuestionAskRephraseFailureRepliesEphemeralAndSendsNoDM(t *testing.T) {
 	q.assertLogsClean(t, rawText)
 }
 
+func TestQuestionsAndAnswersPreserveCustomEmojisAndEscapeAdjacentMarkup(t *testing.T) {
+	q := newQuestionScene(t)
+	recipient := q.recipientOf(t, q.a)
+	const (
+		rawQuestion       = "Do you like cats <:CatHmph:123456789012345678> <a:cat_dance:123456789012345678> <@100000000000000001> *bold*?"
+		rephrasedQuestion = "Do you enjoy cats <:CatHmph:123456789012345678> <a:cat_dance:123456789012345678> <@100000000000000001> *bold*?"
+		answerText        = "Yes <:CatHmph:123456789012345678> <a:cat_dance:123456789012345678> <@100000000000000001> *bold*"
+		wantQuestionWire  = `Do you enjoy cats <:CatHmph:123456789012345678> <a:cat_dance:123456789012345678> \<\@100000000000000001\> \*bold\*?`
+		wantAnswerWire    = `Yes <:CatHmph:123456789012345678> <a:cat_dance:123456789012345678> \<\@100000000000000001\> \*bold\*`
+	)
+	q.rephraser.SetTransform(func(string) string { return rephrasedQuestion })
+
+	q.ask(t, q.a, true, rawQuestion)
+	dm := q.questionDM(t, recipient, "Do you enjoy cats")
+	if !strings.Contains(dm.Content, wantQuestionWire) {
+		t.Errorf("question DM content = %q, want it to hold %q", dm.Content, wantQuestionWire)
+	}
+
+	opened := q.answerModal(t, recipient, dm)
+	q.outcome(t, q.submit(t, recipient, *opened.Modal, answerText))
+
+	editedDM := q.dmByID(t, recipient, dm.ID)
+	editedEmbeds := questionEmbeds(t, fakediscord.Record{Embeds: editedDM.Embeds})
+	if !strings.Contains(editedDM.Content, wantQuestionWire) || len(editedEmbeds) != 1 || !strings.Contains(editedEmbeds[0].Description, wantAnswerWire) {
+		t.Errorf("edited question DM content = %q embeds = %+v, want %q and %q", editedDM.Content, editedEmbeds, wantQuestionWire, wantAnswerWire)
+	}
+
+	giverDM, err := q.fake.WaitDM(t.Context(), q.users[q.a], func(m fakediscord.Message) bool {
+		return strings.Contains(m.Content, "answered your question")
+	})
+	if err != nil {
+		t.Fatalf("giver DM: %v", err)
+	}
+	if !strings.Contains(giverDM.Content, wantAnswerWire) {
+		t.Errorf("giver answer DM content = %q, want it to hold %q", giverDM.Content, wantAnswerWire)
+	}
+
+	askedRec := q.outcome(t, slashOrFail(t, q.harness, q.a, q.ge("questions", true, nil)))
+	askedField := questionFields(t, askedRec)["Questions you asked"]
+	if !strings.Contains(askedField, "<:CatHmph:123456789012345678>") ||
+		!strings.Contains(askedField, "<a:cat_dance:123456789012345678>") ||
+		!strings.Contains(askedField, wantAnswerWire) {
+		t.Errorf("/ge questions asked field = %q, want unescaped custom emojis and %q", askedField, wantAnswerWire)
+	}
+
+	receivedRec := q.outcome(t, slashOrFail(t, q.harness, recipient, q.ge("questions", false, nil)))
+	receivedField := questionFields(t, receivedRec)["Questions you received"]
+	if !strings.Contains(receivedField, wantQuestionWire) || !strings.Contains(receivedField, wantAnswerWire) {
+		t.Errorf("/ge questions received field = %q, want %q and %q", receivedField, wantQuestionWire, wantAnswerWire)
+	}
+
+	assertNoPings(t, q.fake)
+}
+
 // Characters that linters flag as literals are built at run time.
 var (
 	questionZW  = string(rune(0x200b))

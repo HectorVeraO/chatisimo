@@ -159,6 +159,41 @@ test("a question with @here and a mention reaches the recipient as text and ping
   expect(records[0]?.mentions_rendered).toEqual([]);
 });
 
+test("custom Discord emojis in a question render as custom-emoji elements while escaped emojis and mentions stay literal", async ({
+  world,
+}) => {
+  const exchange = "Winter exchange";
+  await world.createExchange("Alice", exchange, CAST);
+  await world.draw("Alice", exchange, CAST.length);
+  const round = await world.recipientsFromDms(CAST);
+
+  const mentioned = world.user("Carla");
+  const question = `Look <:CatHmph:123456789012345678> <a:cat_dance:123456789012345678> <@${mentioned.id}> *bold* <:a:123>`;
+  await world.asUser("Bruno");
+  await world.slash("/ge ask", { question });
+  await expect(world.messageWithContent(texts.format(texts.asked, exchange))).toBeVisible();
+
+  const recipient = round.get("Bruno") ?? "";
+  await world.asUser(recipient);
+  await world.openDirectMessages();
+  const dm = world.messageWithContentContaining(texts.format(texts.dmQuestion, exchange, GUILD_NAME));
+  await expect(dm).toBeVisible({ timeout: DM_BUDGET_MS });
+
+  const emojis = dm.getByTestId("custom-emoji");
+  await expect(emojis).toHaveCount(2);
+  await expect(emojis.nth(0)).toHaveAttribute("data-emoji-name", "CatHmph");
+  await expect(emojis.nth(0)).toHaveAttribute("data-emoji-id", "123456789012345678");
+  await expect(emojis.nth(0)).toHaveAttribute("data-animated", "false");
+  await expect(emojis.nth(0)).toHaveText(":CatHmph:");
+  await expect(emojis.nth(1)).toHaveAttribute("data-emoji-name", "cat_dance");
+  await expect(emojis.nth(1)).toHaveAttribute("data-emoji-id", "123456789012345678");
+  await expect(emojis.nth(1)).toHaveAttribute("data-animated", "true");
+  await expect(emojis.nth(1)).toHaveText(":cat_dance:");
+
+  await expect(dm.getByTestId("mention")).toHaveCount(0);
+  await expect(dm).toContainText("*bold* <:a:123>");
+});
+
 test("a repeated Join click and a repeated draw confirmation each get an error and change nothing", async ({
   world,
 }) => {
