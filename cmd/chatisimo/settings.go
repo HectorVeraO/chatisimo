@@ -45,7 +45,7 @@ func settingKeys() []config.Key {
 		{
 			Name:     settingLLMKey,
 			Secret:   true,
-			Validate: validateDiscordToken,
+			Validate: validateLLMKey,
 			Doc:      "Vertex AI API key",
 		},
 		{
@@ -91,6 +91,23 @@ func validateDiscordToken(value string, _ config.Environment) error {
 
 			break
 		}
+	}
+
+	return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+}
+
+// validateLLMKey accepts 1-256 printable ASCII bytes, and in production rejects AIza-prefixed
+// keys. Its errors never carry the value.
+func validateLLMKey(value string, env config.Environment) error {
+	var problems []error
+
+	if err := validateDiscordToken(value, env); err != nil {
+		problems = append(problems, err)
+	}
+
+	isProduction := env == config.EnvProduction
+	if isProduction && strings.HasPrefix(value, "AIza") {
+		problems = append(problems, errors.New("must be a Vertex AI key in production, not an AIza key"))
 	}
 
 	return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors

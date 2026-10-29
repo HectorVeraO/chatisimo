@@ -24,6 +24,166 @@ func TestConfigSetReportsEveryBaseURLProblem(t *testing.T) {
 	}
 }
 
+func TestValidateLLMKey(t *testing.T) {
+	const (
+		aizaKey   = "AIza-synthetic-test-key"
+		vertexKey = "vertex-synthetic-test-key"
+	)
+
+	tests := []struct {
+		name       string
+		value      string
+		env        config.Environment
+		wantErr    bool
+		wantSubstr []string
+	}{
+		{
+			name:    "accepts non-AIza key in production",
+			value:   vertexKey,
+			env:     config.EnvProduction,
+			wantErr: false,
+		},
+		{
+			name:    "accepts non-AIza key in local",
+			value:   vertexKey,
+			env:     config.EnvLocal,
+			wantErr: false,
+		},
+		{
+			name:    "accepts AIza key in local",
+			value:   aizaKey,
+			env:     config.EnvLocal,
+			wantErr: false,
+		},
+		{
+			name:       "rejects AIza key in production",
+			value:      aizaKey,
+			env:        config.EnvProduction,
+			wantErr:    true,
+			wantSubstr: []string{"AIza"},
+		},
+		{
+			name:       "rejects empty key in local",
+			value:      "",
+			env:        config.EnvLocal,
+			wantErr:    true,
+			wantSubstr: []string{"1-256 bytes"},
+		},
+		{
+			name:       "rejects overlong key in local",
+			value:      strings.Repeat("k", maxDiscordTokenBytes+1),
+			env:        config.EnvLocal,
+			wantErr:    true,
+			wantSubstr: []string{"1-256 bytes"},
+		},
+		{
+			name:       "rejects whitespace in key in local",
+			value:      "vertex key",
+			env:        config.EnvLocal,
+			wantErr:    true,
+			wantSubstr: []string{"printable ASCII without white space"},
+		},
+		{
+			name:       "aggregates length, printable ASCII and AIza prefix errors in production",
+			value:      "AIza " + strings.Repeat("k", maxDiscordTokenBytes),
+			env:        config.EnvProduction,
+			wantErr:    true,
+			wantSubstr: []string{"1-256 bytes", "printable ASCII without white space", "AIza"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateLLMKey(tc.value, tc.env)
+			if tc.wantErr && err == nil {
+				t.Fatalf("validateLLMKey(%q, %q) = nil, want error", tc.value, tc.env)
+			}
+
+			if !tc.wantErr && err != nil {
+				t.Fatalf("validateLLMKey(%q, %q) = %v, want nil", tc.value, tc.env, err)
+			}
+
+			if err != nil {
+				msg := err.Error()
+				for _, want := range tc.wantSubstr {
+					if !strings.Contains(msg, want) {
+						t.Errorf("error %q does not contain %q", msg, want)
+					}
+				}
+
+				for _, secret := range []string{aizaKey, vertexKey, "synthetic-test-key"} {
+					if strings.Contains(msg, secret) {
+						t.Errorf("error %q leaked secret fragment %q", msg, secret)
+					}
+				}
+			}
+		})
+	}
+}
+
+func FuzzValidateLLMKey(f *testing.F) {
+	seeds := []string{
+		"",
+		"a",
+		"AIza-synthetic-test-key",
+		"vertex-synthetic-test-key",
+		strings.Repeat("a", maxDiscordTokenBytes),
+		strings.Repeat("a", maxDiscordTokenBytes+1),
+		"AIza " + strings.Repeat("a", maxDiscordTokenBytes),
+		"tok en",
+		"tok\ten",
+		"token\n",
+		"t\u00e9ken",
+		"token\u200b",
+		"token\u202e",
+		"token\U0001F600",
+		"token\xff\xfe",
+		"token\x00",
+		"token\x7f",
+	}
+	for _, seed := range seeds {
+		f.Add(seed, true)
+		f.Add(seed, false)
+	}
+
+	f.Fuzz(func(t *testing.T, value string, isProduction bool) {
+		env := config.EnvLocal
+		if isProduction {
+			env = config.EnvProduction
+		}
+
+		err := validateLLMKey(value, env)
+		if err != nil {
+			msg := err.Error()
+			if len(value) >= 4 && !strings.Contains(msg, value) {
+				return
+			}
+
+			// Allow only substrings that naturally match fixed words in the error text.
+			fixedMsg := validateLLMKey("AIza "+strings.Repeat("a", maxDiscordTokenBytes), config.EnvProduction).Error()
+			if len(value) >= 4 && !strings.Contains(fixedMsg, value) && strings.Contains(msg, value) {
+				t.Fatalf("error %q echoed input value %q", msg, value)
+			}
+
+			return
+		}
+
+		if len(value) < 1 || len(value) > maxDiscordTokenBytes {
+			t.Errorf("accepted a key of %d bytes", len(value))
+		}
+
+		for i := range len(value) {
+			if value[i] < 0x21 || value[i] > 0x7E {
+				t.Fatalf("accepted byte 0x%02x at offset %d", value[i], i)
+			}
+		}
+
+		if isProduction && strings.HasPrefix(value, "AIza") {
+			t.Errorf("accepted AIza-prefixed key in production")
+		}
+	})
+}
+
 func FuzzValidateDiscordToken(f *testing.F) {
 	seeds := []string{
 		"",

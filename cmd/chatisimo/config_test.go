@@ -285,6 +285,50 @@ func TestConfigLLMSettings(t *testing.T) {
 	}
 }
 
+func TestConfigSetRejectsAIzaLLMKeyInProduction(t *testing.T) {
+	const (
+		aizaKey   = "AIza-synthetic-test-key"
+		vertexKey = "vertex-synthetic-test-key"
+	)
+
+	database := newClone(t)
+	local := envFor(database, "local")
+	prod := envFor(database, "production")
+
+	rejectProd := invoke(t, prod, strings.NewReader(aizaKey+"\n"), "config", "set", "llm.api_key")
+	if rejectProd.code != 1 || rejectProd.stdout != "" {
+		t.Errorf("set AIza key in production = %+v, want exit 1 and empty stdout", rejectProd)
+	}
+
+	if !strings.Contains(rejectProd.stderr, "llm.api_key") {
+		t.Errorf("stderr = %q, want mention of llm.api_key", rejectProd.stderr)
+	}
+
+	for _, secret := range []string{aizaKey, "synthetic-test-key", masterKey, database.URL().Reveal()} {
+		if strings.Contains(rejectProd.all(), secret) {
+			t.Errorf("production rejection output leaked secret fragment %q: %q", secret, rejectProd.all())
+		}
+	}
+
+	acceptProd := invoke(t, prod, strings.NewReader(vertexKey+"\n"), "config", "set", "llm.api_key")
+	if acceptProd.code != 0 || acceptProd.stdout != "llm.api_key set\n" {
+		t.Errorf("set Vertex key in production = %+v, want exit 0 and %q", acceptProd, "llm.api_key set\n")
+	}
+
+	if strings.Contains(acceptProd.all(), vertexKey) {
+		t.Error("production set output leaked vertexKey")
+	}
+
+	acceptLocal := invoke(t, local, strings.NewReader(aizaKey+"\n"), "config", "set", "llm.api_key")
+	if acceptLocal.code != 0 || acceptLocal.stdout != "llm.api_key set\n" {
+		t.Errorf("set AIza key in local = %+v, want exit 0 and %q", acceptLocal, "llm.api_key set\n")
+	}
+
+	if strings.Contains(acceptLocal.all(), aizaKey) {
+		t.Error("local set output leaked aizaKey")
+	}
+}
+
 func TestConfigRefusesAnotherMasterKey(t *testing.T) {
 	database := newClone(t)
 	env := envFor(database, "local")
