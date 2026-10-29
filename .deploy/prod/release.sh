@@ -2,7 +2,7 @@
 # Installs the stack files copied next to this script into /opt/chatisimo, pulls the release
 # image given as $1 with the short-lived registry token read from stdin, loads present runtime
 # secrets from /config/chatisimo/prod/{discord.token,llm.api_key} into the encrypted settings,
-# starts the stack and waits until chatisimo opens the Discord gateway. Run with sudo.
+# starts the stack and waits until chatisimo-bot opens the Discord gateway. Run with sudo.
 # The token lives only in a temporary Docker config removed on exit, and container logs stay on
 # the VM: the CI log of a public repository is public.
 set -eu
@@ -47,22 +47,22 @@ token=""
 "${dir}/compose.sh" pull --quiet
 unset DOCKER_CONFIG
 
-"${dir}/compose.sh" up -d --remove-orphans postgres
+"${dir}/compose.sh" up -d --remove-orphans chatisimo-postgres
 # The files in /config/chatisimo/prod are the source of truth for runtime secrets: every
 # release writes each present file to the settings table through stdin, the only way chatisimo
 # accepts a secret.
 for key in discord.token llm.api_key; do
   secret_file="${config}/${key}"
   if [ -f "${secret_file}" ]; then
-    "${dir}/compose.sh" run --rm -T chatisimo config set "${key}" < "${secret_file}" > /dev/null
+    "${dir}/compose.sh" run --rm -T chatisimo-bot config set "${key}" < "${secret_file}" > /dev/null
     echo "release: loaded ${key} from ${secret_file}"
   fi
 done
 
 "${dir}/compose.sh" up -d --remove-orphans
-"${dir}/compose.sh" up -d --no-deps --force-recreate chatisimo
+"${dir}/compose.sh" up -d --no-deps --force-recreate chatisimo-bot
 
-container="$("${dir}/compose.sh" ps -q chatisimo)"
+container="$("${dir}/compose.sh" ps -q chatisimo-bot)"
 is_ready=no
 for _ in $(seq 1 30); do
   if docker logs "${container}" 2>&1 | grep -q 'discord gateway open'; then
@@ -74,7 +74,7 @@ done
 
 state="$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "${container}")"
 if [ "${is_ready}" != yes ] || [ "${state}" != "true 0" ]; then
-  echo "release: chatisimo is not healthy (running, restarts: ${state}); read 'sudo ${dir}/compose.sh logs chatisimo' on the VM" >&2
+  echo "release: chatisimo-bot is not healthy (running, restarts: ${state}); read 'sudo ${dir}/compose.sh logs chatisimo-bot' on the VM" >&2
   exit 1
 fi
 

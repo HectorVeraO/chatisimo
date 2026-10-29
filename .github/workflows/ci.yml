@@ -324,7 +324,7 @@ jobs:
           sudo install -d -m 700 /config/chatisimo/prod
           printf '%s\n' 'POSTGRES_USER=chatisimo' 'POSTGRES_PASSWORD=change-me' 'POSTGRES_DB=chatisimo' \
             | sudo tee /config/chatisimo/prod/postgres.env > /dev/null
-          printf '%s\n' 'DATABASE_URL=postgres://chatisimo:change-me@postgres:5432/chatisimo?sslmode=disable' 'MASTER_KEY=change-me' \
+          printf '%s\n' 'DATABASE_URL=postgres://chatisimo:change-me@chatisimo-postgres:5432/chatisimo?sslmode=disable' 'MASTER_KEY=change-me' \
             | sudo tee /config/chatisimo/prod/chatisimo.env > /dev/null
           sudo env CHATISIMO_IMAGE=chatisimo:ci docker compose -f .deploy/prod/docker-compose.yaml config --quiet
           for script in .deploy/prod/compose.sh .deploy/prod/release.sh; do
