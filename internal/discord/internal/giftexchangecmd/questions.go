@@ -47,11 +47,12 @@ func (h *Handlers) askCommand(data discord.SlashCommandInteractionData, e *handl
 	rawExchange, _ := data.OptString(exchangeOptionName)
 	text, _ := data.OptString(questionOptionName)
 
-	candidates, err := h.candidates(e.Ctx, req, filterFor("ask"))
+	filter := filterFor("ask")
+	candidates, err := h.candidates(e.Ctx, req, filter)
 	if err != nil {
 		return err
 	}
-	id, err := resolveExchange(rawExchange, candidates)
+	id, err := resolveExchange(rawExchange, candidates, filter.preferState)
 	if err != nil {
 		return err
 	}

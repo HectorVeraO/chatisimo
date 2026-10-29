@@ -36,11 +36,12 @@ func (h *Handlers) preferencesCommand(data discord.SlashCommandInteractionData, 
 	}
 
 	rawExchange, _ := data.OptString(exchangeOptionName)
-	candidates, listed, err := h.listCandidates(e.Ctx, req, filterFor("preferences"))
+	filter := filterFor("preferences")
+	candidates, listed, err := h.listCandidates(e.Ctx, req, filter)
 	if err != nil {
 		return err
 	}
-	id, err := resolveExchange(rawExchange, candidates)
+	id, err := resolveExchange(rawExchange, candidates, filter.preferState)
 	if err != nil {
 		return err
 	}
