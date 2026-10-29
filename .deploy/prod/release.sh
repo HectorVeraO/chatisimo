@@ -47,7 +47,7 @@ token=""
 "${dir}/compose.sh" pull --quiet
 unset DOCKER_CONFIG
 
-"${dir}/compose.sh" up -d --remove-orphans chatisimo-postgres
+"${dir}/compose.sh" up -d --remove-orphans --wait chatisimo-postgres
 # The files in /config/chatisimo/prod are the source of truth for runtime secrets: every
 # release writes each present file to the settings table through stdin, the only way chatisimo
 # accepts a secret.

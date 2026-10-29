@@ -154,20 +154,34 @@ jobs:
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # google-github-actions/auth sets CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE to a WIF
+      # external_account file without setting core/account, which makes gcloud compute scp/ssh
+      # treat the caller as a Workforce Identity user with a None email. Passing the minted access
+      # token and service account email selects the Service Account OS Login profile instead.
       - name: Copy the stack files to the VM
+        env:
+          CLOUDSDK_CORE_ACCOUNT: ${{ vars.GCP_DEPLOY_SA }}
         run: |
           set -euo pipefail
+          token="$(gcloud auth print-access-token)"
+          CLOUDSDK_AUTH_ACCESS_TOKEN="${token}" \
+          CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE="" \
           gcloud compute scp --project="${PROJECT}" --zone="${ZONE}" --tunnel-through-iap \
             --strict-host-key-checking=no --quiet \
             .deploy/prod/docker-compose.yaml .deploy/prod/compose.sh .deploy/prod/release.sh chatisimo:
       - name: Start the release
         env:
           IMAGE: ${{ steps.target.outputs.deploy_image }}
+          CLOUDSDK_CORE_ACCOUNT: ${{ vars.GCP_DEPLOY_SA }}
         run: |
           set -euo pipefail
-          gcloud auth print-access-token | gcloud compute ssh chatisimo --project="${PROJECT}" --zone="${ZONE}" \
-            --tunnel-through-iap --strict-host-key-checking=no --quiet \
-            --command="sudo sh release.sh ${IMAGE}"
+          token="$(gcloud auth print-access-token)"
+          printf '%s\n' "${token}" | \
+            CLOUDSDK_AUTH_ACCESS_TOKEN="${token}" \
+            CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE="" \
+            gcloud compute ssh chatisimo --project="${PROJECT}" --zone="${ZONE}" \
+              --tunnel-through-iap --strict-host-key-checking=no --quiet \
+              --command="sudo sh release.sh ${IMAGE}"
       - name: Publish the GitHub Release
         if: steps.target.outputs.tag != ''
         env:
@@ -176,5 +190,5 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh release view "${TAG}" > /dev/null 2>&1; then
-            gh release create "${TAG}" --verify-tag --generate-notes
+            gh release create "${TAG}" --verify-tag --title "Chatisimo ${TAG}" --generate-notes
           fi
