@@ -31,7 +31,7 @@ func summaryNamed(name string) giftexchange.ExchangeSummary {
 func TestResolveExchangeAutoFillsTheOnlyCandidate(t *testing.T) {
 	only := summaryNamed("Winter")
 
-	got, err := resolveExchange("", []giftexchange.ExchangeSummary{only})
+	got, err := resolveExchange("", []giftexchange.ExchangeSummary{only}, "")
 	if err != nil || got != only.ID {
 		t.Errorf("resolveExchange = %v, %v; want %v", got, err, only.ID)
 	}
@@ -40,14 +40,14 @@ func TestResolveExchangeAutoFillsTheOnlyCandidate(t *testing.T) {
 func TestResolveExchangeTreatsBlankTextAsEmpty(t *testing.T) {
 	only := summaryNamed("Winter")
 
-	got, err := resolveExchange("  \t", []giftexchange.ExchangeSummary{only})
+	got, err := resolveExchange("  \t", []giftexchange.ExchangeSummary{only}, "")
 	if err != nil || got != only.ID {
 		t.Errorf("resolveExchange = %v, %v; want %v", got, err, only.ID)
 	}
 }
 
 func TestResolveExchangeWithNoCandidatesAsksForNone(t *testing.T) {
-	_, err := resolveExchange("", nil)
+	_, err := resolveExchange("", nil, "")
 
 	if !errors.Is(err, errNoCandidates) {
 		t.Errorf("error = %v, want errNoCandidates", err)
@@ -57,7 +57,7 @@ func TestResolveExchangeWithNoCandidatesAsksForNone(t *testing.T) {
 func TestResolveExchangeWithSeveralCandidatesListsTheirNames(t *testing.T) {
 	candidates := []giftexchange.ExchangeSummary{summaryNamed("Winter"), summaryNamed("Summer")}
 
-	_, err := resolveExchange("", candidates)
+	_, err := resolveExchange("", candidates, "")
 
 	var choose *chooseExchangeError
 	if !errors.As(err, &choose) {
@@ -71,7 +71,7 @@ func TestResolveExchangeWithSeveralCandidatesListsTheirNames(t *testing.T) {
 func TestResolveExchangePassesAnExchangeIDThroughEvenWhenItIsNotACandidate(t *testing.T) {
 	stranger := giftexchange.ExchangeID(uuid.NewV7())
 
-	got, err := resolveExchange(stranger.String(), []giftexchange.ExchangeSummary{summaryNamed("Winter")})
+	got, err := resolveExchange(stranger.String(), []giftexchange.ExchangeSummary{summaryNamed("Winter")}, "")
 	if err != nil || got != stranger {
 		t.Errorf("resolveExchange = %v, %v; want %v", got, err, stranger)
 	}
@@ -81,7 +81,7 @@ func TestResolveExchangeMatchesANameIgnoringCase(t *testing.T) {
 	winter := summaryNamed("Winter Exchange")
 	candidates := []giftexchange.ExchangeSummary{summaryNamed("Summer"), winter}
 
-	got, err := resolveExchange("  winter EXCHANGE ", candidates)
+	got, err := resolveExchange("  winter EXCHANGE ", candidates, "")
 	if err != nil || got != winter.ID {
 		t.Errorf("resolveExchange = %v, %v; want %v", got, err, winter.ID)
 	}
@@ -101,7 +101,7 @@ func TestResolveExchangeRefusesTextThatMatchesNoneOrSeveral(t *testing.T) {
 
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := resolveExchange(raw, candidates)
+			_, err := resolveExchange(raw, candidates, "")
 			if !errors.Is(err, errNoMatch) {
 				t.Errorf("resolveExchange(%q) error = %v, want errNoMatch", raw, err)
 			}
@@ -121,7 +121,7 @@ func FuzzResolveExchange(f *testing.F) {
 	candidates := []giftexchange.ExchangeSummary{known, summaryNamed("e\u0301t\u00e9"), summaryNamed("\U0001F381 Gifts")}
 
 	f.Fuzz(func(t *testing.T, raw string) {
-		got, err := resolveExchange(raw, candidates)
+		got, err := resolveExchange(raw, candidates, "")
 		if err != nil {
 			isKnown := errors.Is(err, errNoMatch) || errors.Is(err, errNoCandidates)
 			var choose *chooseExchangeError
@@ -279,7 +279,7 @@ func TestChoicesInADMNameTheServer(t *testing.T) {
 	winter.Group.Subject = "alpha"
 	unknown := summaryNamed("Spring")
 
-	choices := h.choicesFor(&router.Request{}, []giftexchange.ExchangeSummary{winter, unknown}, "")
+	choices := h.choicesFor(&router.Request{}, []giftexchange.ExchangeSummary{winter, unknown}, "", false)
 
 	if len(choices) != 2 {
 		t.Fatalf("%d choices, want 2", len(choices))
@@ -297,7 +297,7 @@ func TestChoicesTruncateALongNameTo100Runes(t *testing.T) {
 	long := summaryNamed(strings.Repeat("\u00e9", 100))
 	long.Group.Subject = "alpha"
 
-	choices := h.choicesFor(&router.Request{}, []giftexchange.ExchangeSummary{long}, "")
+	choices := h.choicesFor(&router.Request{}, []giftexchange.ExchangeSummary{long}, "", false)
 
 	got := choiceOf(t, choices[0]).Name
 	if utf8.RuneCountInString(got) != 100 || !strings.HasSuffix(got, "...") {

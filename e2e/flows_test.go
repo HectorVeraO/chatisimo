@@ -292,7 +292,7 @@ func TestAutocompleteAndAutofill(t *testing.T) {
 			t.Errorf("Bruno's choices = %v, want only %q", brunoChoices, summer)
 		}
 		if !slices.Equal(carlaChoices, []string{summer, winter}) {
-			t.Errorf("Carla's choices = %v, want both, sorted by name", carlaChoices)
+			t.Errorf("Carla's choices = %v, want both, most recent first", carlaChoices)
 		}
 	})
 
@@ -347,7 +347,7 @@ func TestAutocompleteAndAutofill(t *testing.T) {
 
 		choices := choiceNames(s.complete(t, s.members[1], nil, "recipient", ""))
 
-		want := name + " - " + s.guild.Name
+		want := name + " (drawn) - " + s.guild.Name
 		if !slices.Equal(choices, []string{want}) {
 			t.Errorf("DM choices = %v, want [%q]", choices, want)
 		}
