@@ -334,7 +334,8 @@ func TestPreferencesSetUpdateViaCommandAndEditButtonAndClear(t *testing.T) {
 	}
 
 	clearDM2, err := s.fake.WaitDM(ctx, s.users[giver], func(m fakediscord.Message) bool {
-		return strings.Contains(m.Content, "updated their gift preferences") &&
+		return m.ID != clearDM.ID &&
+			strings.Contains(m.Content, "updated their gift preferences") &&
 			strings.Contains(questionTextOf(m), "None yet.")
 	})
 	if err != nil {
