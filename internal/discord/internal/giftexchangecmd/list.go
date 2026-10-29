@@ -41,7 +41,7 @@ func (h *Handlers) list(_ discord.SlashCommandInteractionData, e *handler.Comman
 	if err != nil {
 		return fmt.Errorf("list exchanges: %w", err)
 	}
-	sortByName(listed)
+	sortByPriority(listed)
 
 	c := h.catalogFor(req)
 	embeds := []discord.Embed{render.Embed(c.Get(textListTitle), listDescription(c, listed))}

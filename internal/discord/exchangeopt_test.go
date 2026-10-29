@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 
@@ -165,6 +166,7 @@ func replyTo(t *testing.T, s *harness, result fakediscord.Result) reply {
 func (s *scene) createExchange(t *testing.T, organizer, name string) giftexchange.ExchangeID {
 	t.Helper()
 
+	s.clock.Advance(time.Second)
 	view, err := s.svc.CreateExchange(t.Context(), s.people[organizer].actor, giftexchange.CreateExchangeRequest{
 		Group: s.group,
 		Name:  name,
@@ -498,10 +500,10 @@ func TestAutocompleteForJoinOffersOnlyOpenExchangesTheCallerIsNotIn(t *testing.T
 		user string
 		want []string
 	}{
-		"organizer who did not join": {s.a, []string{"Open one", "Open two"}},
+		"organizer who did not join": {s.a, []string{"Open two", "Open one"}},
 		"participant of one":         {s.b, []string{"Open two"}},
-		"participant of the drawn":   {s.c, []string{"Open one", "Open two"}},
-		"outsider":                   {s.d, []string{"Open one", "Open two"}},
+		"participant of the drawn":   {s.c, []string{"Open two", "Open one"}},
+		"outsider":                   {s.d, []string{"Open two", "Open one"}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -522,7 +524,7 @@ func TestAutocompleteFiltersByTypedTextAndSortsByName(t *testing.T) {
 
 	got := s.complete(t, s.b, true, "join", "  PaRtY ")
 
-	want := []string{"alpha party", "PARTY three", "Zeta party"}
+	want := []string{"PARTY three", "alpha party", "Zeta party"}
 	if names := choiceNames(got); !slices.Equal(names, want) {
 		t.Errorf("choices = %v, want %v", names, want)
 	}
@@ -544,8 +546,8 @@ func TestAutocompleteCapsTheChoicesAtTwentyFive(t *testing.T) {
 	if len(got) != 25 {
 		t.Fatalf("%d choices, want 25", len(got))
 	}
-	if got[0] != "Round 00" || got[24] != "Round 24" || !slices.IsSorted(got) {
-		t.Errorf("choices = %v, want the first 25 by name", got)
+	if got[0] != "Round 29" || got[24] != "Round 05" {
+		t.Errorf("choices = %v, want Round 29 down to Round 05", got)
 	}
 }
 
@@ -609,6 +611,101 @@ func TestTypedTextAndNamesStayOutOfTheLogs(t *testing.T) {
 	for _, secret := range []string{typed, "Winter", guildName, s.a, s.b, guildID} {
 		if strings.Contains(logs, secret) {
 			t.Errorf("logs hold %q", secret)
+		}
+	}
+}
+
+func TestActiveExchangesRankAheadOfRevealedAndRecipientAutoResolvesToTheOnlyDrawn(t *testing.T) {
+	s := newScene(t)
+	autumn := s.drawnExchange(t, "Last Autumn")
+	if err := s.svc.Reveal(t.Context(), s.people[s.a].actor, s.group, autumn); err != nil {
+		t.Fatalf("Reveal: %v", err)
+	}
+	spring := s.drawnExchange(t, "Spring Swap")
+
+	listReply := replyTo(t, s.harness, slashOrFail(t, s.harness, s.b, s.ge("list", true, nil)))
+	lines := strings.Split(listReply.description, "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "Spring Swap") || !strings.Contains(lines[1], "Last Autumn") {
+		t.Errorf("list lines = %q, want Spring Swap before Last Autumn", listReply.description)
+	}
+
+	wantMulti := []string{"Spring Swap (drawn)", "Last Autumn (revealed)"}
+	for _, verb := range []string{"recipient", "rules"} {
+		if got := choiceNames(s.complete(t, s.b, true, verb, "")); !slices.Equal(got, wantMulti) {
+			t.Errorf("autocomplete %s = %v, want %v", verb, got, wantMulti)
+		}
+	}
+
+	wantDM := []string{"Spring Swap (drawn) - " + guildName, "Last Autumn (revealed) - " + guildName}
+	if got := choiceNames(s.complete(t, s.b, false, "recipient", "")); !slices.Equal(got, wantDM) {
+		t.Errorf("DM autocomplete recipient = %v, want %v", got, wantDM)
+	}
+
+	if err := s.fake.SetUserLocale(s.users[s.b], "es-CL"); err != nil {
+		t.Fatalf("SetUserLocale: %v", err)
+	}
+	wantSpanish := []string{"Spring Swap (sorteado)", "Last Autumn (revelado)"}
+	if got := choiceNames(s.complete(t, s.b, true, "recipient", "")); !slices.Equal(got, wantSpanish) {
+		t.Errorf("Spanish autocomplete recipient = %v, want %v", got, wantSpanish)
+	}
+	if err := s.fake.SetUserLocale(s.users[s.b], "en-US"); err != nil {
+		t.Fatalf("SetUserLocale: %v", err)
+	}
+
+	assignment, err := s.svc.MyAssignment(t.Context(), s.people[s.b].actor, spring)
+	if err != nil {
+		t.Fatalf("MyAssignment: %v", err)
+	}
+	wantRecipient := "<@" + assignment.Recipient.Identities[0].Subject + ">"
+	recipReply := replyTo(t, s.harness, slashOrFail(t, s.harness, s.b, s.ge("recipient", true, nil)))
+	if recipReply.description != wantRecipient {
+		t.Errorf("recipient description = %q, want %q for Spring Swap", recipReply.description, wantRecipient)
+	}
+
+	summer := s.drawnExchange(t, "Summer Swap")
+	twoDrawn := replyTo(t, s.harness, slashOrFail(t, s.harness, s.b, s.ge("recipient", true, nil)))
+	if !strings.HasPrefix(twoDrawn.content, textChooseLead) {
+		t.Errorf("recipient with two drawn exchanges = %q, want %q", twoDrawn.content, textChooseLead)
+	}
+
+	for _, id := range []giftexchange.ExchangeID{spring, summer} {
+		if revealErr := s.svc.Reveal(t.Context(), s.people[s.a].actor, s.group, id); revealErr != nil {
+			t.Fatalf("Reveal %s: %v", id, revealErr)
+		}
+	}
+	zeroDrawn := replyTo(t, s.harness, slashOrFail(t, s.harness, s.b, s.ge("recipient", true, nil)))
+	if !strings.HasPrefix(zeroDrawn.content, textChooseLead) {
+		t.Errorf("recipient with zero drawn and three revealed exchanges = %q, want %q", zeroDrawn.content, textChooseLead)
+	}
+}
+
+func TestActiveExchangeRanksFirstAheadOfMoreThanTwentyFiveRevealedExchanges(t *testing.T) {
+	s := newScene(t)
+	for i := 1; i <= 30; i++ {
+		id := s.drawnExchange(t, fmt.Sprintf("Archive %02d", i))
+		if err := s.svc.Reveal(t.Context(), s.people[s.a].actor, s.group, id); err != nil {
+			t.Fatalf("Reveal Archive %02d: %v", i, err)
+		}
+	}
+
+	zulu := s.createExchange(t, s.a, "Zulu Swap")
+	for _, user := range []string{s.a, s.b, s.c} {
+		s.joinAs(t, user, zulu)
+	}
+
+	rulesOpen := choiceNames(s.complete(t, s.b, true, "rules", ""))
+	if len(rulesOpen) != 25 || rulesOpen[0] != "Zulu Swap (open)" {
+		t.Errorf("rules autocomplete while open = %v, want 25 choices with Zulu Swap (open) first", rulesOpen)
+	}
+
+	if err := s.svc.Draw(t.Context(), s.people[s.a].actor, s.group, zulu); err != nil {
+		t.Fatalf("Draw Zulu Swap: %v", err)
+	}
+
+	for _, verb := range []string{"rules", "recipient"} {
+		got := choiceNames(s.complete(t, s.b, true, verb, ""))
+		if len(got) != 25 || got[0] != "Zulu Swap (drawn)" || got[1] != "Archive 30 (revealed)" {
+			t.Errorf("%s autocomplete = %v, want Zulu Swap (drawn) then Archive 30 (revealed)", verb, got)
 		}
 	}
 }

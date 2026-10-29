@@ -37,8 +37,10 @@ const (
 
 // exchangeFilter is the row of the exchange option table of one or more verbs.
 type exchangeFilter struct {
-	verbs []string
-	scope exchangeScope
+	verbs       []string
+	scope       exchangeScope
+	multiState  bool
+	preferState giftexchange.State
 	// keep reports whether a summary is a candidate for the verb.
 	keep func(s giftexchange.ExchangeSummary) bool
 }
@@ -64,17 +66,17 @@ func exchangeFilters() []exchangeFilter {
 			},
 		},
 		{
-			verbs: []string{"leave"}, scope: scopeGuild,
+			verbs: []string{"leave"}, scope: scopeGuild, multiState: true,
 			keep: func(s giftexchange.ExchangeSummary) bool {
 				return s.CallerIsParticipant && isOneOf(s.State, open, drawn)
 			},
 		},
 		{
-			verbs: []string{"rules"}, scope: scopeGuild,
+			verbs: []string{"rules"}, scope: scopeGuild, multiState: true,
 			keep: func(giftexchange.ExchangeSummary) bool { return true },
 		},
 		{
-			verbs: []string{"remove", "rename", "cancel"}, scope: scopeGuild,
+			verbs: []string{"remove", "rename", "cancel"}, scope: scopeGuild, multiState: true,
 			keep: func(s giftexchange.ExchangeSummary) bool {
 				return s.CallerIsOrganizer && isOneOf(s.State, open, drawn)
 			},
@@ -92,7 +94,7 @@ func exchangeFilters() []exchangeFilter {
 			},
 		},
 		{
-			verbs: []string{"recipient"}, scope: scopeCaller,
+			verbs: []string{"recipient"}, scope: scopeCaller, multiState: true, preferState: drawn,
 			keep: func(s giftexchange.ExchangeSummary) bool {
 				return s.CallerIsParticipant && isOneOf(s.State, drawn, revealed)
 			},
@@ -110,7 +112,7 @@ func exchangeFilters() []exchangeFilter {
 			},
 		},
 		{
-			verbs: []string{"preferences"}, scope: scopeCaller,
+			verbs: []string{"preferences"}, scope: scopeCaller, multiState: true,
 			keep: func(s giftexchange.ExchangeSummary) bool {
 				return s.CallerIsParticipant && isOneOf(s.State, open, drawn)
 			},
@@ -132,8 +134,8 @@ func filterFor(verb string) exchangeFilter {
 	panic("giftexchangecmd: verb without an exchange option " + verb)
 }
 
-// candidates returns the exchanges the filter keeps for the caller of req, sorted by name. It
-// makes one module call.
+// candidates returns the exchanges the filter keeps for the caller of req, sorted by priority.
+// It makes one module call.
 func (h *Handlers) candidates(
 	ctx context.Context, req *router.Request, filter exchangeFilter,
 ) ([]giftexchange.ExchangeSummary, error) {
@@ -166,34 +168,38 @@ func (h *Handlers) listCandidates(
 		kept = append(kept, summary)
 	}
 
-	sortByName(kept)
+	sortByPriority(kept)
 	return kept, listed, nil
 }
 
-func sortByName(summaries []giftexchange.ExchangeSummary) {
+func sortByPriority(summaries []giftexchange.ExchangeSummary) {
 	slices.SortStableFunc(summaries, func(a, b giftexchange.ExchangeSummary) int {
-		byFolded := cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-		if byFolded != 0 {
-			return byFolded
-		}
-
-		byName := cmp.Compare(a.Name, b.Name)
-		if byName != 0 {
-			return byName
-		}
-
-		return cmp.Compare(a.ID.String(), b.ID.String())
+		return cmp.Compare(stateTier(a.State), stateTier(b.State))
 	})
 }
 
-// resolveExchange picks the exchange a person meant. An empty raw picks the only candidate;
-// with none it returns errNoCandidates, with several a *chooseExchangeError. A raw that is an
-// exchange ID is returned as is, even when it is not a candidate: the module answers for it.
-// Any other raw must match the name of exactly one candidate, ignoring case.
-func resolveExchange(raw string, candidates []giftexchange.ExchangeSummary) (giftexchange.ExchangeID, error) {
+func stateTier(state giftexchange.State) int {
+	switch state {
+	case giftexchange.StateOpen, giftexchange.StateDrawn:
+		return 0
+	case giftexchange.StateRevealed:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// resolveExchange picks the exchange a person meant. An empty raw picks the only candidate,
+// or the only candidate in preferState when several exist; with none it returns
+// errNoCandidates, with several a *chooseExchangeError. A raw that is an exchange ID is
+// returned as is, even when it is not a candidate: the module answers for it. Any other raw
+// must match the name of exactly one candidate, ignoring case.
+func resolveExchange(
+	raw string, candidates []giftexchange.ExchangeSummary, preferState giftexchange.State,
+) (giftexchange.ExchangeID, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return resolveEmpty(candidates)
+		return resolveEmpty(candidates, preferState)
 	}
 
 	id, err := giftexchange.ParseExchangeID(trimmed)
@@ -216,13 +222,29 @@ func resolveExchange(raw string, candidates []giftexchange.ExchangeSummary) (gif
 	return match, nil
 }
 
-func resolveEmpty(candidates []giftexchange.ExchangeSummary) (giftexchange.ExchangeID, error) {
+func resolveEmpty(
+	candidates []giftexchange.ExchangeSummary, preferState giftexchange.State,
+) (giftexchange.ExchangeID, error) {
 	switch len(candidates) {
 	case 0:
 		return giftexchange.ExchangeID{}, errNoCandidates
 	case 1:
 		return candidates[0].ID, nil
 	default:
+		if preferState != "" {
+			var preferred giftexchange.ExchangeID
+			matches := 0
+			for _, candidate := range candidates {
+				if candidate.State == preferState {
+					preferred = candidate.ID
+					matches++
+				}
+			}
+			if matches == 1 {
+				return preferred, nil
+			}
+		}
+
 		names := make([]string, 0, len(candidates))
 		for _, candidate := range candidates {
 			names = append(names, candidate.Name)
@@ -238,12 +260,13 @@ func resolveEmpty(candidates []giftexchange.ExchangeSummary) (giftexchange.Excha
 func (h *Handlers) exchangeFor(
 	ctx context.Context, req *router.Request, verb, raw string,
 ) (giftexchange.ExchangeID, error) {
-	candidates, listed, err := h.listCandidates(ctx, req, filterFor(verb))
+	filter := filterFor(verb)
+	candidates, listed, err := h.listCandidates(ctx, req, filter)
 	if err != nil {
 		return giftexchange.ExchangeID{}, err
 	}
 
-	id, err := resolveExchange(raw, candidates)
+	id, err := resolveExchange(raw, candidates, filter.preferState)
 	if err != nil {
 		return giftexchange.ExchangeID{}, err
 	}
@@ -291,7 +314,7 @@ func (h *Handlers) autocompleteFor(verb string) handler.AutocompleteHandler {
 			return err
 		}
 
-		choices := h.choicesFor(req, candidates, typed)
+		choices := h.choicesFor(req, candidates, typed, filter.multiState)
 		replyErr := req.Autocomplete(e.Ctx, choices)
 		if replyErr != nil {
 			return replyErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -302,11 +325,13 @@ func (h *Handlers) autocompleteFor(verb string) handler.AutocompleteHandler {
 }
 
 // choicesFor builds the choices for the candidates whose name contains typed. The name is
-// plain text, because choices render no markdown, and carries the server name in a DM.
+// plain text, because choices render no markdown, includes the localized state when showState
+// is true, and carries the server name in a DM.
 func (h *Handlers) choicesFor(
-	req *router.Request, candidates []giftexchange.ExchangeSummary, typed string,
+	req *router.Request, candidates []giftexchange.ExchangeSummary, typed string, showState bool,
 ) []discord.AutocompleteChoice {
-	loc := h.catalogFor(req).Locale()
+	c := h.catalogFor(req)
+	loc := c.Locale()
 	needle := strings.ToLower(strings.TrimSpace(typed))
 	choices := make([]discord.AutocompleteChoice, 0, maxChoices)
 	for _, candidate := range candidates {
@@ -318,6 +343,9 @@ func (h *Handlers) choicesFor(
 		}
 
 		name := candidate.Name
+		if showState {
+			name += " (" + stateText(c, candidate.State) + ")"
+		}
 		if !req.InGuild() {
 			name += choiceSuffixSeparator + GuildNameOrUnknownIn(loc, h.guildName(candidate.Group.Subject))
 		}
