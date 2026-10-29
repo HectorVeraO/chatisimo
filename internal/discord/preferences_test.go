@@ -7,6 +7,7 @@ package discord_test
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -16,12 +17,131 @@ import (
 )
 
 const (
-	prefTextNone    = "You have not set gift preferences for **Winter** yet. Use /ge preferences with likes, dislikes or details."
 	prefTextSaved   = "Your gift preferences for **Winter** were saved."
 	prefTextCleared = "Your gift preferences for **Winter** were cleared."
 )
 
-func TestPreferencesSetViewUpdateAndClearBeforeAndAfterDraw(t *testing.T) {
+type modalInput struct {
+	label     string
+	customID  string
+	style     int
+	maxLength int
+	required  bool
+	value     string
+}
+
+func parseModalInputs(t *testing.T, m *fakediscord.Modal) []modalInput {
+	t.Helper()
+	if m == nil {
+		t.Fatal("modal is nil")
+	}
+
+	inputs := make([]modalInput, 0, len(m.Components))
+	for _, raw := range m.Components {
+		var c struct {
+			Type      int    `json:"type"`
+			Label     string `json:"label"`
+			Component struct {
+				Type      int    `json:"type"`
+				CustomID  string `json:"custom_id"`
+				Style     int    `json:"style"`
+				MaxLength int    `json:"max_length"`
+				Required  bool   `json:"required"`
+				Value     string `json:"value"`
+			} `json:"component"`
+			CustomID  string `json:"custom_id"`
+			Style     int    `json:"style"`
+			MaxLength int    `json:"max_length"`
+			Required  bool   `json:"required"`
+			Value     string `json:"value"`
+		}
+		if err := json.Unmarshal(raw, &c); err != nil {
+			t.Fatalf("unmarshal modal component %s: %v", string(raw), err)
+		}
+		if c.Component.CustomID != "" {
+			inputs = append(inputs, modalInput{
+				label:     c.Label,
+				customID:  c.Component.CustomID,
+				style:     c.Component.Style,
+				maxLength: c.Component.MaxLength,
+				required:  c.Component.Required,
+				value:     c.Component.Value,
+			})
+		} else {
+			inputs = append(inputs, modalInput{
+				label:     c.Label,
+				customID:  c.CustomID,
+				style:     c.Style,
+				maxLength: c.MaxLength,
+				required:  c.Required,
+				value:     c.Value,
+			})
+		}
+	}
+	return inputs
+}
+
+type buttonInfo struct {
+	customID string
+	label    string
+}
+
+func recordButtons(t *testing.T, r fakediscord.Record) []buttonInfo {
+	t.Helper()
+
+	var buttons []buttonInfo
+	for _, raw := range r.Components {
+		var row struct {
+			Components []struct {
+				CustomID string `json:"custom_id"`
+				Label    string `json:"label"`
+			} `json:"components"`
+		}
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatalf("decode component: %v", err)
+		}
+		for _, c := range row.Components {
+			buttons = append(buttons, buttonInfo{customID: c.CustomID, label: c.Label})
+		}
+	}
+	return buttons
+}
+
+func messageOfRecord(t *testing.T, s *scene, user string, record fakediscord.Record) fakediscord.Message {
+	t.Helper()
+
+	for _, m := range s.fake.Visible(s.users[user], record.ChannelID) {
+		if m.ID == record.MessageID {
+			return m
+		}
+	}
+	t.Fatalf("message %s not visible to %s", record.MessageID, user)
+	return fakediscord.Message{}
+}
+
+func submitModal(t *testing.T, s *scene, user string, modal fakediscord.Modal, fields map[string]string) fakediscord.Record {
+	t.Helper()
+
+	res, err := s.fake.SubmitModal(t.Context(), s.users[user], modal, fields)
+	if err != nil {
+		t.Fatalf("SubmitModal(%s): %v", modal.CustomID, err)
+	}
+	return s.outcome(t, res)
+}
+
+func clickEdit(t *testing.T, s *scene, user string, record fakediscord.Record, id giftexchange.ExchangeID) fakediscord.Result {
+	t.Helper()
+
+	msg := messageOfRecord(t, s, user, record)
+	customID := "/gx/preferences-edit/" + id.String()
+	res, err := s.fake.Click(t.Context(), s.users[user], msg, customID)
+	if err != nil {
+		t.Fatalf("Click(%s): %v", customID, err)
+	}
+	return res
+}
+
+func TestPreferencesSetUpdateViaCommandAndEditButtonAndClear(t *testing.T) {
 	s := newScene(t)
 	s.startRunner(t, s.world)
 	id := s.createExchange(t, s.a, questionExchange)
@@ -29,47 +149,69 @@ func TestPreferencesSetViewUpdateAndClearBeforeAndAfterDraw(t *testing.T) {
 		s.joinAs(t, user, id)
 	}
 
-	// View when no preferences are set yet.
-	viewEmpty := s.outcome(t, slashOrFail(t, s.harness, s.a, s.ge("preferences", true, nil)))
-	if viewEmpty.Content != prefTextNone || !viewEmpty.Ephemeral {
-		t.Errorf("empty preferences reply = %q (ephemeral=%v), want %q", viewEmpty.Content, viewEmpty.Ephemeral, prefTextNone)
+	// 1. Initial /ge preferences call opens a 3-field paragraph modal with empty initial values.
+	initialSlash := slashOrFail(t, s.harness, s.a, s.ge("preferences", true, nil))
+	if initialSlash.Modal == nil {
+		t.Fatalf("initial /ge preferences opened no modal: %+v", initialSlash)
+	}
+	if initialSlash.Modal.Title != "Gift preferences" {
+		t.Errorf("modal title = %q, want %q", initialSlash.Modal.Title, "Gift preferences")
+	}
+	if initialSlash.Modal.CustomID != "/gx/preferences-modal/"+id.String() {
+		t.Errorf("modal custom ID = %q, want %q", initialSlash.Modal.CustomID, "/gx/preferences-modal/"+id.String())
 	}
 
-	// Set likes and dislikes in open state.
-	setOpen := s.outcome(t, slashOrFail(t, s.harness, s.a, s.ge("preferences", true, map[string]any{
-		"likes":    "Pour-over coffee, sci-fi novels",
-		"dislikes": "Scented candles",
-	})))
-	if setOpen.Content != prefTextSaved || !setOpen.Ephemeral {
-		t.Errorf("set preferences reply = %q (ephemeral=%v), want %q", setOpen.Content, setOpen.Ephemeral, prefTextSaved)
+	inputs := parseModalInputs(t, initialSlash.Modal)
+	if len(inputs) != 3 {
+		t.Fatalf("modal has %d inputs, want 3", len(inputs))
 	}
-	fields := questionFields(t, setOpen)
-	if fields["Likes and hobbies"] != "Pour-over coffee, sci-fi novels" ||
-		fields["Dislikes / avoid"] != "Scented candles" {
-		t.Errorf("saved embed fields = %+v", fields)
+	wantInitialInputs := []modalInput{
+		{label: "Likes and hobbies", customID: "likes", style: 2, maxLength: 300, required: false, value: ""},
+		{label: "Dislikes / avoid", customID: "dislikes", style: 2, maxLength: 300, required: false, value: ""},
+		{label: "Helpful details", customID: "details", style: 2, maxLength: 300, required: false, value: ""},
 	}
-	if _, hasDetails := fields["Helpful details"]; hasDetails {
-		t.Errorf("unexpected Helpful details field in %+v", fields)
+	for i, want := range wantInitialInputs {
+		if inputs[i] != want {
+			t.Errorf("input[%d] = %+v, want %+v", i, inputs[i], want)
+		}
 	}
 
-	// Partial update in open state preserves existing fields and adds details.
-	updateOpen := s.outcome(t, slashOrFail(t, s.harness, s.a, s.ge("preferences", false, map[string]any{
-		"details": "T-shirt size M",
-	})))
-	updatedFields := questionFields(t, updateOpen)
-	if updatedFields["Likes and hobbies"] != "Pour-over coffee, sci-fi novels" ||
-		updatedFields["Dislikes / avoid"] != "Scented candles" ||
-		updatedFields["Helpful details"] != "T-shirt size M" {
-		t.Errorf("partially updated fields = %+v", updatedFields)
+	// Submit initial preference: "tea" in likes.
+	savedRec := submitModal(t, s, s.a, *initialSlash.Modal, map[string]string{"likes": "tea"})
+	if savedRec.Content != prefTextSaved || !savedRec.Ephemeral {
+		t.Errorf("saved reply = %q (ephemeral=%v), want %q", savedRec.Content, savedRec.Ephemeral, prefTextSaved)
+	}
+	fields := questionFields(t, savedRec)
+	if fields["Likes and hobbies"] != "tea" {
+		t.Errorf("saved Likes = %q, want %q", fields["Likes and hobbies"], "tea")
+	}
+	buttons := recordButtons(t, savedRec)
+	wantEditID := "/gx/preferences-edit/" + id.String()
+	if len(buttons) != 1 || buttons[0].customID != wantEditID || buttons[0].label != "Edit" {
+		t.Errorf("saved reply buttons = %+v, want single Edit button with custom id %s", buttons, wantEditID)
 	}
 
-	// Viewing in open state returns all three fields.
-	viewOpen := s.outcome(t, slashOrFail(t, s.harness, s.a, s.ge("preferences", true, nil)))
-	if got := questionFields(t, viewOpen); len(got) != 3 {
-		t.Errorf("view fields = %+v, want 3 fields", got)
+	// 2. Second /ge preferences call opens modal pre-filled with Likes == "tea".
+	secondSlash := slashOrFail(t, s.harness, s.a, s.ge("preferences", true, nil))
+	if secondSlash.Modal == nil {
+		t.Fatalf("second /ge preferences opened no modal: %+v", secondSlash)
+	}
+	inputs2 := parseModalInputs(t, secondSlash.Modal)
+	if inputs2[0].value != "tea" || inputs2[1].value != "" || inputs2[2].value != "" {
+		t.Errorf("second modal pre-filled values = %+v, want Likes == tea", inputs2)
 	}
 
-	// Draw the exchange and verify the giver's draw DM and /ge recipient show the preferences.
+	// Append "\ncoffee" ("tea\ncoffee") and add Dislikes: "peanuts".
+	savedRec2 := submitModal(t, s, s.a, *secondSlash.Modal, map[string]string{
+		"likes":    "tea\ncoffee",
+		"dislikes": "peanuts",
+	})
+	fields2 := questionFields(t, savedRec2)
+	if fields2["Likes and hobbies"] != "tea\ncoffee" || fields2["Dislikes / avoid"] != "peanuts" {
+		t.Errorf("second saved embed fields = %+v", fields2)
+	}
+
+	// Draw the exchange and verify the giver's draw DM and /ge recipient show both lines.
 	drawErr := s.svc.Draw(t.Context(), s.people[s.a].actor, s.group, id)
 	if drawErr != nil {
 		t.Fatalf("Draw: %v", drawErr)
@@ -83,40 +225,62 @@ func TestPreferencesSetViewUpdateAndClearBeforeAndAfterDraw(t *testing.T) {
 	if len(drawDMs) != 1 {
 		t.Fatalf("giver has %d draw DMs, want 1", len(drawDMs))
 	}
-	drawDMText := questionTextOf(drawDMs[0])
-	for _, want := range []string{"Pour-over coffee, sci-fi novels", "Scented candles", "T-shirt size M"} {
-		if !strings.Contains(drawDMText, want) {
-			t.Errorf("giver draw DM = %q, want it to hold %q", drawDMText, want)
+	drawFields := questionFields(t, fakediscord.Record{Embeds: drawDMs[0].Embeds})
+	for fieldName, want := range map[string]string{
+		"Likes and hobbies": "tea\ncoffee",
+		"Dislikes / avoid":  "peanuts",
+	} {
+		if drawFields[fieldName] != want {
+			t.Errorf("giver draw DM %s = %q, want %q", fieldName, drawFields[fieldName], want)
 		}
 	}
 
 	recipRec := s.outcome(t, slashOrFail(t, s.harness, giver, s.ge("recipient", true, nil)))
 	recipFields := questionFields(t, recipRec)
-	if recipFields["Likes and hobbies"] != "Pour-over coffee, sci-fi novels" ||
-		recipFields["Dislikes / avoid"] != "Scented candles" ||
-		recipFields["Helpful details"] != "T-shirt size M" {
-		t.Errorf("/ge recipient fields = %+v", recipFields)
+	if recipFields["Likes and hobbies"] != "tea\ncoffee" || recipFields["Dislikes / avoid"] != "peanuts" {
+		t.Errorf("/ge recipient fields = %+v, want multiline likes and dislikes", recipFields)
 	}
 
-	// Updating preferences after the draw sends a DM to the giver without revealing the giver to the recipient.
+	// 3. Click the Edit button on saved reply in drawn exchange.
 	outboundBefore := len(s.fake.Outbound())
-	updateDrawn := s.outcome(t, slashOrFail(t, s.harness, s.a, s.ge("preferences", true, map[string]any{
-		"likes": "Board games and puzzles",
-	})))
-	if updateDrawn.Content != prefTextSaved {
-		t.Errorf("update in drawn reply = %q, want %q", updateDrawn.Content, prefTextSaved)
+	editRes := clickEdit(t, s, s.a, savedRec2, id)
+	if editRes.Modal == nil {
+		t.Fatalf("clicking Edit opened no modal: %+v", editRes)
+	}
+	clickInputs := parseModalInputs(t, editRes.Modal)
+	if clickInputs[0].value != "tea\ncoffee" || clickInputs[1].value != "peanuts" || clickInputs[2].value != "" {
+		t.Errorf("Edit modal pre-filled values = %+v, want tea\\ncoffee and peanuts", clickInputs)
+	}
+
+	// Add Details: "size M" while preserving likes and dislikes.
+	savedRec3 := submitModal(t, s, s.a, *editRes.Modal, map[string]string{
+		"likes":    "tea\ncoffee",
+		"dislikes": "peanuts",
+		"details":  "size M",
+	})
+	fields3 := questionFields(t, savedRec3)
+	if fields3["Likes and hobbies"] != "tea\ncoffee" || fields3["Dislikes / avoid"] != "peanuts" || fields3["Helpful details"] != "size M" {
+		t.Errorf("updated fields after Edit = %+v", fields3)
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), deliveryDeadline)
 	defer cancel()
 	updateDM, err := s.fake.WaitDM(ctx, s.users[giver], func(m fakediscord.Message) bool {
-		return strings.Contains(m.Content, "updated their gift preferences")
+		return strings.Contains(m.Content, "updated their gift preferences") &&
+			strings.Contains(questionTextOf(m), "size M")
 	})
 	if err != nil {
 		t.Fatalf("WaitDM for updated preferences: %v", err)
 	}
-	if !strings.Contains(questionTextOf(updateDM), "Board games and puzzles") {
-		t.Errorf("update DM = %q, want updated likes", questionTextOf(updateDM))
+	updateFields := questionFields(t, fakediscord.Record{Embeds: updateDM.Embeds})
+	for fieldName, want := range map[string]string{
+		"Likes and hobbies": "tea\ncoffee",
+		"Dislikes / avoid":  "peanuts",
+		"Helpful details":   "size M",
+	} {
+		if updateFields[fieldName] != want {
+			t.Errorf("update DM %s = %q, want %q", fieldName, updateFields[fieldName], want)
+		}
 	}
 
 	// Ensure the recipient never sees the giver's identity in any reply after outboundBefore.
@@ -134,13 +298,16 @@ func TestPreferencesSetViewUpdateAndClearBeforeAndAfterDraw(t *testing.T) {
 		}
 	}
 
-	// Clearing preferences after the draw clears the fields and notifies the giver.
-	clearRec := s.outcome(t, slashOrFail(t, s.harness, s.a, s.ge("preferences", true, map[string]any{
-		"clear": true,
-	})))
-	if clearRec.Content != prefTextCleared || len(clearRec.Embeds) != 0 {
-		t.Errorf("clear reply = %q (embeds=%d), want %q with no embeds",
-			clearRec.Content, len(clearRec.Embeds), prefTextCleared)
+	// 4. Submitting all-empty fields in the modal clears preferences and notifies the giver.
+	emptySlash := slashOrFail(t, s.harness, s.a, s.ge("preferences", true, nil))
+	clearedModalRec := submitModal(t, s, s.a, *emptySlash.Modal, map[string]string{
+		"likes":    "   ",
+		"dislikes": "",
+		"details":  "",
+	})
+	if clearedModalRec.Content != prefTextCleared || len(clearedModalRec.Embeds) != 0 {
+		t.Errorf("modal clear reply = %q (embeds=%d), want %q with no embeds",
+			clearedModalRec.Content, len(clearedModalRec.Embeds), prefTextCleared)
 	}
 
 	clearDM, err := s.fake.WaitDM(ctx, s.users[giver], func(m fakediscord.Message) bool {
@@ -148,11 +315,36 @@ func TestPreferencesSetViewUpdateAndClearBeforeAndAfterDraw(t *testing.T) {
 			strings.Contains(questionTextOf(m), "None yet.")
 	})
 	if err != nil {
-		t.Fatalf("WaitDM for cleared preferences: %v", err)
+		t.Fatalf("WaitDM for cleared preferences via modal: %v", err)
 	}
 	if !strings.Contains(questionTextOf(clearDM), "Gift preferences") {
 		t.Errorf("clear DM = %q, want Gift preferences field", questionTextOf(clearDM))
 	}
+
+	// 5. Reset preferences and verify /ge preferences clear:true clears and notifies giver.
+	reSlash := slashOrFail(t, s.harness, s.a, s.ge("preferences", true, nil))
+	_ = submitModal(t, s, s.a, *reSlash.Modal, map[string]string{"likes": "books"})
+
+	clearSlashRec := s.outcome(t, slashOrFail(t, s.harness, s.a, s.ge("preferences", true, map[string]any{
+		"clear": true,
+	})))
+	if clearSlashRec.Content != prefTextCleared || len(clearSlashRec.Embeds) != 0 {
+		t.Errorf("clear:true reply = %q (embeds=%d), want %q with no embeds",
+			clearSlashRec.Content, len(clearSlashRec.Embeds), prefTextCleared)
+	}
+
+	clearDM2, err := s.fake.WaitDM(ctx, s.users[giver], func(m fakediscord.Message) bool {
+		return m.ID != clearDM.ID &&
+			strings.Contains(m.Content, "updated their gift preferences") &&
+			strings.Contains(questionTextOf(m), "None yet.")
+	})
+	if err != nil {
+		t.Fatalf("WaitDM for cleared preferences via clear:true: %v", err)
+	}
+	if !strings.Contains(questionTextOf(clearDM2), "Gift preferences") {
+		t.Errorf("clear DM2 = %q, want Gift preferences field", questionTextOf(clearDM2))
+	}
+
 	assertNoPings(t, s.fake)
 }
 
@@ -161,11 +353,18 @@ func TestPreferencesEscapesMarkdownAndMentionsAndValidatesInput(t *testing.T) {
 	recipient := q.recipientOf(t, q.a)
 
 	hostileLikes := "@everyone <@100000000000000001> **bold** _italic_ `code`"
-	slashIn := q.ge("preferences", true, map[string]any{
+	modalRes := slashOrFail(t, q.harness, recipient, q.ge("preferences", true, nil))
+	if modalRes.Modal == nil {
+		t.Fatalf("slash preferences opened no modal: %+v", modalRes)
+	}
+
+	submitRes, err := q.fake.SubmitModal(t.Context(), q.users[recipient], *modalRes.Modal, map[string]string{
 		"likes": hostileLikes,
 	})
-	slashIn.BypassValidation = true
-	savedRec := q.outcome(t, slashOrFail(t, q.harness, recipient, slashIn))
+	if err != nil {
+		t.Fatalf("SubmitModal: %v", err)
+	}
+	savedRec := q.outcome(t, submitRes)
 	if savedRec.Content != prefTextSaved {
 		t.Fatalf("saved reply = %q, want %q", savedRec.Content, prefTextSaved)
 	}
@@ -193,11 +392,13 @@ func TestPreferencesEscapesMarkdownAndMentionsAndValidatesInput(t *testing.T) {
 	}
 
 	// Overlong preference input is rejected with Not saved and does not overwrite stored preferences.
-	tooLongIn := q.ge("preferences", true, map[string]any{
+	tooLongRes, err := q.fake.SubmitModalForged(t.Context(), q.users[recipient], *modalRes.Modal, map[string]string{
 		"likes": strings.Repeat("a", giftexchange.MaxPreferenceRunes+1),
 	})
-	tooLongIn.BypassValidation = true
-	badRec := q.outcome(t, slashOrFail(t, q.harness, recipient, tooLongIn))
+	if err != nil {
+		t.Fatalf("SubmitModalForged: %v", err)
+	}
+	badRec := q.outcome(t, tooLongRes)
 	if !strings.HasPrefix(badRec.Content, questionTextNotSaved) {
 		t.Errorf("overlong preferences reply = %q, want Not saved prefix", badRec.Content)
 	}
@@ -214,13 +415,20 @@ func TestPreferencesPreservesCustomEmojisAndEscapesAdjacentMarkup(t *testing.T) 
 	dislikes := "Loud noises <a:cat_dance:123456789012345678> _italic_"
 	details := "Size M <:CatHmph:123456789012345678>"
 
-	slashIn := q.ge("preferences", true, map[string]any{
+	modalRes := slashOrFail(t, q.harness, recipient, q.ge("preferences", true, nil))
+	if modalRes.Modal == nil {
+		t.Fatalf("slash preferences opened no modal: %+v", modalRes)
+	}
+
+	submitRes, err := q.fake.SubmitModal(t.Context(), q.users[recipient], *modalRes.Modal, map[string]string{
 		"likes":    likes,
 		"dislikes": dislikes,
 		"details":  details,
 	})
-	slashIn.BypassValidation = true
-	savedRec := q.outcome(t, slashOrFail(t, q.harness, recipient, slashIn))
+	if err != nil {
+		t.Fatalf("SubmitModal: %v", err)
+	}
+	savedRec := q.outcome(t, submitRes)
 	if savedRec.Content != prefTextSaved {
 		t.Fatalf("saved reply = %q, want %q", savedRec.Content, prefTextSaved)
 	}
@@ -272,7 +480,7 @@ func TestPreferencesPreservesCustomEmojisAndEscapesAdjacentMarkup(t *testing.T) 
 	assertNoPings(t, q.fake)
 }
 
-func TestPreferencesDeniesNonParticipants(t *testing.T) {
+func TestPreferencesDeniesNonParticipantsAndInvalidStates(t *testing.T) {
 	s := newScene(t)
 	id := s.createExchange(t, s.a, questionExchange)
 	s.joinAs(t, s.b, id)
@@ -283,7 +491,6 @@ func TestPreferencesDeniesNonParticipants(t *testing.T) {
 	}
 
 	namedOutsider := replyTo(t, s.harness, slashOrFail(t, s.harness, s.d, s.ge("preferences", true, map[string]any{
-		"likes":    "Coffee",
 		"exchange": id.String(),
 	})))
 	if namedOutsider.content != textNotFound {
@@ -291,11 +498,124 @@ func TestPreferencesDeniesNonParticipants(t *testing.T) {
 	}
 
 	orgNotJoined := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, s.ge("preferences", true, map[string]any{
-		"likes":    "Coffee",
 		"exchange": id.String(),
 	})))
 	if orgNotJoined.content != drawTextNotMember {
 		t.Errorf("organizer who never joined: reply = %q, want %q", orgNotJoined.content, drawTextNotMember)
+	}
+
+	// Cancelled exchange is rejected without opening a modal.
+	idCancel := s.createExchange(t, s.a, "Cancelled")
+	s.joinAs(t, s.a, idCancel)
+	s.joinAs(t, s.b, idCancel)
+	if err := s.svc.Cancel(t.Context(), s.people[s.a].actor, s.group, idCancel); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	cancelledReply := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, s.ge("preferences", true, map[string]any{
+		"exchange": idCancel.String(),
+	})))
+	if cancelledReply.content != drawTextStateCancelled {
+		t.Errorf("cancelled preferences reply = %q, want %q", cancelledReply.content, drawTextStateCancelled)
+	}
+	cancelledDMReply := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, s.ge("preferences", false, map[string]any{
+		"exchange": idCancel.String(),
+	})))
+	if cancelledDMReply.content != drawTextStateCancelled {
+		t.Errorf("cancelled DM preferences reply = %q, want %q", cancelledDMReply.content, drawTextStateCancelled)
+	}
+	otherGuild := s.otherGuildWith(t, s.a)
+	cancelledOtherGuildReply := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, fakediscord.Slash{
+		Path:    "/ge/preferences",
+		Guild:   &otherGuild,
+		Options: map[string]any{"exchange": idCancel.String()},
+	}))
+	if cancelledOtherGuildReply.content != drawTextStateCancelled {
+		t.Errorf("cancelled other-guild preferences reply = %q, want %q", cancelledOtherGuildReply.content, drawTextStateCancelled)
+	}
+
+	// Revealed exchange is rejected without opening a modal.
+	idReveal := s.createExchange(t, s.a, "Revealed")
+	for _, user := range []string{s.a, s.b, s.c} {
+		s.joinAs(t, user, idReveal)
+	}
+	if err := s.svc.Draw(t.Context(), s.people[s.a].actor, s.group, idReveal); err != nil {
+		t.Fatalf("Draw: %v", err)
+	}
+	if err := s.svc.Reveal(t.Context(), s.people[s.a].actor, s.group, idReveal); err != nil {
+		t.Fatalf("Reveal: %v", err)
+	}
+	revealedReply := replyTo(t, s.harness, slashOrFail(t, s.harness, s.a, s.ge("preferences", true, map[string]any{
+		"exchange": idReveal.String(),
+	})))
+	if revealedReply.content != drawTextStateRevealed {
+		t.Errorf("revealed preferences reply = %q, want %q", revealedReply.content, drawTextStateRevealed)
+	}
+
+	// Forged modal submission by outsider is rejected.
+	forgedModal := fakediscord.Modal{CustomID: "/gx/preferences-modal/" + id.String()}
+	forgedRes, err := s.fake.SubmitModalForged(t.Context(), s.users[s.d], forgedModal, map[string]string{
+		"likes": "tea",
+	})
+	if err != nil {
+		t.Fatalf("SubmitModalForged: %v", err)
+	}
+	forgedRec := s.outcome(t, forgedRes)
+	if forgedRec.Content != textNotFound && forgedRec.Content != drawTextNotMember {
+		t.Errorf("forged outsider modal reply = %q, want not found or not member", forgedRec.Content)
+	}
+
+	// Forged modal submission with bidi / control chars is rejected with Not saved.
+	bidiRes, err := s.fake.SubmitModalForged(t.Context(), s.users[s.b], forgedModal, map[string]string{
+		"likes": "tea\u202ecoffee",
+	})
+	if err != nil {
+		t.Fatalf("SubmitModalForged(bidi): %v", err)
+	}
+	bidiRec := s.outcome(t, bidiRes)
+	if !strings.HasPrefix(bidiRec.Content, questionTextNotSaved) {
+		t.Errorf("bidi modal reply = %q, want prefix %q", bidiRec.Content, questionTextNotSaved)
+	}
+}
+
+func TestPreferencesSpanishLocale(t *testing.T) {
+	s := newScene(t)
+	if err := s.fake.SetGuildLocale(s.guild, "es-419"); err != nil {
+		t.Fatalf("SetGuildLocale(es-419): %v", err)
+	}
+
+	id := s.createExchange(t, s.a, "Navidad")
+	s.joinAs(t, s.a, id)
+
+	modalRes := slashOrFail(t, s.harness, s.a, s.ge("preferences", true, nil))
+	if modalRes.Modal == nil {
+		t.Fatalf("slash preferences opened no modal: %+v", modalRes)
+	}
+	if modalRes.Modal.Title != "Preferencias de regalo" {
+		t.Errorf("modal title = %q, want %q", modalRes.Modal.Title, "Preferencias de regalo")
+	}
+
+	inputs := parseModalInputs(t, modalRes.Modal)
+	if len(inputs) != 3 {
+		t.Fatalf("modal has %d inputs, want 3", len(inputs))
+	}
+	wantLabels := []string{"Gustos y pasatiempos", "No me gusta / evitar", "Detalles útiles"}
+	for i, want := range wantLabels {
+		if inputs[i].label != want {
+			t.Errorf("input[%d] label = %q, want %q", i, inputs[i].label, want)
+		}
+	}
+
+	savedRes, err := s.fake.SubmitModal(t.Context(), s.users[s.a], *modalRes.Modal, map[string]string{"likes": "Café"})
+	if err != nil {
+		t.Fatalf("SubmitModal: %v", err)
+	}
+	savedRec := s.outcome(t, savedRes)
+	if !strings.Contains(savedRec.Content, "Se guardaron tus preferencias de regalo") {
+		t.Errorf("saved reply = %q, want Spanish confirmation", savedRec.Content)
+	}
+	buttons := recordButtons(t, savedRec)
+	if len(buttons) != 1 || buttons[0].label != "Editar" {
+		t.Errorf("buttons = %+v, want single Editar button", buttons)
 	}
 }
 

@@ -180,9 +180,6 @@ func verbs() []verbSpec {
 			name: "preferences", descriptionID: textCmdPreferencesDesc,
 			options: func() []discord.ApplicationCommandOption {
 				return []discord.ApplicationCommandOption{
-					textOption("likes", textOptPreferencesLikesDesc, 1, giftexchange.MaxPreferenceRunes, false),
-					textOption("dislikes", textOptPreferencesDislikesDesc, 1, giftexchange.MaxPreferenceRunes, false),
-					textOption("details", textOptPreferencesDetailsDesc, 1, giftexchange.MaxPreferenceRunes, false),
 					boolOption("clear", textOptPreferencesClearDesc),
 					exchangeOption(),
 				}

@@ -140,15 +140,9 @@ func TestCommandTrees(t *testing.T) {
 	}
 
 	preferences := findOption(t, short.Options, "preferences")
-	wantPrefOpts := []string{"likes", "dislikes", "details", "clear", "exchange"}
+	wantPrefOpts := []string{"clear", "exchange"}
 	if got := optionNames(preferences.Options); !slices.Equal(got, wantPrefOpts) {
 		t.Errorf("preferences options = %v, want %v", got, wantPrefOpts)
-	}
-	for _, fieldName := range []string{"likes", "dislikes", "details"} {
-		opt := findOption(t, preferences.Options, fieldName)
-		if opt.MaxLength == nil || *opt.MaxLength != 300 || opt.Required {
-			t.Errorf("preferences %s = %+v, want optional with max_length 300", fieldName, opt)
-		}
 	}
 }
 
@@ -900,21 +894,27 @@ func TestPreferences(t *testing.T) {
 	created.add("preferences initial details", initialDetails)
 	created.add("preferences updated likes", updatedLikes)
 
-	emptyView := s.slash(t, alice, "/ge/preferences", map[string]any{"exchange": exchange.id})
-	if emptyView.message.EphemeralFor != alice.ID || !strings.Contains(emptyView.text, "have not set gift preferences") {
-		t.Errorf("empty preferences = %q to %q, want empty notice to Alice", emptyView.text, emptyView.message.EphemeralFor)
+	modalResult := s.slashResult(t, alice, "/ge/preferences", map[string]any{"exchange": exchange.id})
+	if modalResult.Modal == nil {
+		t.Fatalf("preferences opened no modal: %+v", modalResult)
+	}
+	initialInputs := modalInputsOf(t, modalResult.Modal)
+	if len(initialInputs) != 3 {
+		t.Fatalf("modal has %d inputs, want 3", len(initialInputs))
+	}
+	if initialInputs[0].value != "" || initialInputs[1].value != "" || initialInputs[2].value != "" {
+		t.Errorf("initial modal inputs not empty: %+v", initialInputs)
 	}
 
-	outsiderAttempt := s.slash(t, outsider, "/ge/preferences", map[string]any{"likes": initialLikes, "exchange": exchange.id})
+	outsiderAttempt := s.slash(t, outsider, "/ge/preferences", map[string]any{"exchange": exchange.id})
 	if !strings.Contains(outsiderAttempt.text, textNotParticipant) && !strings.Contains(outsiderAttempt.text, textNotFound) {
 		t.Errorf("outsider preferences = %q, want a refusal", outsiderAttempt.text)
 	}
 
-	saved := s.slash(t, alice, "/ge/preferences", map[string]any{
+	saved := s.submit(t, alice, modalResult.Modal, map[string]string{
 		"likes":    initialLikes,
 		"dislikes": initialDislikes,
 		"details":  initialDetails,
-		"exchange": exchange.id,
 	})
 	if saved.message.EphemeralFor != alice.ID || !strings.Contains(saved.text, "Your gift preferences for") ||
 		!strings.Contains(saved.text, "were saved.") {
@@ -930,9 +930,19 @@ func TestPreferences(t *testing.T) {
 		}
 	}
 
-	viewed := s.slash(t, alice, "/ge/preferences", map[string]any{"exchange": exchange.id})
-	if got := fieldValue(t, viewed.message, "Likes and hobbies"); got != initialLikes {
-		t.Errorf("viewed Likes and hobbies = %q, want %q", got, initialLikes)
+	viewResult := s.slashResult(t, alice, "/ge/preferences", map[string]any{"exchange": exchange.id})
+	if viewResult.Modal == nil {
+		t.Fatalf("re-opened preferences opened no modal: %+v", viewResult)
+	}
+	viewInputs := modalInputsOf(t, viewResult.Modal)
+	if viewInputs[0].value != initialLikes {
+		t.Errorf("viewed Likes and hobbies = %q, want %q", viewInputs[0].value, initialLikes)
+	}
+	if viewInputs[1].value != initialDislikes {
+		t.Errorf("viewed Dislikes / avoid = %q, want %q", viewInputs[1].value, initialDislikes)
+	}
+	if viewInputs[2].value != initialDetails {
+		t.Errorf("viewed Helpful details = %q, want %q", viewInputs[2].value, initialDetails)
 	}
 
 	s.draw(t, organizer, exchange.id)
@@ -955,12 +965,24 @@ func TestPreferences(t *testing.T) {
 		}
 	}
 
-	updated := s.slash(t, alice, "/ge/preferences", map[string]any{
-		"likes":    updatedLikes,
-		"exchange": exchange.id,
+	editBtnID := idWithPrefix(t, saved.message, "/gx/preferences-edit/")
+	editResult := s.clickResult(t, alice, saved.message, editBtnID)
+	if editResult.Modal == nil {
+		t.Fatalf("clicking Edit opened no modal: %+v", editResult)
+	}
+	editInputs := modalInputsOf(t, editResult.Modal)
+	if editInputs[0].value != initialLikes || editInputs[1].value != initialDislikes || editInputs[2].value != initialDetails {
+		t.Errorf("edit modal pre-filled inputs = %+v, want initial preferences", editInputs)
+	}
+
+	combinedLikes := initialLikes + "\n" + updatedLikes
+	updated := s.submit(t, alice, editResult.Modal, map[string]string{
+		"likes":    combinedLikes,
+		"dislikes": initialDislikes,
+		"details":  initialDetails,
 	})
-	if got := fieldValue(t, updated.message, "Likes and hobbies"); got != updatedLikes {
-		t.Errorf("updated Likes and hobbies = %q, want %q", got, updatedLikes)
+	if got := fieldValue(t, updated.message, "Likes and hobbies"); got != combinedLikes {
+		t.Errorf("updated Likes and hobbies = %q, want %q", got, combinedLikes)
 	}
 	if got := fieldValue(t, updated.message, "Dislikes / avoid"); got != initialDislikes {
 		t.Errorf("updated Dislikes / avoid = %q, want %q preserved", got, initialDislikes)
@@ -982,7 +1004,7 @@ func TestPreferences(t *testing.T) {
 	defer cancel()
 	updateDM, err := s.fake.WaitDM(ctx, giverOfAlice, func(m fakediscord.Message) bool {
 		return strings.Contains(textOf(t, m), "updated their gift preferences") &&
-			hasEmbedField(m, "Likes and hobbies", updatedLikes)
+			hasEmbedField(m, "Likes and hobbies", combinedLikes)
 	})
 	if err != nil {
 		t.Fatalf("giver got no preferences update DM: %v", err)
@@ -990,8 +1012,8 @@ func TestPreferences(t *testing.T) {
 	if !strings.Contains(textOf(t, updateDM), name) || !strings.Contains(textOf(t, updateDM), "<@"+alice.ID+">") {
 		t.Errorf("update DM = %q, want exchange name and recipient mention", textOf(t, updateDM))
 	}
-	if got := fieldValue(t, updateDM, "Likes and hobbies"); got != updatedLikes {
-		t.Errorf("update DM Likes and hobbies = %q, want %q", got, updatedLikes)
+	if got := fieldValue(t, updateDM, "Likes and hobbies"); got != combinedLikes {
+		t.Errorf("update DM Likes and hobbies = %q, want %q", got, combinedLikes)
 	}
 
 	cleared := s.slash(t, alice, "/ge/preferences", map[string]any{
