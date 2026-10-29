@@ -307,3 +307,28 @@ jobs:
       - name: Remove the E2E stack
         if: always()
         run: docker compose --env-file .env -f .deploy/local/docker-compose.yaml --profile e2e down
+
+  prod-image:
+    name: prod-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the release image
+        run: docker build -f .deploy/prod/Dockerfile --build-arg VERSION=ci -t chatisimo:ci .
+      - name: Check the production stack
+        run: |
+          set -euo pipefail
+          # Placeholder secrets at the paths the compose file reads on the VM.
+          sudo install -d -m 700 /config/chatisimo/prod
+          printf '%s\n' 'POSTGRES_USER=chatisimo' 'POSTGRES_PASSWORD=change-me' 'POSTGRES_DB=chatisimo' \
+            | sudo tee /config/chatisimo/prod/postgres.env > /dev/null
+          printf '%s\n' 'DATABASE_URL=postgres://chatisimo:change-me@postgres:5432/chatisimo?sslmode=disable' 'MASTER_KEY=change-me' \
+            | sudo tee /config/chatisimo/prod/chatisimo.env > /dev/null
+          sudo env CHATISIMO_IMAGE=chatisimo:ci docker compose -f .deploy/prod/docker-compose.yaml config --quiet
+          for script in .deploy/prod/compose.sh .deploy/prod/release.sh; do
+            sh -n "${script}"
+          done
+          bash -n .deploy/prod/startup.sh
+          test "$(docker run --rm chatisimo:ci version)" = ci
