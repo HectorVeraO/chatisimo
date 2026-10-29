@@ -1,0 +1,180 @@
+name: deploy
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: SemVer tag (vX.Y.Z) or full commit SHA on master to deploy (rollback)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: us-east1-docker.pkg.dev
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    # The WIF provider accepts tokens only from the production environment on refs/tags/v* or
+    # refs/heads/master (workflow_dispatch rollback).
+    environment: production
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      ZONE: ${{ vars.GCP_ZONE }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve and verify the release target
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_REF: ${{ inputs.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          semver_re='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          tag=""
+          if [ "${EVENT_NAME}" = "push" ]; then
+            tag="${REF_NAME}"
+            if ! printf '%s' "${tag}" | grep -Eq "${semver_re}"; then
+              echo "::error::not a valid SemVer tag: ${tag}"
+              exit 1
+            fi
+            if [ "$(git cat-file -t "refs/tags/${tag}" 2>/dev/null || true)" != "tag" ]; then
+              echo "::error::tag ${tag} must be an annotated tag (git tag -a ${tag} -m 'Release ${tag}')"
+              exit 1
+            fi
+            sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+            version="${tag}"
+          else
+            if printf '%s' "${INPUT_REF}" | grep -Eq "${semver_re}"; then
+              tag="${INPUT_REF}"
+              sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+              version="${tag}"
+            elif printf '%s' "${INPUT_REF}" | grep -Eq '^[0-9a-f]{40}$'; then
+              sha="${INPUT_REF}"
+              version="${sha}"
+            else
+              echo "::error::expected SemVer tag (vX.Y.Z) or 40-char commit SHA, got '${INPUT_REF}'"
+              exit 1
+            fi
+          fi
+
+          if ! git merge-base --is-ancestor "${sha}" origin/master; then
+            echo "::error::commit ${sha} is not an ancestor of origin/master"
+            exit 1
+          fi
+
+          ci_ok=no
+          for _ in $(seq 1 60); do
+            runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${sha}")"
+            succeeded="$(printf '%s' "${runs}" | jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length')"
+            if [ "${succeeded}" -gt 0 ]; then
+              ci_ok=yes
+              break
+            fi
+            active="$(printf '%s' "${runs}" | jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+            if [ "${active}" -eq 0 ]; then
+              break
+            fi
+            sleep 15
+          done
+
+          if [ "${ci_ok}" != "yes" ]; then
+            echo "::error::no successful ci.yml workflow run found for commit ${sha}"
+            exit 1
+          fi
+
+          base="${REGISTRY}/${PROJECT}/chatisimo/chatisimo"
+          sha_image="${base}:${sha}"
+          if [ -n "${tag}" ]; then
+            tag_image="${base}:${tag}"
+            tags="${sha_image},${tag_image}"
+            deploy_image="${tag_image}"
+          else
+            tag_image=""
+            tags="${sha_image}"
+            deploy_image="${sha_image}"
+          fi
+
+          {
+            echo "sha=${sha}"
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "sha_image=${sha_image}"
+            echo "tag_image=${tag_image}"
+            echo "tags=${tags}"
+            echo "deploy_image=${deploy_image}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Check out the verified commit
+        run: git checkout --detach "${{ steps.target.outputs.sha }}"
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - name: Log in to Artifact Registry
+        run: gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "https://${REGISTRY}"
+      - name: Check for an existing image
+        id: existing
+        env:
+          DEPLOY_IMAGE: ${{ steps.target.outputs.deploy_image }}
+        run: |
+          set -euo pipefail
+          if gcloud artifacts docker images describe "${DEPLOY_IMAGE}" > /dev/null 2>&1; then
+            echo "found=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "found=false" >> "${GITHUB_OUTPUT}"
+          fi
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: steps.existing.outputs.found != 'true'
+      # The GitHub Actions cache keeps the layers between runs, so an unchanged go.mod/go.sum
+      # skips the module download.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: steps.existing.outputs.found != 'true'
+        with:
+          context: .
+          file: .deploy/prod/Dockerfile
+          build-args: VERSION=${{ steps.target.outputs.version }}
+          tags: ${{ steps.target.outputs.tags }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Copy the stack files to the VM
+        run: |
+          set -euo pipefail
+          gcloud compute scp --project="${PROJECT}" --zone="${ZONE}" --tunnel-through-iap \
+            --strict-host-key-checking=no --quiet \
+            .deploy/prod/docker-compose.yaml .deploy/prod/compose.sh .deploy/prod/release.sh chatisimo:
+      - name: Start the release
+        env:
+          IMAGE: ${{ steps.target.outputs.deploy_image }}
+        run: |
+          set -euo pipefail
+          gcloud auth print-access-token | gcloud compute ssh chatisimo --project="${PROJECT}" --zone="${ZONE}" \
+            --tunnel-through-iap --strict-host-key-checking=no --quiet \
+            --command="sudo sh release.sh ${IMAGE}"
+      - name: Publish the GitHub Release
+        if: steps.target.outputs.tag != ''
+        env:
+          TAG: ${{ steps.target.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "${TAG}" > /dev/null 2>&1; then
+            gh release create "${TAG}" --verify-tag --generate-notes
+          fi

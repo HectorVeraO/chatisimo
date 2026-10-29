@@ -120,6 +120,12 @@ left no mandatory finding. A change that touches `.github/`, `AGENTS.md`, `cookb
 `.claude/`, `lefthook.yml`, `.gitleaks.toml` or the GitHub ruleset still needs Héctor's explicit
 approval before merging. Design notes, research and decisions stay out of this repository.
 
+**Production releases** (`.github/workflows/deploy.yml`). Pushing an annotated SemVer tag
+(`vMAJOR.MINOR.PATCH`) on `master` builds and pushes the release image, deploys it to the
+production VM over IAP and publishes the GitHub Release. Only Héctor creates or pushes tags or
+triggers a production deploy (`git tag`, `git push origin v*` and `gh release create` are denied
+to agents).
+
 **Dependabot PRs** (`.github/dependabot.yml`). An agent merges one on green, with no issue and no
 review rounds, when it is a minor or patch update (from a version group or a security update; a
 major one never qualifies, security or not), every required check passes, it changes only
@@ -335,7 +341,7 @@ Format: see `.claude/references/code-path-parity-format.md`. Root keeps a one-li
 
 <!-- Add parity rows below this line. The skill never edits below. -->
 
-- **Go and Postgres versions**: `go.mod`, `mise.toml`, `.deploy/local/Dockerfile` (`golang:` tag), `.deploy/local/docker-compose.yaml`, `ci.yml` and `mutation.yml` (`postgres:` tag) name the same versions. Full row: `.claude/references/code-path-parity.md`.
+- **Go and Postgres versions**: `go.mod`, `mise.toml`, `.deploy/local/Dockerfile` and `.deploy/prod/Dockerfile` (`golang:` tag), `.deploy/local/docker-compose.yaml`, `.deploy/prod/docker-compose.yaml`, `ci.yml` and `mutation.yml` (`postgres:` tag) name the same versions. Full row: `.claude/references/code-path-parity.md`.
 - **Texts the browser specs assert**: `internal/discord/internal/giftexchangecmd/texts.go` (and the few texts the specs also read from `list.go`, `rules.go`, `internal/giftexchange/rules.go`, `internal/giftexchange/parse.go` and `internal/fakediscord/web/slash.js`) and `playwright/fixtures/texts.ts` carry the same strings. Full row: `.claude/references/code-path-parity.md`.
 - **Node version**: `mise.toml` (`node`) and `.github/workflows/ci.yml` (`NODE_VERSION`) name the same version. Full row: `.claude/references/code-path-parity.md`.
 
