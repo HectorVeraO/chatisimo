@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 )
@@ -295,6 +297,127 @@ func FuzzValidateLLMModel(f *testing.F) {
 
 		if strings.ContainsAny(value, "/\\?#: \t\r\n") {
 			t.Errorf("accepted model %q with forbidden delimiter", value)
+		}
+	})
+}
+
+func TestValidateLLMPrompt(t *testing.T) {
+	const secretFragment = "synthetic-prompt-marker"
+
+	tests := []struct {
+		name       string
+		value      string
+		wantErr    bool
+		wantSubstr []string
+	}{
+		{
+			name:    "accepts default prompt",
+			value:   defaultLLMPrompt,
+			wantErr: false,
+		},
+		{
+			name:    "accepts multiline prompt with LF",
+			value:   "Rule 1: Keep 2nd person singular.\nRule 2: Use neutral tuteo.",
+			wantErr: false,
+		},
+		{
+			name:       "rejects empty prompt",
+			value:      "",
+			wantErr:    true,
+			wantSubstr: []string{"1-16384 bytes", "must not be blank"},
+		},
+		{
+			name:       "rejects whitespace and newlines only",
+			value:      "   \n\n  ",
+			wantErr:    true,
+			wantSubstr: []string{"must not be blank"},
+		},
+		{
+			name:       "rejects overlong prompt",
+			value:      strings.Repeat("p", maxLLMPromptBytes+1),
+			wantErr:    true,
+			wantSubstr: []string{"1-16384 bytes"},
+		},
+		{
+			name:       "rejects control characters other than newline without echoing value",
+			value:      secretFragment + "\x00\r\t",
+			wantErr:    true,
+			wantSubstr: []string{"control characters other than newline"},
+		},
+		{
+			name:       "rejects invalid UTF-8 without echoing value",
+			value:      secretFragment + "\xff\xfe",
+			wantErr:    true,
+			wantSubstr: []string{"valid UTF-8"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateLLMPrompt(tc.value, config.EnvLocal)
+			if tc.wantErr && err == nil {
+				t.Fatalf("validateLLMPrompt(%q) = nil, want error", tc.value)
+			}
+
+			if !tc.wantErr && err != nil {
+				t.Fatalf("validateLLMPrompt(%q) = %v, want nil", tc.value, err)
+			}
+
+			if err != nil {
+				msg := err.Error()
+				for _, want := range tc.wantSubstr {
+					if !strings.Contains(msg, want) {
+						t.Errorf("error %q does not contain %q", msg, want)
+					}
+				}
+
+				if strings.Contains(msg, secretFragment) {
+					t.Errorf("error %q leaked value fragment %q", msg, secretFragment)
+				}
+			}
+		})
+	}
+}
+
+func FuzzValidateLLMPrompt(f *testing.F) {
+	seeds := []string{
+		"",
+		"   \n  ",
+		defaultLLMPrompt,
+		"Line 1\nLine 2\nLine 3",
+		strings.Repeat("a", maxLLMPromptBytes),
+		strings.Repeat("a", maxLLMPromptBytes+1),
+		"prompt\rwith cr",
+		"prompt\twith tab",
+		"prompt\x00with nul",
+		"prompt\xff\xfebad utf8",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, value string) {
+		err := validateLLMPrompt(value, config.EnvLocal)
+		if err != nil {
+			return
+		}
+
+		if len(value) < 1 || len(value) > maxLLMPromptBytes {
+			t.Errorf("accepted prompt of %d bytes", len(value))
+		}
+
+		if strings.TrimSpace(value) == "" {
+			t.Error("accepted blank prompt")
+		}
+
+		if !utf8.ValidString(value) {
+			t.Error("accepted invalid UTF-8 prompt")
+		}
+
+		for _, r := range value {
+			if r != '\n' && unicode.IsControl(r) {
+				t.Fatalf("accepted control rune %U", r)
+			}
 		}
 	})
 }

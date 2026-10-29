@@ -33,27 +33,64 @@ func TestNewValidation(t *testing.T) {
 		badKey := "secret-with space"
 		badModel := "bad/model?name"
 		badURL := "ftp://user@example.com/models?foo=bar"
+		badPrompt := "prompt-marker\x00with-nul"
 
 		_, err := llm.New(llm.Config{
 			APIKey:  badKey,
 			Model:   badModel,
 			BaseURL: badURL,
+			Prompt:  badPrompt,
 		})
 		if err == nil {
 			t.Fatal("New succeeded for invalid config, want error")
 		}
 
 		msg := err.Error()
-		for _, want := range []string{"APIKey", "Model", "BaseURL"} {
+		for _, want := range []string{"APIKey", "Model", "BaseURL", "Prompt"} {
 			if !strings.Contains(msg, want) {
 				t.Errorf("error %q does not mention %q", msg, want)
 			}
 		}
 
-		for _, forbidden := range []string{badKey, badModel, badURL, "user@"} {
+		for _, forbidden := range []string{badKey, badModel, badURL, badPrompt, "prompt-marker", "user@"} {
 			if strings.Contains(msg, forbidden) {
 				t.Errorf("error %q leaked input value %q", msg, forbidden)
 			}
+		}
+	})
+
+	t.Run("rejects Prompt with disallowed control characters or excessive length", func(t *testing.T) {
+		t.Parallel()
+
+		cases := []struct {
+			name   string
+			prompt string
+		}{
+			{name: "nul byte", prompt: "rewrite\x00question"},
+			{name: "lone carriage return", prompt: "line 1\rline 2"},
+			{name: "tab character", prompt: "line 1\tline 2"},
+			{name: "c1 control", prompt: "line 1\u0085line 2"},
+			{name: "whitespace and control only", prompt: "  \x00  "},
+			{name: "invalid utf8", prompt: "bad\xff\xfeutf8"},
+			{name: "exceeds max bytes", prompt: strings.Repeat("p", (16<<10)+1)},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				_, err := llm.New(llm.Config{
+					APIKey: testAPIKey,
+					Prompt: tc.prompt,
+				})
+				if err == nil {
+					t.Fatal("New succeeded with invalid Prompt, want error")
+				}
+
+				if strings.Contains(err.Error(), testAPIKey) {
+					t.Errorf("error %q leaked APIKey", err.Error())
+				}
+			})
 		}
 	})
 
@@ -197,8 +234,31 @@ func TestRephraseSuccess(t *testing.T) {
 		t.Fatalf("contents = %#v, want 1 message", gotBody["contents"])
 	}
 
-	if _, hasSys := gotBody["systemInstruction"]; !hasSys {
-		t.Errorf("request body missing systemInstruction: %#v", gotBody)
+	gotPrompt := extractSystemInstructionText(t, gotBody)
+	if gotPrompt != llm.DefaultPrompt {
+		t.Errorf("systemInstruction text = %q, want DefaultPrompt %q", gotPrompt, llm.DefaultPrompt)
+	}
+
+	for _, requiredFragment := range []string{
+		"2nd person singular",
+		"recipient",
+		"someone",
+		"alguien",
+		"tuteo",
+		"voseo",
+		"vosotros",
+		"rey",
+		"king",
+		"kingcito",
+		"kin",
+		"bro",
+		"amigo",
+		"hmno",
+		"wn",
+	} {
+		if !strings.Contains(gotPrompt, requiredFragment) {
+			t.Errorf("DefaultPrompt %q does not contain required instruction fragment %q", gotPrompt, requiredFragment)
+		}
 	}
 
 	logged := logBuf.String()
@@ -207,6 +267,84 @@ func TestRephraseSuccess(t *testing.T) {
 			t.Errorf("log output %q leaked %q", logged, secret)
 		}
 	}
+}
+
+func TestRephraseCustomMultilinePrompt(t *testing.T) {
+	t.Parallel()
+
+	const (
+		customPrompt      = "Rule 1: Keep 2nd person singular.\nRule 2: Use neutral Spanish tuteo.\nRule 3: Drop vocative slang."
+		rawQuestion       = "hola kingcito que te gusta?"
+		rephrasedQuestion = "Que te gusta recibir de regalo?"
+	)
+
+	var gotBody map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read error", http.StatusBadRequest)
+			return
+		}
+
+		if err := json.Unmarshal(raw, &gotBody); err != nil {
+			http.Error(w, "json error", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"candidates":[{"content":{"parts":[{"text":%q}]}}]}`, rephrasedQuestion)
+	}))
+	defer srv.Close()
+
+	client, err := llm.New(llm.Config{
+		APIKey:  testAPIKey,
+		BaseURL: srv.URL + "/v1/publishers/google/models",
+		Prompt:  "  " + strings.ReplaceAll(customPrompt, "\n", "\r\n") + "\r\n",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	got, err := client.Rephrase(context.Background(), rawQuestion)
+	if err != nil {
+		t.Fatalf("Rephrase: %v", err)
+	}
+
+	if got != rephrasedQuestion {
+		t.Errorf("Rephrase = %q, want %q", got, rephrasedQuestion)
+	}
+
+	gotPrompt := extractSystemInstructionText(t, gotBody)
+	if gotPrompt != customPrompt {
+		t.Errorf("systemInstruction text = %q, want %q", gotPrompt, customPrompt)
+	}
+}
+
+func extractSystemInstructionText(t *testing.T, body map[string]any) string {
+	t.Helper()
+
+	sysInst, ok := body["systemInstruction"].(map[string]any)
+	if !ok {
+		t.Fatalf("request body missing systemInstruction object: %#v", body)
+	}
+
+	parts, ok := sysInst["parts"].([]any)
+	if !ok || len(parts) != 1 {
+		t.Fatalf("systemInstruction.parts = %#v, want 1 part", sysInst["parts"])
+	}
+
+	part, ok := parts[0].(map[string]any)
+	if !ok {
+		t.Fatalf("systemInstruction.parts[0] = %#v, want object", parts[0])
+	}
+
+	text, ok := part["text"].(string)
+	if !ok {
+		t.Fatalf("systemInstruction.parts[0].text = %#v, want string", part["text"])
+	}
+
+	return text
 }
 
 func TestRephraseErrorsNeverLeakQuestionOrSecret(t *testing.T) {
