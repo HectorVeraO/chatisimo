@@ -9,10 +9,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -260,4 +263,213 @@ func TestRunExitsZeroWhenStoppedWhileDiscordIsOpening(t *testing.T) {
 	if got.code != 0 || got.stdout != "" {
 		t.Errorf("got code %d and stdout %q, want exit 0 and empty stdout (stderr=%q)", got.code, got.stdout, got.stderr)
 	}
+}
+
+func TestRunSendsConfiguredMultilineLLMPromptOnAsk(t *testing.T) {
+	noLeaks(t)
+
+	const (
+		organizerID       = "100000000000000011"
+		giverID           = "100000000000000012"
+		otherID           = "100000000000000013"
+		customPrompt      = "Rule 1: Keep 2nd person singular.\nRule 2: Use neutral Spanish tuteo.\nRule 3: Drop vocative slang."
+		rawQuestion       = "hola kingcito que te gusta?"
+		rephrasedQuestion = "Que te gusta recibir de regalo?"
+	)
+
+	var (
+		mu              sync.Mutex
+		gotSystemPrompt string
+	)
+
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(w, "read error", http.StatusBadRequest)
+			return
+		}
+
+		var payload struct {
+			SystemInstruction struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"systemInstruction"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			http.Error(w, "json error", http.StatusBadRequest)
+			return
+		}
+
+		if len(payload.SystemInstruction.Parts) > 0 {
+			mu.Lock()
+			gotSystemPrompt = payload.SystemInstruction.Parts[0].Text
+			mu.Unlock()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"`+rephrasedQuestion+`"}]}}]}`)
+	}))
+	defer llmServer.Close()
+
+	fake := startFake(t)
+	database := newClone(t)
+	env := envFor(database, "local")
+	configureDiscord(t, env, fake)
+	storeSetting(t, env, "llm.base_url", llmServer.URL+"/v1/publishers/google/models")
+
+	setPrompt := invoke(
+		t,
+		env,
+		strings.NewReader(strings.ReplaceAll(customPrompt, "\n", "\r\n")+"\r\n"),
+		"config", "set", "llm.prompt",
+	)
+	if setPrompt.code != 0 {
+		t.Fatalf("config set llm.prompt: %+v", setPrompt)
+	}
+
+	r := startRun(t, env)
+
+	readyCtx, cancelReady := context.WithTimeout(t.Context(), readyDeadline)
+	defer cancelReady()
+
+	if err := fake.WaitReady(readyCtx); err != nil {
+		t.Fatalf("the bot never became ready: %v", err)
+	}
+
+	organizer := fake.AddUser(fakediscord.User{ID: organizerID, Name: "Alice"})
+	giver := fake.AddUser(fakediscord.User{ID: giverID, Name: "Bruno"})
+	other := fake.AddUser(fakediscord.User{ID: otherID, Name: "Carla"})
+	guild := fake.AddGuild(fakediscord.Guild{Name: "Test Guild"}, organizer, giver, other)
+
+	createRes, err := fake.Slash(readyCtx, organizer, fakediscord.Slash{
+		Guild:   &guild,
+		Path:    "/ge/create",
+		Options: map[string]any{"name": "Winter exchange"},
+	})
+	if err != nil {
+		t.Fatalf("/ge/create: %v", err)
+	}
+	_ = awaitInteractionMessage(t, fake, organizer, createRes)
+
+	for _, member := range []fakediscord.User{organizer, giver, other} {
+		joinRes, joinErr := fake.Slash(readyCtx, member, fakediscord.Slash{
+			Guild: &guild,
+			Path:  "/ge/join",
+		})
+		if joinErr != nil {
+			t.Fatalf("/ge/join for %s: %v", member.Name, joinErr)
+		}
+		_ = awaitInteractionMessage(t, fake, member, joinRes)
+	}
+
+	drawRes, err := fake.Slash(readyCtx, organizer, fakediscord.Slash{
+		Guild: &guild,
+		Path:  "/ge/draw",
+	})
+	if err != nil {
+		t.Fatalf("/ge/draw: %v", err)
+	}
+	drawPromptMsg := awaitInteractionMessage(t, fake, organizer, drawRes)
+
+	confirmID := findConfirmButtonID(t, drawPromptMsg)
+	confirmRes, err := fake.Click(readyCtx, organizer, drawPromptMsg, confirmID)
+	if err != nil {
+		t.Fatalf("confirm draw: %v", err)
+	}
+	_ = awaitInteractionMessage(t, fake, organizer, confirmRes)
+
+	askRes, err := fake.Slash(readyCtx, giver, fakediscord.Slash{
+		Guild:   &guild,
+		Path:    "/ge/ask",
+		Options: map[string]any{"question": rawQuestion},
+	})
+	if err != nil {
+		t.Fatalf("/ge/ask: %v", err)
+	}
+	askMsg := awaitInteractionMessage(t, fake, giver, askRes)
+	if !strings.Contains(askMsg.Content, "sent anonymously") {
+		t.Errorf("/ge/ask reply = %q, want anonymous confirmation", askMsg.Content)
+	}
+
+	mu.Lock()
+	deliveredPrompt := gotSystemPrompt
+	mu.Unlock()
+
+	if deliveredPrompt != customPrompt {
+		t.Errorf("delivered systemInstruction = %q, want %q", deliveredPrompt, customPrompt)
+	}
+
+	r.cancel()
+	got := r.result(t)
+	if got.code != 0 || got.stdout != "" {
+		t.Errorf("got code %d and stdout %q, want exit 0 and empty stdout (stderr=%q)", got.code, got.stdout, got.stderr)
+	}
+
+	assertNoneOf(t, got, fake.Token(), masterKey, database.URL().Reveal(), rawQuestion, rephrasedQuestion)
+}
+
+func awaitInteractionMessage(
+	t *testing.T, fake *fakediscord.Server, as fakediscord.User, result fakediscord.Result,
+) fakediscord.Message {
+	t.Helper()
+
+	if result.Message != nil {
+		return *result.Message
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), readyDeadline)
+	defer cancel()
+
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		for _, candidate := range fake.Outbound() {
+			isMatch := candidate.InteractionID != nil &&
+				*candidate.InteractionID == result.InteractionID &&
+				(candidate.Source == "edit" || candidate.Source == "followup")
+			if !isMatch {
+				continue
+			}
+
+			for _, message := range fake.Visible(as, candidate.ChannelID) {
+				if message.ID == candidate.MessageID {
+					return message
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for deferred reply to interaction %s", result.InteractionID)
+			return fakediscord.Message{}
+		case <-ticker.C:
+		}
+	}
+}
+
+func findConfirmButtonID(t *testing.T, msg fakediscord.Message) string {
+	t.Helper()
+
+	var row struct {
+		Components []struct {
+			CustomID string `json:"custom_id"`
+		} `json:"components"`
+	}
+
+	for _, raw := range msg.Components {
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatalf("decode component: %v", err)
+		}
+
+		for _, comp := range row.Components {
+			if strings.HasPrefix(comp.CustomID, "/gx/draw-confirm/") {
+				return comp.CustomID
+			}
+		}
+	}
+
+	t.Fatalf("no /gx/draw-confirm/ button in message components")
+	return ""
 }

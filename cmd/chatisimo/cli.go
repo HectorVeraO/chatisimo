@@ -201,7 +201,7 @@ func (c *configSetCmd) Run(ctx context.Context, a *app) error {
 			return fmt.Errorf("value from stdin is longer than %d bytes", config.MaxInputBytes)
 		}
 
-		value, err := config.ParseInput(raw, key.Secret)
+		value, err := config.ParseKeyInput(raw, key.Secret, key.Multiline)
 		if err != nil {
 			return fmt.Errorf("setting %s: %w", key.Name, err)
 		}
@@ -287,7 +287,8 @@ func (c *configListCmd) Run(ctx context.Context, a *app) error {
 	})
 }
 
-// formatStatus renders name, kind, value and doc separated by tabs.
+// formatStatus renders name, kind, value and doc separated by tabs. Newlines in a multiline value
+// are escaped as \n so each setting occupies one line.
 func formatStatus(status config.Status) string {
 	kind := "plain"
 	if status.Secret {
@@ -300,9 +301,9 @@ func formatStatus(status config.Status) string {
 	case status.Set && status.Secret:
 		value = redactedValue
 	case status.Set:
-		value = status.Value
+		value = strings.ReplaceAll(status.Value, "\n", `\n`)
 	case status.Default != "":
-		value = status.Default + " (default)"
+		value = strings.ReplaceAll(status.Default, "\n", `\n`) + " (default)"
 	}
 
 	return strings.Join([]string{status.Name, kind, value, status.Doc}, "\t")

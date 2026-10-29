@@ -481,6 +481,7 @@ func TestNewStoreJoinsKeyProblems(t *testing.T) {
 		{Name: good},
 		{Name: good},
 		{Name: "test.secret_default", Secret: true, Default: "x"},
+		{Name: "test.secret_multiline", Secret: true, Multiline: true},
 		{Name: "nodot"},
 	})
 	if err == nil {
@@ -488,7 +489,7 @@ func TestNewStoreJoinsKeyProblems(t *testing.T) {
 	}
 
 	text := err.Error()
-	for _, fragment := range []string{`"Bad Name"`, "declared twice", "cannot have a default", `"nodot"`} {
+	for _, fragment := range []string{`"Bad Name"`, "declared twice", "cannot have a default", "cannot be multiline", `"nodot"`} {
 		if !strings.Contains(text, fragment) {
 			t.Errorf("error lacks %q: %v", fragment, err)
 		}

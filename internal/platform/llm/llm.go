@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -23,11 +25,22 @@ const (
 	DefaultBaseURL = "https://aiplatform.googleapis.com/v1/publishers/google/models"
 	// DefaultTimeout bounds each Rephrase request.
 	DefaultTimeout = 10 * time.Second
+	// DefaultPrompt is the system instruction sent to Vertex AI when Config.Prompt is empty.
+	DefaultPrompt = "Rewrite the following anonymous gift-exchange question in neutral, natural phrasing " +
+		"so the author's writing style, slang, punctuation habits, typos, and capitalization cannot identify them. " +
+		"The author is a gift-exchange giver asking their assigned recipient directly in the 2nd person singular " +
+		"to help choose a gift: keep the question addressed directly to the recipient in the 2nd person singular " +
+		"and never turn 2nd-person \"you\", \"tu\", or \"te\" questions into 3rd-person \"someone\" or \"alguien\". " +
+		"When the input is in Spanish, always use neutral tuteo (tu: tienes, prefieres, quieres, eres, te gusta) " +
+		"and strictly forbid Argentinian voseo (vos, tenes, preferis, queres, sos, stress-accent imperatives) and vosotros. " + //nolint:misspell // Spanish voseo verb
+		"Drop vocative nicknames, pet names, and casual friend-address slang (rey, king, kingcito, kin, bro, amigo, " +
+		"hmno, wn, weon, compa, crack, etc.) completely instead of translating or keeping them as subjects or nouns. " +
+		"Preserve the language of the input question and its exact gift-relevant meaning and constraints. " +
+		"Output ONLY the rewritten question as a single line of plain text under 450 characters, with no quotes, preamble, or explanation."
 
+	maxPromptBytes   = 16 << 10
 	maxResponseBytes = 64 * 1024
 	redacted         = "[redacted]"
-
-	rephraseSystemInstruction = "Rewrite the following anonymous gift-exchange question in neutral, natural phrasing so the author's writing style, slang, punctuation habits, typos, and capitalization cannot identify them. Preserve the language of the input question and its exact meaning and constraints. Output ONLY the rewritten question as a single line of plain text under 450 characters, with no quotes, preamble, or explanation."
 )
 
 // Config configures a Client. String, GoString, Format and LogValue render "[redacted]" so APIKey
@@ -36,6 +49,7 @@ type Config struct {
 	APIKey     string
 	Model      string
 	BaseURL    string
+	Prompt     string
 	HTTPClient *http.Client
 	Logger     *slog.Logger
 }
@@ -66,6 +80,7 @@ type Client struct {
 	apiKey     string
 	model      string
 	baseURL    string
+	prompt     string
 	httpClient *http.Client
 	log        *slog.Logger
 }
@@ -117,6 +132,11 @@ func New(cfg Config) (*Client, error) {
 		problems = append(problems, err)
 	}
 
+	prompt, promptErr := resolvePrompt(cfg.Prompt)
+	if promptErr != nil {
+		problems = append(problems, promptErr)
+	}
+
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 	}
@@ -135,11 +155,55 @@ func New(cfg Config) (*Client, error) {
 		apiKey:     apiKey,
 		model:      model,
 		baseURL:    baseURL,
+		prompt:     prompt,
 		httpClient: httpClient,
 		log:        logger,
 	}
 
 	return client, nil
+}
+
+func resolvePrompt(raw string) (string, error) {
+	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
+
+	var problems []error
+
+	if !utf8.ValidString(normalized) {
+		problems = append(problems, errors.New("llm: Prompt is not valid UTF-8"))
+	}
+
+	if hasDisallowedPromptControl(normalized) {
+		problems = append(problems, errors.New("llm: Prompt contains invalid control characters"))
+	}
+
+	trimmed := strings.TrimSpace(normalized)
+	if trimmed == "" {
+		if len(problems) > 0 {
+			return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+		}
+
+		return DefaultPrompt, nil
+	}
+
+	if len(trimmed) > maxPromptBytes {
+		problems = append(problems, fmt.Errorf("llm: Prompt exceeds %d bytes", maxPromptBytes))
+	}
+
+	if len(problems) > 0 {
+		return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+	}
+
+	return trimmed, nil
+}
+
+func hasDisallowedPromptControl(s string) bool {
+	for _, r := range s {
+		if r != '\n' && unicode.IsControl(r) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func validateBaseURL(raw string) error {
@@ -224,7 +288,7 @@ func (c *Client) Rephrase(ctx context.Context, text string) (string, error) {
 
 	payload := generateContentRequest{
 		SystemInstruction: contentInstruction{
-			Parts: []contentPart{{Text: rephraseSystemInstruction}},
+			Parts: []contentPart{{Text: c.prompt}},
 		},
 		Contents: []contentMessage{
 			{
