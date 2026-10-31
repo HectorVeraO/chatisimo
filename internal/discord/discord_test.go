@@ -38,12 +38,12 @@ func slashOrFail(t *testing.T, h *harness, user string, in fakediscord.Slash) fa
 func TestNewReportsEveryMissingDependency(t *testing.T) {
 	t.Parallel()
 
-	_, err := appdiscord.New(nil, nil, nil)
+	_, err := appdiscord.New(nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("New accepted nil dependencies")
 	}
 
-	for _, want := range []string{"notifier", "giftexchange", "logger"} {
+	for _, want := range []string{"notifier", "giftexchange", "uccalendar", "logger"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %s", err, want)
 		}
@@ -54,7 +54,7 @@ func TestNewDoesNoIO(t *testing.T) {
 	w := newWorld(t)
 	s := newService(t, w)
 
-	_, err := appdiscord.New(w.notifier, s.svc, w.logger)
+	_, err := appdiscord.New(w.notifier, s.svc, s.uc, w.logger)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -83,8 +83,8 @@ func TestOpenRegistersBothTreesAndAsksForTheGuildsIntentOnly(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	if !slices.Equal(names, []string{"chatisimo", "ge"}) {
-		t.Errorf("registered commands = %v, want chatisimo and ge", names)
+	if !slices.Equal(names, []string{"chatisimo", "ge", "uc"}) {
+		t.Errorf("registered commands = %v, want chatisimo, ge and uc", names)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestOpenReportsABadTokenWithoutLeakingIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewNotifier: %v", err)
 	}
-	adapter, err := appdiscord.New(notifier, s.svc, w.logger)
+	adapter, err := appdiscord.New(notifier, s.svc, s.uc, w.logger)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

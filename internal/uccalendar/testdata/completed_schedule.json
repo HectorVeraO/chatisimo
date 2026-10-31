@@ -1,0 +1,133 @@
+{
+  "season": {
+    "slug": "chi-primera",
+    "displayName": "2026 Liga de Primera"
+  },
+  "events": [
+    {
+      "id": "8001",
+      "date": "2026-10-24T20:00Z",
+      "timeValid": true,
+      "league": {
+        "name": "Liga de Primera"
+      },
+      "competitions": [
+        {
+          "id": "8001",
+          "date": "2026-10-24T20:00Z",
+          "timeValid": true,
+          "venue": {
+            "fullName": "Claro Arena"
+          },
+          "competitors": [
+            {
+              "id": "885",
+              "homeAway": "home",
+              "team": {
+                "id": "885",
+                "name": "Universidad Catolica",
+                "displayName": "Universidad Catolica"
+              }
+            },
+            {
+              "id": "9101",
+              "homeAway": "away",
+              "team": {
+                "id": "9101",
+                "name": "Club Sintetico Norte",
+                "displayName": "Club Sintetico Norte"
+              }
+            }
+          ],
+          "status": {
+            "type": {
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "description": "Full Time",
+              "detail": "FT"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "8002",
+      "date": "2026-10-31T00:00Z",
+      "timeValid": false,
+      "league": {
+        "name": "Liga de Primera"
+      },
+      "competitions": [
+        {
+          "id": "8002",
+          "date": "2026-10-31T00:00Z",
+          "timeValid": false,
+          "venue": {
+            "fullName": "Claro Arena"
+          },
+          "competitors": [
+            {
+              "id": "885",
+              "homeAway": "home",
+              "team": {
+                "id": "885",
+                "displayName": "Universidad Catolica"
+              }
+            },
+            {
+              "id": "9102",
+              "homeAway": "away",
+              "team": {
+                "id": "9102",
+                "displayName": "Deportivo Rival"
+              }
+            }
+          ],
+          "status": {
+            "type": {
+              "name": "STATUS_SCHEDULED",
+              "detail": "TBD"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "8003",
+      "date": "2026-10-29T22:00Z",
+      "timeValid": true,
+      "competitions": [
+        {
+          "id": "8003",
+          "date": "2026-10-29T22:00Z",
+          "timeValid": true,
+          "competitors": [
+            {
+              "id": "885",
+              "homeAway": "home",
+              "team": {
+                "id": "885",
+                "displayName": "Universidad Catolica"
+              }
+            },
+            {
+              "id": "9103",
+              "homeAway": "away",
+              "team": {
+                "id": "9103",
+                "displayName": "Club Cancelado"
+              }
+            }
+          ],
+          "status": {
+            "type": {
+              "name": "STATUS_CANCELED",
+              "description": "Canceled",
+              "detail": "Canceled"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

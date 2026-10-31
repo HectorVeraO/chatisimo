@@ -10,20 +10,31 @@ import (
 
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/llm"
+	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
 
 const (
-	settingDiscordToken      = "discord.token"
-	settingDiscordAPIBaseURL = "discord.api_base_url"
-	settingLLMKey            = "llm.api_key"
-	settingLLMModel          = "llm.model"
-	settingLLMBaseURL        = "llm.base_url"
-	settingLLMPrompt         = "llm.prompt"
+	settingDiscordToken        = "discord.token"
+	settingDiscordAPIBaseURL   = "discord.api_base_url"
+	settingLLMKey              = "llm.api_key"
+	settingLLMModel            = "llm.model"
+	settingLLMBaseURL          = "llm.base_url"
+	settingLLMPrompt           = "llm.prompt"
+	settingUCAPIBaseURL        = uccalendar.SettingAPIBaseURL
+	settingUCChannelID         = uccalendar.SettingChannelID
+	settingUCFridayAlertTime   = uccalendar.SettingFridayAlertTime
+	settingUCFriendUserID      = uccalendar.SettingFriendUserID
+	settingUCMatchdayAlertTime = uccalendar.SettingMatchdayAlertTime
+	settingUCSlangCacheTTL     = uccalendar.SettingSlangCacheTTL
 
-	defaultDiscordAPIBaseURL = "https://discord.com/api/v10"
-	defaultLLMModel          = llm.DefaultModel
-	defaultLLMBaseURL        = llm.DefaultBaseURL
-	defaultLLMPrompt         = llm.DefaultPrompt
+	defaultDiscordAPIBaseURL   = "https://discord.com/api/v10"
+	defaultLLMModel            = llm.DefaultModel
+	defaultLLMBaseURL          = llm.DefaultBaseURL
+	defaultLLMPrompt           = llm.DefaultPrompt
+	defaultUCAPIBaseURL        = uccalendar.DefaultAPIBaseURL
+	defaultUCFridayAlertTime   = uccalendar.DefaultFridayAlertTime
+	defaultUCMatchdayAlertTime = uccalendar.DefaultMatchdayAlertTime
+	defaultUCSlangCacheTTL     = "24h"
 
 	maxDiscordTokenBytes = 256
 	maxLLMModelBytes     = 128
@@ -70,6 +81,40 @@ func settingKeys() []config.Key {
 			Default:   defaultLLMPrompt,
 			Validate:  validateLLMPrompt,
 			Doc:       "Vertex AI question rephrase system prompt",
+		},
+		{
+			Name:     settingUCAPIBaseURL,
+			Default:  defaultUCAPIBaseURL,
+			Validate: validateUCAPIBaseURL,
+			Doc:      "ESPN soccer API base URL",
+		},
+		{
+			Name:     settingUCChannelID,
+			Validate: validateDiscordSnowflake,
+			Doc:      "Discord channel snowflake for UC alerts",
+		},
+		{
+			Name:     settingUCFridayAlertTime,
+			Default:  defaultUCFridayAlertTime,
+			Validate: validateUCAlertClock,
+			Doc:      "Friday UC weekend summary time (HH:MM Santiago)",
+		},
+		{
+			Name:     settingUCFriendUserID,
+			Validate: validateDiscordSnowflake,
+			Doc:      "Discord user snowflake of the UC fan friend",
+		},
+		{
+			Name:     settingUCMatchdayAlertTime,
+			Default:  defaultUCMatchdayAlertTime,
+			Validate: validateUCAlertClock,
+			Doc:      "Matchday UC morning alert time (HH:MM Santiago)",
+		},
+		{
+			Name:     settingUCSlangCacheTTL,
+			Default:  defaultUCSlangCacheTTL,
+			Validate: validateUCSlangCacheTTL,
+			Doc:      "UC Chilean banter cache TTL (0s disables LLM)",
 		},
 	}
 
@@ -136,6 +181,46 @@ func validateDiscordAPIBaseURL(value string, env config.Environment) error {
 // the value.
 func validateLLMBaseURL(value string, env config.Environment) error {
 	return validateAPIBaseURL(value, env, defaultLLMBaseURL)
+}
+
+// validateUCAPIBaseURL accepts an absolute http or https URL with a host, no user info, query,
+// fragment or trailing slash. Production accepts only defaultUCAPIBaseURL. Its errors never carry
+// the value.
+func validateUCAPIBaseURL(value string, env config.Environment) error {
+	return validateAPIBaseURL(value, env, defaultUCAPIBaseURL)
+}
+
+// validateDiscordSnowflake accepts a non-zero uint64 Discord snowflake in decimal ASCII without
+// leading zeros. Its errors never carry the value.
+func validateDiscordSnowflake(value string, _ config.Environment) error {
+	err := uccalendar.ValidateSnowflake(value)
+	if err != nil {
+		return errors.New("must be a valid Discord snowflake (1-20 ASCII digits, non-zero)")
+	}
+
+	return nil
+}
+
+// validateUCAlertClock accepts a strict 5-byte 24-hour clock value HH:MM in 00:00..23:59. Its
+// errors never carry the value.
+func validateUCAlertClock(value string, _ config.Environment) error {
+	_, _, err := uccalendar.ParseClockHHMM(value)
+	if err != nil {
+		return errors.New("must be a 24-hour clock time in HH:MM format (00:00 to 23:59)")
+	}
+
+	return nil
+}
+
+// validateUCSlangCacheTTL accepts 0s (disabling LLM banter) or a whole-second duration between
+// 1m and 168h. Its errors never carry the value.
+func validateUCSlangCacheTTL(value string, _ config.Environment) error {
+	_, err := uccalendar.ParseSlangCacheTTL(value)
+	if err != nil {
+		return errors.New("must be 0s or a whole-second duration from 1m to 168h")
+	}
+
+	return nil
 }
 
 // validateLLMModel accepts a 1-128 byte printable ASCII model identifier without URL path or

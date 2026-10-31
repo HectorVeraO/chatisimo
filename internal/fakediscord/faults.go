@@ -24,6 +24,7 @@ const (
 	routeGetMessage        = "GET /webhooks/{app}/{token}/messages/{id}"
 	routeDeleteMessage     = "DELETE /webhooks/{app}/{token}/messages/{id}"
 	routeGenerateContent   = "POST /v1/publishers/google/models/{model}"
+	routeGetUCSchedule     = "GET /all/teams/885/schedule"
 	routeGatewayIdentify   = "GATEWAY identify"
 	rateLimitRetryAfter    = "0.2"
 	rateLimitBucket        = "fake"
@@ -40,7 +41,8 @@ const (
 var knownRoutes = []string{
 	routeGetGateway, routePutCommands, routePutGuildCommands, routeCreateDM, routeCreateMessage,
 	routeCallback, routeEditOriginal, routeGetOriginal, routeDeleteOriginal, routeFollowup,
-	routeEditMessage, routeGetMessage, routeDeleteMessage, routeGenerateContent, routeGatewayIdentify,
+	routeEditMessage, routeGetMessage, routeDeleteMessage, routeGenerateContent, routeGetUCSchedule,
+	routeGatewayIdentify,
 }
 
 var routeParam = regexp.MustCompile(`\{[^}]*\}`)
@@ -59,6 +61,7 @@ type fault struct {
 func normalizeRoute(route string) string {
 	trimmed := strings.TrimSpace(route)
 	withoutPrefix := strings.Replace(trimmed, " "+restPrefix, " ", 1)
+	withoutPrefix = strings.Replace(withoutPrefix, " "+ucPrefix, " ", 1)
 
 	return routeParam.ReplaceAllString(withoutPrefix, "{}")
 }

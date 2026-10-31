@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,17 +37,18 @@ func TestNewValidation(t *testing.T) {
 		badPrompt := "prompt-marker\x00with-nul"
 
 		_, err := llm.New(llm.Config{
-			APIKey:  badKey,
-			Model:   badModel,
-			BaseURL: badURL,
-			Prompt:  badPrompt,
+			APIKey:      badKey,
+			Model:       badModel,
+			BaseURL:     badURL,
+			Prompt:      badPrompt,
+			Temperature: -0.5,
 		})
 		if err == nil {
 			t.Fatal("New succeeded for invalid config, want error")
 		}
 
 		msg := err.Error()
-		for _, want := range []string{"APIKey", "Model", "BaseURL", "Prompt"} {
+		for _, want := range []string{"APIKey", "Model", "BaseURL", "Prompt", "Temperature"} {
 			if !strings.Contains(msg, want) {
 				t.Errorf("error %q does not mention %q", msg, want)
 			}
@@ -112,6 +114,43 @@ func TestNewValidation(t *testing.T) {
 		})
 		if err == nil {
 			t.Fatal("New succeeded with hostless BaseURL, want error")
+		}
+	})
+
+	t.Run("rejects out-of-range or NaN Temperature", func(t *testing.T) {
+		t.Parallel()
+
+		cases := []struct {
+			name        string
+			temperature float64
+		}{
+			{name: "negative", temperature: -0.01},
+			{name: "above max", temperature: llm.MaxTemperature + 0.01},
+			{name: "nan", temperature: math.NaN()},
+			{name: "positive infinity", temperature: math.Inf(1)},
+			{name: "negative infinity", temperature: math.Inf(-1)},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				_, err := llm.New(llm.Config{
+					APIKey:      testAPIKey,
+					Temperature: tc.temperature,
+				})
+				if err == nil {
+					t.Fatalf("New succeeded for temperature %v, want error", tc.temperature)
+				}
+
+				if !strings.Contains(err.Error(), "Temperature") {
+					t.Errorf("error %q does not mention Temperature", err.Error())
+				}
+
+				if strings.Contains(err.Error(), testAPIKey) {
+					t.Errorf("error %q leaked APIKey", err.Error())
+				}
+			})
 		}
 	})
 }
@@ -526,4 +565,127 @@ func FuzzRephraseResponse(f *testing.F) {
 			t.Fatalf("Rephrase returned untrimmed text %q", got)
 		}
 	})
+}
+
+func TestGenerateTemperatureWirePayload(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name            string
+		cfgTemperature  float64
+		wantTemperature float64
+	}{
+		{
+			name:            "zero defaults to DefaultTemperature",
+			cfgTemperature:  0,
+			wantTemperature: llm.DefaultTemperature,
+		},
+		{
+			name:            "custom temperature 0.7",
+			cfgTemperature:  0.7,
+			wantTemperature: 0.7,
+		},
+		{
+			name:            "maximum temperature boundary",
+			cfgTemperature:  llm.MaxTemperature,
+			wantTemperature: llm.MaxTemperature,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotBody map[string]any
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					http.Error(w, "read error", http.StatusBadRequest)
+					return
+				}
+
+				err = json.Unmarshal(raw, &gotBody)
+				if err != nil {
+					http.Error(w, "json error", http.StatusBadRequest)
+					return
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"  La franja juega hoy  "}]}}]}`)
+			}))
+			defer srv.Close()
+
+			var logBuf bytes.Buffer
+			client, err := llm.New(llm.Config{
+				APIKey:      testAPIKey,
+				BaseURL:     srv.URL + "/v1/publishers/google/models",
+				Prompt:      "Write one short football banter line.",
+				Temperature: tc.cfgTemperature,
+				Logger:      slog.New(slog.NewJSONHandler(&logBuf, nil)),
+			})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			got, err := client.Generate(context.Background(), "Scenario: blocked_home")
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+
+			if got != "La franja juega hoy" {
+				t.Errorf("Generate = %q, want %q", got, "La franja juega hoy")
+			}
+
+			genCfg, ok := gotBody["generationConfig"].(map[string]any)
+			if !ok {
+				t.Fatalf("generationConfig = %#v, want object", gotBody["generationConfig"])
+			}
+
+			gotTemp, ok := genCfg["temperature"].(float64)
+			if !ok {
+				t.Fatalf("generationConfig.temperature = %#v, want float64", genCfg["temperature"])
+			}
+
+			if gotTemp != tc.wantTemperature {
+				t.Errorf("generationConfig.temperature = %v, want %v", gotTemp, tc.wantTemperature)
+			}
+
+			logged := logBuf.String()
+			for _, secret := range []string{testAPIKey, "Scenario: blocked_home", "La franja juega hoy"} {
+				if strings.Contains(logged, secret) {
+					t.Errorf("log output %q leaked %q", logged, secret)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateInputAndContextValidation(t *testing.T) {
+	t.Parallel()
+
+	var nilClient *llm.Client
+	_, err := nilClient.Generate(context.Background(), "hello")
+	if err == nil {
+		t.Fatal("nilClient.Generate succeeded, want error")
+	}
+
+	client, err := llm.New(llm.Config{
+		APIKey:      testAPIKey,
+		Temperature: 0.7,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	//nolint:staticcheck // testing nil context guard
+	_, err = client.Generate(nil, "hello")
+	if err == nil {
+		t.Fatal("Generate(nil, ...) succeeded, want error")
+	}
+
+	_, err = client.Generate(context.Background(), "   ")
+	if err == nil {
+		t.Fatal("Generate with blank text succeeded, want error")
+	}
 }

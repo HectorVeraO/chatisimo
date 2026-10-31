@@ -171,6 +171,12 @@ func TimestampFull(t time.Time) string {
 	return markup
 }
 
+// TimestampShortTime returns Discord's short-time markup for t ("18:00").
+func TimestampShortTime(t time.Time) string {
+	markup := fmt.Sprintf("<t:%d:t>", t.Unix())
+	return markup
+}
+
 // TimestampRelative returns Discord's relative-time markup for t ("in 2 hours").
 func TimestampRelative(t time.Time) string {
 	markup := fmt.Sprintf("<t:%d:R>", t.Unix())

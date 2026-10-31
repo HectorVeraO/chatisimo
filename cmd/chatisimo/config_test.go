@@ -219,12 +219,20 @@ func TestConfigListFormat(t *testing.T) {
 
 	before := invoke(t, env, strings.NewReader(""), "config", "list")
 
+	ucTail := "uc.api_base_url\tplain\t" + defaultUCAPIBaseURL + " (default)\tESPN soccer API base URL\n" +
+		"uc.channel_id\tplain\t(unset)\tDiscord channel snowflake for UC alerts\n" +
+		"uc.friday_alert_time\tplain\t" + defaultUCFridayAlertTime + " (default)\tFriday UC weekend summary time (HH:MM Santiago)\n" +
+		"uc.friend_user_id\tplain\t(unset)\tDiscord user snowflake of the UC fan friend\n" +
+		"uc.matchday_alert_time\tplain\t" + defaultUCMatchdayAlertTime + " (default)\tMatchday UC morning alert time (HH:MM Santiago)\n" +
+		"uc.slang_cache_ttl\tplain\t" + defaultUCSlangCacheTTL + " (default)\tUC Chilean banter cache TTL (0s disables LLM)\n"
+
 	wantBefore := "discord.api_base_url\tplain\t" + defaultDiscordAPIBaseURL + " (default)\tDiscord REST base URL\n" +
 		"discord.token\tsecret\t(unset)\tDiscord bot token\n" +
 		"llm.api_key\tsecret\t(unset)\tVertex AI API key\n" +
 		"llm.base_url\tplain\t" + defaultLLMBaseURL + " (default)\tVertex AI publisher models base URL\n" +
 		"llm.model\tplain\t" + defaultLLMModel + " (default)\tVertex AI model\n" +
-		"llm.prompt\tplain\t" + defaultLLMPrompt + " (default)\tVertex AI question rephrase system prompt\n"
+		"llm.prompt\tplain\t" + defaultLLMPrompt + " (default)\tVertex AI question rephrase system prompt\n" +
+		ucTail
 	if before.code != 0 || before.stdout != wantBefore {
 		t.Errorf("before = %+v, want stdout %q", before, wantBefore)
 	}
@@ -241,9 +249,73 @@ func TestConfigListFormat(t *testing.T) {
 		"llm.api_key\tsecret\t(unset)\tVertex AI API key\n" +
 		"llm.base_url\tplain\t" + defaultLLMBaseURL + " (default)\tVertex AI publisher models base URL\n" +
 		"llm.model\tplain\t" + defaultLLMModel + " (default)\tVertex AI model\n" +
-		"llm.prompt\tplain\t" + defaultLLMPrompt + " (default)\tVertex AI question rephrase system prompt\n"
+		"llm.prompt\tplain\t" + defaultLLMPrompt + " (default)\tVertex AI question rephrase system prompt\n" +
+		ucTail
 	if after.stdout != wantAfter {
 		t.Errorf("after stdout = %q, want %q", after.stdout, wantAfter)
+	}
+}
+
+func TestConfigUCSettings(t *testing.T) {
+	database := newClone(t)
+	local := envFor(database, "local")
+	prod := envFor(database, "production")
+
+	for _, unsetKey := range []string{"uc.friend_user_id", "uc.channel_id"} {
+		unsetGet := invoke(t, local, strings.NewReader(""), "config", "get", unsetKey)
+		if unsetGet.code != 1 || unsetGet.stdout != "" {
+			t.Errorf("unset get %s = %+v, want exit 1", unsetKey, unsetGet)
+		}
+	}
+
+	validPairs := []struct {
+		key   string
+		value string
+	}{
+		{key: "uc.friend_user_id", value: "100000000000000042"},
+		{key: "uc.channel_id", value: "200000000000000099"},
+		{key: "uc.friday_alert_time", value: "18:30"},
+		{key: "uc.matchday_alert_time", value: "08:45"},
+		{key: "uc.slang_cache_ttl", value: "0s"},
+		{key: "uc.slang_cache_ttl", value: "6h"},
+	}
+	for _, pair := range validPairs {
+		setRes := invoke(t, local, strings.NewReader(pair.value+"\n"), "config", "set", pair.key)
+		getRes := invoke(t, local, strings.NewReader(""), "config", "get", pair.key)
+		if setRes.code != 0 || getRes.code != 0 || getRes.stdout != pair.value+"\n" {
+			t.Errorf("%s set/get = %+v / %+v, want %q", pair.key, setRes, getRes, pair.value)
+		}
+	}
+
+	invalidPairs := []struct {
+		key   string
+		value string
+	}{
+		{key: "uc.friend_user_id", value: "012345"},
+		{key: "uc.friend_user_id", value: "not-a-snowflake-marker"},
+		{key: "uc.channel_id", value: "0"},
+		{key: "uc.friday_alert_time", value: "24:00"},
+		{key: "uc.matchday_alert_time", value: "9:00"},
+		{key: "uc.slang_cache_ttl", value: "30s"},
+		{key: "uc.slang_cache_ttl", value: "200h"},
+		{key: "uc.slang_cache_ttl", value: "1500ms"},
+	}
+	for _, pair := range invalidPairs {
+		got := invoke(t, local, strings.NewReader(pair.value+"\n"), "config", "set", pair.key)
+		if got.code != 1 || got.stdout != "" {
+			t.Errorf("bad %s=%q accepted: %+v", pair.key, pair.value, got)
+		}
+		if len(pair.value) >= 4 && strings.Contains(got.all(), pair.value) {
+			t.Errorf("error output echoed rejected value for %s: %q", pair.key, got.all())
+		}
+	}
+
+	const localUCURL = "http://127.0.0.1:10010/apis/site/v2/sports/soccer"
+	if got := invoke(t, prod, strings.NewReader(localUCURL+"\n"), "config", "set", "uc.api_base_url"); got.code != 1 {
+		t.Errorf("uc.api_base_url override in production = %+v, want exit 1", got)
+	}
+	if got := invoke(t, local, strings.NewReader(localUCURL+"\n"), "config", "set", "uc.api_base_url"); got.code != 0 {
+		t.Errorf("uc.api_base_url override in local = %+v, want exit 0", got)
 	}
 }
 

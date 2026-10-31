@@ -246,6 +246,9 @@ func TestTimestamps(t *testing.T) {
 	if got, want := TimestampFull(at), "<t:1800000000:F>"; got != want {
 		t.Errorf("TimestampFull = %q, want %q", got, want)
 	}
+	if got, want := TimestampShortTime(at), "<t:1800000000:t>"; got != want {
+		t.Errorf("TimestampShortTime = %q, want %q", got, want)
+	}
 	if got, want := TimestampRelative(at), "<t:1800000000:R>"; got != want {
 		t.Errorf("TimestampRelative = %q, want %q", got, want)
 	}

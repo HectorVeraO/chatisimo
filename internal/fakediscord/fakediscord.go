@@ -26,6 +26,7 @@ const (
 	defaultCallbackDeadline  = 3 * time.Second
 	restPrefix               = "/api/v10"
 	llmPrefix                = "/v1/publishers/google/models"
+	ucPrefix                 = "/apis/site/v2/sports/soccer"
 	gatewayPath              = "/ws"
 	readHeaderTimeout        = 5 * time.Second
 )
@@ -68,11 +69,12 @@ type Server struct {
 	heartbeatAcks int
 	// recordSeq numbers outbound records and never restarts, so a reader's ?since= cursor
 	// stays valid across a reset.
-	recordSeq int
-	subs      map[*subscriber]struct{}
-	faults    map[string][]fault
-	rephrases map[string]string
-	botStatus string
+	recordSeq  int
+	subs       map[*subscriber]struct{}
+	faults     map[string][]fault
+	rephrases  map[string]string
+	ucFixtures []UCFixture
+	botStatus  string
 	// stopped is closed by Close so waits and event streams end.
 	stopped chan struct{}
 	// changed is closed and replaced on every state change WaitReady cares about.
@@ -271,6 +273,19 @@ func (s *Server) LLMBase() string {
 	}
 
 	return base + llmPrefix
+}
+
+// UCBase is the ESPN soccer site API base URL served by the fake, URL() plus
+// /apis/site/v2/sports/soccer.
+func (s *Server) UCBase() string {
+	base := s.URL()
+	if base == "" {
+		return ""
+	}
+
+	ucURL := base + ucPrefix
+
+	return ucURL
 }
 
 // SetRephrased maps raw question text to rephrased for future generateContent calls. Unmapped

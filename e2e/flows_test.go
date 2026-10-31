@@ -94,15 +94,20 @@ func TestCommandTrees(t *testing.T) {
 	t.Parallel()
 
 	short := registeredTree(t, "ge")
+	ucShort := registeredTree(t, "uc")
 	long := registeredTree(t, "chatisimo")
 
-	if len(long.Options) != 1 || long.Options[0].Name != "giftexchange" {
-		t.Fatalf("/chatisimo options = %v, want the giftexchange group", optionNames(long.Options))
+	if got, want := optionNames(long.Options), []string{"giftexchange", "uc"}; !slices.Equal(got, want) {
+		t.Fatalf("/chatisimo options = %v, want %v", got, want)
 	}
 	grouped := long.Options[0].Options
+	ucGrouped := long.Options[1].Options
 
 	if !reflect.DeepEqual(short.Options, grouped) {
 		t.Errorf("/ge and /chatisimo giftexchange differ:\n%+v\n%+v", short.Options, grouped)
+	}
+	if !reflect.DeepEqual(ucShort.Options, ucGrouped) {
+		t.Errorf("/uc and /chatisimo uc differ:\n%+v\n%+v", ucShort.Options, ucGrouped)
 	}
 
 	wantVerbs := []string{
@@ -114,7 +119,7 @@ func TestCommandTrees(t *testing.T) {
 	}
 
 	wantContexts := []int{0, 1}
-	for name, tree := range map[string]commandTree{"ge": short, "chatisimo": long} {
+	for name, tree := range map[string]commandTree{"ge": short, "uc": ucShort, "chatisimo": long} {
 		if !slices.Equal(tree.Contexts, wantContexts) {
 			t.Errorf("/%s contexts = %v, want guild and bot DM %v", name, tree.Contexts, wantContexts)
 		}

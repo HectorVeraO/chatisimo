@@ -16,6 +16,7 @@ const (
 
 	maxNameLength   = 100
 	maxGuildMembers = 1000
+	maxUCFixtures   = 1000
 	codeUnknown     = 0
 
 	closeCodeNormal = 1000
@@ -95,6 +96,7 @@ func (s *Server) addControlRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+controlPrefix+"/outbound", s.handleControlOutbound)
 	mux.HandleFunc("GET "+controlPrefix+"/events", s.handleEvents)
 	mux.HandleFunc("POST "+controlPrefix+"/faults", s.handleControlFault)
+	mux.HandleFunc("POST "+controlPrefix+"/uc-fixtures", s.handleControlUCFixtures)
 	mux.HandleFunc("POST "+controlPrefix+"/gateway/drop", s.handleControlGatewayDrop)
 	mux.HandleFunc("POST "+controlPrefix+"/reset", s.handleControlReset)
 }
@@ -614,6 +616,27 @@ func (s *Server) handleControlFault(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleControlUCFixtures(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Fixtures *[]UCFixture `json:"fixtures"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if body.Fixtures == nil {
+		invalidBody("fixtures: required").write(w)
+		return
+	}
+	isTooMany := len(*body.Fixtures) > maxUCFixtures
+	if isTooMany {
+		invalidBody(fmt.Sprintf("fixtures: at most %d", maxUCFixtures)).write(w)
+		return
+	}
+
+	s.SetUCFixtures(*body.Fixtures)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleControlGatewayDrop(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Code int `json:"code"`
@@ -638,6 +661,7 @@ func (s *Server) handleControlReset(w http.ResponseWriter, _ *http.Request) {
 	s.w.reset()
 	s.faults = map[string][]fault{}
 	s.rephrases = map[string]string{}
+	s.ucFixtures = nil
 	s.publishWorldChangedLocked()
 	s.notifyLocked()
 	s.mu.Unlock()

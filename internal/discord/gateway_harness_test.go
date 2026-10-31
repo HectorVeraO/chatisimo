@@ -38,7 +38,7 @@ func newHarness(t *testing.T) *harness {
 
 	w := newWorld(t)
 	s := newService(t, w)
-	adapter, err := appdiscord.New(w.notifier, s.svc, w.logger)
+	adapter, err := appdiscord.New(w.notifier, s.svc, s.uc, w.logger)
 	if err != nil {
 		t.Fatalf("discord.New: %v", err)
 	}

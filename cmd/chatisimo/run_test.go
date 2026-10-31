@@ -128,6 +128,32 @@ func TestRunRejectsAnLLMBaseURLThatProductionForbids(t *testing.T) {
 	assertNoneOf(t, got, storedLLMURL, token, masterKey, database.URL().Reveal())
 }
 
+func TestRunRejectsAUCAPIBaseURLThatProductionForbids(t *testing.T) {
+	noLeaks(t)
+
+	const storedUCURL = "http://127.0.0.1:10010/apis/site/v2/sports/soccer"
+
+	database := newClone(t)
+	local := envFor(database, "local")
+	token := syntheticToken(t, 48)
+
+	storeSetting(t, local, "discord.token", token)
+	storeSetting(t, local, "llm.api_key", token)
+	storeSetting(t, local, "uc.api_base_url", storedUCURL)
+
+	got := invoke(t, envFor(database, "production"), strings.NewReader(""), "run")
+
+	if got.code != 1 || got.stdout != "" {
+		t.Fatalf("got code %d and stdout %q, want exit 1 and empty stdout", got.code, got.stdout)
+	}
+
+	if !strings.Contains(got.stderr, "uc.api_base_url") {
+		t.Errorf("stderr = %q, want the name of the invalid setting", got.stderr)
+	}
+
+	assertNoneOf(t, got, storedUCURL, token, masterKey, database.URL().Reveal())
+}
+
 func TestRunRejectsAnAIzaLLMKeyThatProductionForbids(t *testing.T) {
 	noLeaks(t)
 

@@ -74,6 +74,16 @@ func (r *Request) DeferUpdate(ctx context.Context) error {
 	return r.respond(ctx, "defer update", discord.InteractionResponseTypeDeferredUpdateMessage, nil, stageDeferredUpdate)
 }
 
+// Public answers directly with a channel-visible message (type 4, no ephemeral flag) and no
+// mention pings.
+func (r *Request) Public(ctx context.Context, msg discord.MessageCreate) error {
+	none := render.NoMentions()
+	msg.AllowedMentions = &none
+	msg.Flags = msg.Flags.Remove(discord.MessageFlagEphemeral)
+
+	return r.respond(ctx, "reply", discord.InteractionResponseTypeCreateMessage, msg, stageMessage)
+}
+
 // Ephemeral answers directly with an ephemeral message (type 4, flags 64).
 func (r *Request) Ephemeral(ctx context.Context, msg discord.MessageCreate) error {
 	none := render.NoMentions()
