@@ -287,7 +287,7 @@ func TestMigrateAppliesEverySchemaAndIsRepeatable(t *testing.T) {
 		}
 	}
 
-	for _, table := range []string{"platform.setting", "giftexchange.persons", "river.river_job"} {
+	for _, table := range []string{"platform.setting", "giftexchange.persons", "river.river_job", "uccalendar.sent_alert"} {
 		var exists bool
 
 		err := database.Pool().QueryRow(t.Context(), "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists)

@@ -22,11 +22,11 @@ const VERBS = [
   "help",
 ];
 
-test("the composer offers the two top-level commands", async ({ world }) => {
+test("the composer offers the three top-level commands", async ({ world }) => {
   const { page } = world;
   await page.getByTestId("slash-input").fill("/");
 
-  await expect.poll(() => suggestedPaths(page)).toEqual(["/chatisimo", "/ge"]);
+  await expect.poll(() => suggestedPaths(page)).toEqual(["/chatisimo", "/ge", "/uc"]);
 });
 
 test("/ge lists the 18 verbs", async ({ world }) => {
@@ -42,7 +42,7 @@ test("/chatisimo giftexchange lists the same 18 verbs", async ({ world }) => {
   const input = page.getByTestId("slash-input");
 
   await input.fill("/chatisimo ");
-  await expect.poll(() => suggestedPaths(page)).toEqual(["/chatisimo giftexchange"]);
+  await expect.poll(() => suggestedPaths(page)).toEqual(["/chatisimo giftexchange", "/chatisimo uc"]);
 
   await input.fill("/chatisimo giftexchange ");
   const expected = VERBS.map((verb) => `/chatisimo giftexchange ${verb}`).sort();

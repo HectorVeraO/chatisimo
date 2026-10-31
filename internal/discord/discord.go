@@ -23,8 +23,10 @@ import (
 
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/giftexchangecmd"
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/router"
+	"github.com/HectorVeraO/chatisimo/internal/discord/internal/uccmd"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
+	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
 
 const (
@@ -48,7 +50,15 @@ type Settings struct {
 // satisfies it.
 type GiftExchange = giftexchangecmd.Service
 
-var _ GiftExchange = (*giftexchange.Service)(nil)
+// UCCalendar is the part of the uccalendar module the adapter calls. *uccalendar.Service
+// satisfies it.
+type UCCalendar = uccmd.Service
+
+var (
+	_ GiftExchange           = (*giftexchange.Service)(nil)
+	_ UCCalendar             = (*uccalendar.Service)(nil)
+	_ uccalendar.AlertSender = (*Notifier)(nil)
+)
 
 // Adapter connects the bot to Discord over the Gateway and routes interactions to handlers.
 type Adapter struct {
@@ -66,13 +76,16 @@ type Adapter struct {
 
 // New validates its arguments and builds the handler set. It does no I/O: the Gateway client
 // is built by Open. The adapter shares the notifier's REST client and guild cache.
-func New(n *Notifier, gx GiftExchange, logger *slog.Logger) (*Adapter, error) {
+func New(n *Notifier, gx GiftExchange, uc UCCalendar, logger *slog.Logger) (*Adapter, error) {
 	var problems []error
 	if n == nil {
 		problems = append(problems, errors.New("discord adapter: notifier is nil"))
 	}
 	if gx == nil {
 		problems = append(problems, errors.New("discord adapter: giftexchange service is nil"))
+	}
+	if uc == nil {
+		problems = append(problems, errors.New("discord adapter: uccalendar service is nil"))
 	}
 	if logger == nil {
 		problems = append(problems, errors.New("discord adapter: logger is nil"))
@@ -97,12 +110,25 @@ func New(n *Notifier, gx GiftExchange, logger *slog.Logger) (*Adapter, error) {
 		return n.guildLocale(giftexchange.Group{Subject: subject})
 	})
 
+	ucHandlers, err := uccmd.New(uc, location)
+	if err != nil {
+		return nil, fmt.Errorf("discord adapter: %w", err)
+	}
+
 	observe := func(req *router.Request) {
 		n.recordInteractionLocales(req.UserID(), req.GuildID(), req.Locale(), req.GuildLocale())
 	}
+	mapError := func(requestID string, err error) router.Rejection {
+		rejection, matched := uccmd.TryMapError(requestID, err)
+		if matched {
+			return rejection
+		}
+
+		return giftexchangecmd.MapError(requestID, err)
+	}
 	r, err := router.New(router.Config{
 		Resolver: gx,
-		MapError: giftexchangecmd.MapError,
+		MapError: mapError,
 		Observe:  observe,
 		Logger:   logger,
 	})
@@ -110,9 +136,30 @@ func New(n *Notifier, gx GiftExchange, logger *slog.Logger) (*Adapter, error) {
 		return nil, fmt.Errorf("discord adapter: %w", err)
 	}
 	handlers.Register(r)
+	ucHandlers.Register(r)
 
-	adapter := &Adapter{notifier: n, router: r, commands: giftexchangecmd.Commands()}
+	adapter := &Adapter{notifier: n, router: r, commands: buildCommands()}
 	return adapter, nil
+}
+
+func buildCommands() []discord.ApplicationCommandCreate {
+	gxCommands := giftexchangecmd.Commands()
+	commands := make([]discord.ApplicationCommandCreate, 0, len(gxCommands)+1)
+	for _, cmd := range gxCommands {
+		slash, isSlash := cmd.(discord.SlashCommandCreate)
+		if isSlash && slash.Name == "chatisimo" {
+			opts := make([]discord.ApplicationCommandOption, 0, len(slash.Options)+1)
+			opts = append(opts, slash.Options...)
+			opts = append(opts, uccmd.SubCommand())
+			slash.Options = opts
+			commands = append(commands, slash)
+			continue
+		}
+
+		commands = append(commands, cmd)
+	}
+	commands = append(commands, uccmd.Command())
+	return commands
 }
 
 // Open bulk-overwrites the global commands, then opens the Gateway. Building the Gateway

@@ -794,6 +794,7 @@ func FuzzControlWorldBodies(f *testing.F) {
 		{http.MethodPatch, "/guilds/" + winterGuildID},
 		{http.MethodPost, "/guilds/" + winterGuildID + "/members"},
 		{http.MethodPost, "/faults"},
+		{http.MethodPost, "/uc-fixtures"},
 	}
 	seeds := []string{
 		``, `{`, `[]`, `null`, `{}`, `{"name":"Dana"}`, `{"name":"` + abuseText + `"}`,

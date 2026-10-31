@@ -23,6 +23,7 @@ import (
 	"github.com/HectorVeraO/chatisimo/internal/fakediscord"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
+	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
 
 const (
@@ -659,4 +660,241 @@ func mustFail(t *testing.T, w *world, route string, status, code int) {
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func sampleUCChannelAlertMatch(t testing.TB) uccalendar.Match {
+	t.Helper()
+
+	tz, err := time.LoadLocation(uccalendar.SantiagoTimezone)
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	kickoff := time.Date(2026, time.November, 7, 18, 0, 0, 0, tz)
+	m := uccalendar.Match{
+		ID:         "401100",
+		Opponent:   "Colo-Colo",
+		Tournament: "Liga de Primera",
+		Venue:      "Claro Arena",
+		Condition:  uccalendar.VenueHome,
+		TBD:        false,
+		Date:       uccalendar.LocalDate{Year: 2026, Month: time.November, Day: 7},
+		Kickoff:    kickoff,
+		BlockStart: kickoff.Add(-2 * time.Hour),
+		BlockEnd:   kickoff.Add(3*time.Hour + 30*time.Minute),
+	}
+
+	return m
+}
+
+func TestSendUCAlertDeliversFridayAndMatchdayAlertsWithSilentMentionsAndCleanLogs(t *testing.T) {
+	w := newWorld(t)
+	match := sampleUCChannelAlertMatch(t)
+
+	fridayAlert := uccalendar.Alert{
+		Kind:           uccalendar.AlertFridayWeekend,
+		FriendUserID:   userA,
+		Banter:         "Preparen el finde sin contar con la franja",
+		WeekendStart:   uccalendar.LocalDate{Year: 2026, Month: time.November, Day: 6},
+		WeekendEnd:     uccalendar.LocalDate{Year: 2026, Month: time.November, Day: 8},
+		SaturdayStatus: uccalendar.StatusBlocked,
+		SundayStatus:   uccalendar.StatusFree,
+		Matches:        []uccalendar.Match{match},
+	}
+	err := w.notifier.SendUCAlert(t.Context(), w.guild.ChannelID, fridayAlert)
+	if err != nil {
+		t.Fatalf("SendUCAlert(friday): %v", err)
+	}
+
+	matchdayAlert := uccalendar.Alert{
+		Kind:         uccalendar.AlertMatchdayMorning,
+		FriendUserID: userA,
+		Banter:       "Hoy desaparece por la Cato",
+		Matches:      []uccalendar.Match{match},
+	}
+	err = w.notifier.SendUCAlert(t.Context(), w.guild.ChannelID, matchdayAlert)
+	if err != nil {
+		t.Fatalf("SendUCAlert(matchday): %v", err)
+	}
+
+	visible := w.fake.Visible(w.users[userB], w.guild.ChannelID)
+	if len(visible) != 2 {
+		t.Fatalf("guild channel has %d visible messages, want 2", len(visible))
+	}
+	if !strings.Contains(visible[0].Content, "Reporte de disponibilidad de <@"+userA+"> para el finde (07/11-08/11)") {
+		t.Errorf("friday message = %q, want weekend availability header with silent mention", visible[0].Content)
+	}
+	if !strings.Contains(visible[0].Content, "s\u00e1bado 07/11 bloqueado de 16:00 a 21:30 hrs") {
+		t.Errorf("friday message = %q, want blocked Saturday window", visible[0].Content)
+	}
+	if !strings.Contains(visible[0].Content, "domingo 08/11 libre") {
+		t.Errorf("friday message = %q, want free Sunday line", visible[0].Content)
+	}
+	if !strings.Contains(visible[1].Content, "Aviso de utilidad p\u00fablica:") ||
+		!strings.Contains(visible[1].Content, "<@"+userA+"> desaparece del mapa entre las **16:00 y las 21:30 hrs**.") {
+		t.Errorf("matchday message = %q, want matchday warning with silent mention", visible[1].Content)
+	}
+
+	assertNoPings(t, w.fake)
+	records := w.fake.Outbound()
+	for i, rec := range records {
+		if len(rec.MentionsRendered) != 1 || !strings.Contains(rec.MentionsRendered[0], userA) {
+			t.Errorf("record[%d] MentionsRendered = %v, want silent mention of userA", i, rec.MentionsRendered)
+		}
+	}
+
+	logText := w.logs.String()
+	for _, wantLog := range []string{`"msg":"uc alert sent"`, `"kind":"friday_weekend"`, `"kind":"matchday_morning"`} {
+		if !strings.Contains(logText, wantLog) {
+			t.Errorf("logs missing %s in:\n%s", wantLog, logText)
+		}
+	}
+	forbidden := []string{
+		userA, userB, userC, guildID, w.guild.ChannelID, w.fake.Token(), w.fake.ApplicationID(),
+		"Colo-Colo", "Claro Arena", "Preparen el finde", "Hoy desaparece",
+	}
+	if found, isLeak := firstFound(logText, forbidden...); isLeak {
+		t.Errorf("logs leaked %q:\n%s", found, logText)
+	}
+	if snow := snowflakePattern.FindString(logText); snow != "" {
+		t.Errorf("logs contain snowflake-shaped number %q:\n%s", snow, logText)
+	}
+}
+
+func TestSendUCAlertRejectsBadChannelOrAlertAndReducesRESTErrors(t *testing.T) {
+	match := sampleUCChannelAlertMatch(t)
+	validAlert := uccalendar.Alert{
+		Kind:    uccalendar.AlertMatchdayMorning,
+		Matches: []uccalendar.Match{match},
+	}
+
+	t.Run("nil notifier and aggregated invalid arguments", func(t *testing.T) {
+		var nilNotifier *appdiscord.Notifier
+		if err := nilNotifier.SendUCAlert(t.Context(), "1", validAlert); err == nil {
+			t.Fatal("nilNotifier.SendUCAlert succeeded, want error")
+		}
+
+		w := newWorld(t)
+		//nolint:staticcheck // testing aggregated nil context + invalid channel + unrenderable alert
+		joinedErr := w.notifier.SendUCAlert(nil, "0", uccalendar.Alert{Kind: uccalendar.AlertMatchdayMorning})
+		if joinedErr == nil ||
+			!strings.Contains(joinedErr.Error(), "context is nil") ||
+			!strings.Contains(joinedErr.Error(), "invalid channel snowflake") {
+			t.Errorf("joined SendUCAlert error = %v, want context + channel errors", joinedErr)
+		}
+	})
+
+	t.Run("invalid channel snowflake does not leak channelID", func(t *testing.T) {
+		w := newWorld(t)
+		badChannel := "not-a-channel-999999999999999999"
+
+		err := w.notifier.SendUCAlert(t.Context(), badChannel, validAlert)
+		if err == nil {
+			t.Fatal("SendUCAlert accepted invalid channelID")
+		}
+		if strings.Contains(err.Error(), badChannel) || snowflakePattern.FindString(err.Error()) != "" {
+			t.Errorf("error %q leaked channel input", err)
+		}
+		if len(w.fake.Outbound()) != 0 {
+			t.Error("SendUCAlert called Discord with an invalid channelID")
+		}
+	})
+
+	t.Run("zero channel snowflake is rejected", func(t *testing.T) {
+		w := newWorld(t)
+
+		err := w.notifier.SendUCAlert(t.Context(), "0", validAlert)
+		if err == nil {
+			t.Fatal("SendUCAlert accepted zero channelID")
+		}
+	})
+
+	t.Run("unrenderable alert fails before REST call", func(t *testing.T) {
+		w := newWorld(t)
+
+		err := w.notifier.SendUCAlert(t.Context(), w.guild.ChannelID, uccalendar.Alert{
+			Kind: uccalendar.AlertMatchdayMorning,
+		})
+		if err == nil {
+			t.Fatal("SendUCAlert accepted matchday alert without matches")
+		}
+		if len(w.fake.Outbound()) != 0 {
+			t.Error("SendUCAlert called Discord for an unrenderable alert")
+		}
+	})
+
+	t.Run("REST failure reduces to status and code only", func(t *testing.T) {
+		w := newWorld(t)
+		mustFail(t, w, routeCreateMessage, 403, 50001)
+
+		err := w.notifier.SendUCAlert(t.Context(), w.guild.ChannelID, validAlert)
+		if err == nil {
+			t.Fatal("SendUCAlert succeeded when Discord returned 403")
+		}
+		want := "send uc alert matchday_morning: discord status 403 code 50001"
+		if err.Error() != want {
+			t.Errorf("error = %q, want %q", err, want)
+		}
+		if errors.As(err, new(*rest.Error)) {
+			t.Error("returned error wraps *rest.Error")
+		}
+	})
+
+	t.Run("transport failure names operation without URL or channel snowflake", func(t *testing.T) {
+		w := newWorld(t)
+		closeErr := w.fake.Close()
+		if closeErr != nil {
+			t.Fatalf("Close fake: %v", closeErr)
+		}
+
+		err := w.notifier.SendUCAlert(t.Context(), w.guild.ChannelID, validAlert)
+		if err == nil {
+			t.Fatal("SendUCAlert succeeded against closed server")
+		}
+		want := "send uc alert matchday_morning: send message failed"
+		if err.Error() != want {
+			t.Errorf("error = %q, want %q", err, want)
+		}
+		if _, leaked := firstFound(err.Error(), "127.0.0.1", "http", w.guild.ChannelID, w.fake.Token()); leaked {
+			t.Errorf("error %q leaked transport details", err)
+		}
+	})
+}
+
+func FuzzSendUCAlertChannelID(f *testing.F) {
+	seeds := []string{
+		"",
+		"0",
+		"-1",
+		"not-a-snowflake",
+		"18446744073709551616",
+		strings.Repeat("9", 4096),
+		"\u202eRTL\u200b",
+		"e\u0301\u0301\u0301",
+		"\U0001f600",
+		"<#200000000000000001>",
+		"@everyone",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	w := newWorld(f)
+	match := sampleUCChannelAlertMatch(f)
+	alert := uccalendar.Alert{
+		Kind:    uccalendar.AlertMatchdayMorning,
+		Matches: []uccalendar.Match{match},
+	}
+
+	f.Fuzz(func(t *testing.T, channelID string) {
+		err := w.notifier.SendUCAlert(t.Context(), channelID, alert)
+
+		parsed, parseErr := strconv.ParseUint(channelID, 10, 64)
+		isInvalid := parseErr != nil || parsed == 0
+		if isInvalid && err == nil {
+			t.Fatalf("SendUCAlert(%q) succeeded, want error", channelID)
+		}
+		if err != nil && len(channelID) > 8 && strings.Contains(err.Error(), channelID) {
+			t.Errorf("error %q repeats channelID %q", err, channelID)
+		}
+	})
 }

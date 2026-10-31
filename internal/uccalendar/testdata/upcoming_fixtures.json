@@ -1,0 +1,135 @@
+{
+  "events": [
+    {
+      "id": "8002",
+      "date": "2026-10-31T21:00:00Z",
+      "timeValid": true,
+      "league": {
+        "name": "Liga de Primera"
+      },
+      "competitions": [
+        {
+          "id": "8002",
+          "date": "2026-10-31T21:00:00Z",
+          "timeValid": true,
+          "venue": {
+            "fullName": "Claro Arena"
+          },
+          "competitors": [
+            {
+              "id": "885",
+              "homeAway": "home",
+              "team": {
+                "id": "885",
+                "name": "Universidad Catolica",
+                "displayName": "Universidad Catolica"
+              }
+            },
+            {
+              "id": "9102",
+              "homeAway": "away",
+              "team": {
+                "id": "9102",
+                "name": "Deportivo Rival",
+                "displayName": "Deportivo Rival"
+              }
+            }
+          ],
+          "status": {
+            "type": {
+              "name": "STATUS_SCHEDULED",
+              "state": "pre",
+              "detail": "Sat, Oct 31 at 6:00 PM CLST"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "8004",
+      "date": "2026-11-04T23:00Z",
+      "timeValid": true,
+      "league": {
+        "name": "Copa Chile"
+      },
+      "competitions": [
+        {
+          "id": "8004",
+          "date": "2026-11-04T23:00Z",
+          "timeValid": true,
+          "venue": {
+            "fullName": "Estadio Municipal"
+          },
+          "competitors": [
+            {
+              "id": "9104",
+              "homeAway": "home",
+              "team": {
+                "id": "9104",
+                "displayName": "Union Costa"
+              }
+            },
+            {
+              "id": "885",
+              "homeAway": "away",
+              "team": {
+                "id": "885",
+                "displayName": "Universidad Catolica"
+              }
+            }
+          ],
+          "status": {
+            "type": {
+              "name": "STATUS_SCHEDULED",
+              "state": "pre",
+              "detail": "Wed, Nov 4 at 8:00 PM CLST"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "8005",
+      "date": "2026-11-08T00:00Z",
+      "timeValid": false,
+      "league": {
+        "name": "Liga de Primera"
+      },
+      "competitions": [
+        {
+          "id": "8005",
+          "date": "2026-11-08T00:00Z",
+          "timeValid": false,
+          "venue": {
+            "fullName": "Claro Arena"
+          },
+          "competitors": [
+            {
+              "id": "885",
+              "homeAway": "home",
+              "team": {
+                "id": "885",
+                "displayName": "Universidad Catolica"
+              }
+            },
+            {
+              "id": "9105",
+              "homeAway": "away",
+              "team": {
+                "id": "9105",
+                "displayName": "Atletico Sur"
+              }
+            }
+          ],
+          "status": {
+            "type": {
+              "name": "STATUS_SCHEDULED",
+              "state": "pre",
+              "detail": "Sun, Nov 8 - TBD"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

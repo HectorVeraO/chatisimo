@@ -135,7 +135,7 @@ func tree() []discord.ApplicationCommandCreate {
 		Name:        "t",
 		Description: "test commands",
 		Options: []discord.ApplicationCommandOption{
-			sub("boom"), sub("reject"), sub("deferred"), sub("ok"), sub("card"), sub("public-card"),
+			sub("boom"), sub("reject"), sub("deferred"), sub("ok"), sub("public"), sub("card"), sub("public-card"),
 			sub("guild"), sub("locale"), sub("ac", query),
 		},
 		Contexts:         []discord.InteractionContextType{discord.InteractionContextTypeGuild, discord.InteractionContextTypeBotDM},
@@ -258,6 +258,14 @@ func (g *rig) register(t *testing.T, r *router.Router) {
 	r.SlashCommand("/t/ok", func(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
 		req := request(t, e.Ctx)
 		return req.Ephemeral(e.Ctx, discord.MessageCreate{Content: "fine"}) //nolint:wrapcheck // test double
+	})
+	r.SlashCommand("/t/public", func(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+		req := request(t, e.Ctx)
+		msg := discord.MessageCreate{
+			Content: "public <@" + userID + ">",
+			Flags:   discord.MessageFlagEphemeral,
+		}
+		return req.Public(e.Ctx, msg) //nolint:wrapcheck // test double
 	})
 	r.SlashCommand("/t/card", func(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
 		req := request(t, e.Ctx)
@@ -643,5 +651,32 @@ func TestRequestExposesLocalesAndAttachesEffectiveLocaleToErrors(t *testing.T) {
 	}
 	if result.Message == nil || result.Message.Content != "mapped:es-419" {
 		t.Errorf("reply = %+v, want mapped:es-419", result.Message)
+	}
+}
+
+func TestPublicAnswersChannelVisiblyWithSilentMentions(t *testing.T) {
+	g := newRig(t)
+
+	result := g.slash(t, "/t/public", true)
+
+	if result.CallbackType != 4 || result.Message == nil {
+		t.Fatalf("result = %+v, want a direct type 4 message", result)
+	}
+	if result.Message.EphemeralFor != "" {
+		t.Errorf("EphemeralFor = %q, want empty (public reply)", result.Message.EphemeralFor)
+	}
+	if result.Message.Content != "public <@"+userID+">" {
+		t.Errorf("Content = %q, want public mention markup", result.Message.Content)
+	}
+
+	record := g.waitRecord(t, "public callback", func(rec fakediscord.Record) bool {
+		return rec.MessageID == result.Message.ID
+	})
+	sent := record.AllowedMentionsSent
+	if sent == nil || sent.Parse == nil || sent.Users == nil || sent.Roles == nil {
+		t.Fatalf("allowed_mentions = %+v, want empty non-nil lists", sent)
+	}
+	if len(sent.Parse)+len(sent.Users)+len(sent.Roles) != 0 {
+		t.Errorf("allowed_mentions = %+v, want zero permitted mentions", sent)
 	}
 }

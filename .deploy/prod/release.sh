@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs the stack files copied next to this script into /opt/chatisimo, pulls the release
 # image given as $1 with the short-lived registry token read from stdin, loads present runtime
-# settings from /config/chatisimo/prod/{discord.token,llm.api_key,llm.prompt} into the database,
+# settings from /config/chatisimo/prod/* into the database,
 # starts the stack and waits until chatisimo-bot opens the Discord gateway. Run with sudo.
 # The token lives only in a temporary Docker config removed on exit, and container logs stay on
 # the VM: the CI log of a public repository is public.
@@ -50,7 +50,7 @@ unset DOCKER_CONFIG
 "${dir}/compose.sh" up -d --remove-orphans --wait chatisimo-postgres
 # The files in /config/chatisimo/prod are the source of truth for runtime secrets and operator
 # overrides: every release writes each present file to the settings table through stdin.
-for key in discord.token llm.api_key llm.prompt; do
+for key in discord.token llm.api_key llm.prompt uc.friend_user_id uc.channel_id uc.friday_alert_time uc.matchday_alert_time uc.slang_cache_ttl; do
   secret_file="${config}/${key}"
   if [ -f "${secret_file}" ]; then
     "${dir}/compose.sh" run --rm -T chatisimo-bot config set "${key}" < "${secret_file}" > /dev/null

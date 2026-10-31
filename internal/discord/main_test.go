@@ -15,6 +15,7 @@ import (
 	"github.com/HectorVeraO/chatisimo/internal/platform/db"
 	"github.com/HectorVeraO/chatisimo/internal/platform/jobs"
 	"github.com/HectorVeraO/chatisimo/internal/platform/pgtest"
+	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
 
 const closeDeadline = 30 * time.Second
@@ -84,5 +85,10 @@ func migrationSources() ([]db.Source, error) {
 		return nil, fmt.Errorf("giftexchange source: %w", err)
 	}
 
-	return []db.Source{platformSource, giftexchangeSource, jobs.NewMigrationSource()}, nil
+	uccalendarSource, err := uccalendar.MigrationSource()
+	if err != nil {
+		return nil, fmt.Errorf("uccalendar source: %w", err)
+	}
+
+	return []db.Source{platformSource, giftexchangeSource, uccalendarSource, jobs.NewMigrationSource()}, nil
 }

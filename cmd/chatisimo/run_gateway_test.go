@@ -64,6 +64,7 @@ func configureDiscord(t *testing.T, env environment, fake *fakediscord.Server) {
 	storeSetting(t, env, "discord.api_base_url", fake.RESTBase())
 	storeSetting(t, env, "llm.api_key", fake.Token())
 	storeSetting(t, env, "llm.base_url", fake.LLMBase())
+	storeSetting(t, env, "uc.api_base_url", fake.UCBase())
 }
 
 // running is one invocation of `run` in the background.
@@ -187,7 +188,7 @@ func TestRunRegistersTheGlobalCommands(t *testing.T) {
 	}
 
 	names := globalCommandNames(fake)
-	for _, want := range []string{"chatisimo", "ge"} {
+	for _, want := range []string{"chatisimo", "ge", "uc"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("registered commands = %v, want %q among them", names, want)
 		}
@@ -251,10 +252,17 @@ func TestRunExitsZeroWhenStoppedWhileDiscordIsOpening(t *testing.T) {
 		t.Fatalf("fakediscord.New: %v", err)
 	}
 
+	ucStub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"events":[]}`)
+	}))
+	defer ucStub.Close()
+
 	storeSetting(t, env, "discord.token", tokenSource.Token())
 	storeSetting(t, env, "discord.api_base_url", stub.URL)
 	storeSetting(t, env, "llm.api_key", tokenSource.Token())
 	storeSetting(t, env, "llm.base_url", stub.URL)
+	storeSetting(t, env, "uc.api_base_url", ucStub.URL)
 
 	r = startRun(t, env)
 	close(started)
@@ -472,4 +480,123 @@ func findConfirmButtonID(t *testing.T, msg fakediscord.Message) string {
 
 	t.Fatalf("no /gx/draw-confirm/ button in message components")
 	return ""
+}
+
+func TestRunServesUCCalendarSlashCommand(t *testing.T) {
+	noLeaks(t)
+
+	const (
+		callerID = "100000000000000081"
+		friendID = "100000000000000082"
+	)
+
+	fake := startFake(t)
+	fake.SetUCFixtures([]fakediscord.UCFixture{
+		{
+			ID:        "9101",
+			Date:      "2026-10-31T21:00Z",
+			Opponent:  "Deportes Iquique",
+			Home:      true,
+			Venue:     "Claro Arena",
+			TimeValid: true,
+		},
+	})
+
+	database := newClone(t)
+	env := envFor(database, "local")
+	configureDiscord(t, env, fake)
+	storeSetting(t, env, "uc.friend_user_id", friendID)
+	storeSetting(t, env, "uc.slang_cache_ttl", "0s")
+
+	r := startRun(t, env)
+
+	readyCtx, cancelReady := context.WithTimeout(t.Context(), readyDeadline)
+	defer cancelReady()
+
+	if err := fake.WaitReady(readyCtx); err != nil {
+		t.Fatalf("the bot never became ready: %v", err)
+	}
+
+	caller := fake.AddUser(fakediscord.User{ID: callerID, Name: "Caller", Locale: "es-419"})
+	friend := fake.AddUser(fakediscord.User{ID: friendID, Name: "Cruzado"})
+	guild := fake.AddGuild(fakediscord.Guild{Name: "Test Guild"}, caller, friend)
+
+	res, err := fake.Slash(readyCtx, caller, fakediscord.Slash{
+		Guild:   &guild,
+		Path:    "/uc",
+		Options: map[string]any{"date": "2026-10-31"},
+	})
+	if err != nil {
+		t.Fatalf("/uc: %v", err)
+	}
+
+	msg := awaitInteractionMessage(t, fake, caller, res)
+	if msg.EphemeralFor != "" {
+		t.Errorf("/uc reply EphemeralFor = %q, want public channel message", msg.EphemeralFor)
+	}
+	if !strings.Contains(msg.Content, "Deportes Iquique") || !strings.Contains(msg.Content, "<@"+friendID+">") {
+		t.Errorf("/uc reply = %q, want Deportes Iquique and silent <@%s> mention", msg.Content, friendID)
+	}
+
+	r.cancel()
+	got := r.result(t)
+	if got.code != 0 || got.stdout != "" {
+		t.Errorf("got code %d and stdout %q, want exit 0 and empty stdout (stderr=%q)", got.code, got.stdout, got.stderr)
+	}
+
+	assertNoneOf(t, got, fake.Token(), masterKey, database.URL().Reveal(), callerID, friendID)
+}
+
+func TestRunBootsWhenInitialUCScheduleSyncFails(t *testing.T) {
+	noLeaks(t)
+
+	const callerID = "100000000000000083"
+
+	brokenESPN := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "upstream down", http.StatusBadGateway)
+	}))
+	defer brokenESPN.Close()
+
+	fake := startFake(t)
+
+	database := newClone(t)
+	env := envFor(database, "local")
+	configureDiscord(t, env, fake)
+	storeSetting(t, env, "uc.api_base_url", brokenESPN.URL)
+
+	r := startRun(t, env)
+
+	readyCtx, cancelReady := context.WithTimeout(t.Context(), readyDeadline)
+	defer cancelReady()
+
+	if err := fake.WaitReady(readyCtx); err != nil {
+		t.Fatalf("the bot never became ready when UC sync failed: %v", err)
+	}
+
+	caller := fake.AddUser(fakediscord.User{ID: callerID, Name: "Caller", Locale: "es-419"})
+	guild := fake.AddGuild(fakediscord.Guild{Name: "Test Guild"}, caller)
+
+	res, err := fake.Slash(readyCtx, caller, fakediscord.Slash{
+		Guild: &guild,
+		Path:  "/uc",
+	})
+	if err != nil {
+		t.Fatalf("/uc: %v", err)
+	}
+
+	msg := awaitInteractionMessage(t, fake, caller, res)
+	if msg.EphemeralFor != callerID {
+		t.Errorf("/uc unavailable reply EphemeralFor = %q, want %q", msg.EphemeralFor, callerID)
+	}
+	if !strings.Contains(msg.Content, "no está disponible") {
+		t.Errorf("/uc unavailable reply = %q, want schedule unavailable text", msg.Content)
+	}
+
+	r.cancel()
+	got := r.result(t)
+	if got.code != 0 || got.stdout != "" {
+		t.Errorf("got code %d and stdout %q, want exit 0 and empty stdout (stderr=%q)", got.code, got.stdout, got.stderr)
+	}
+
+	assertNoneOf(t, got, fake.Token(), masterKey, database.URL().Reveal(), callerID)
 }

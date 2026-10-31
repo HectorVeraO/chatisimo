@@ -19,6 +19,7 @@ import (
 	"github.com/HectorVeraO/chatisimo/internal/platform/jobs"
 	"github.com/HectorVeraO/chatisimo/internal/platform/llm"
 	"github.com/HectorVeraO/chatisimo/internal/platform/logging"
+	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
 
 // migrationSources lists every schema the binary owns, in apply order.
@@ -33,7 +34,12 @@ func migrationSources() ([]db.Source, error) {
 		return nil, fmt.Errorf("migration sources: %w", err)
 	}
 
-	sources := []db.Source{platform, exchanges, jobs.NewMigrationSource()}
+	ucCalendar, err := uccalendar.MigrationSource()
+	if err != nil {
+		return nil, fmt.Errorf("migration sources: %w", err)
+	}
+
+	sources := []db.Source{platform, exchanges, ucCalendar, jobs.NewMigrationSource()}
 
 	return sources, nil
 }
@@ -120,6 +126,7 @@ type server struct {
 	logger     *slog.Logger
 	pool       *pgxpool.Pool
 	notifier   *discord.Notifier
+	uc         *uccalendar.Service
 	runner     *jobs.Runner
 	isRunnerUp bool
 	adapter    *discord.Adapter
@@ -174,6 +181,7 @@ func runServer(ctx context.Context, stop context.CancelFunc, env config.Env, log
 
 // runtimeSettings holds the settings read from storage at startup.
 type runtimeSettings struct {
+	store   *config.Store
 	discord discord.Settings
 	llm     llm.Config
 }
@@ -251,7 +259,13 @@ func (s *server) openStorage(ctx context.Context, env config.Env) (runtimeSettin
 		return runtimeSettings{}, fmt.Errorf("read settings: %w", err)
 	}
 
+	err = checkUCSettings(ctx, store)
+	if err != nil {
+		return runtimeSettings{}, err
+	}
+
 	out := runtimeSettings{
+		store:   store,
 		discord: discord.Settings{Token: token, APIBaseURL: baseURL},
 		llm: llm.Config{
 			APIKey:  llmKey.Reveal(),
@@ -263,6 +277,31 @@ func (s *server) openStorage(ctx context.Context, env config.Env) (runtimeSettin
 	}
 
 	return out, nil
+}
+
+// checkUCSettings validates stored UC settings at boot while allowing optional snowflakes to
+// remain unset.
+func checkUCSettings(ctx context.Context, store *config.Store) error {
+	for _, name := range []string{
+		settingUCAPIBaseURL,
+		settingUCFridayAlertTime,
+		settingUCMatchdayAlertTime,
+		settingUCSlangCacheTTL,
+	} {
+		_, err := store.Get(ctx, name)
+		if err != nil {
+			return fmt.Errorf("read settings: %w", err)
+		}
+	}
+
+	for _, optionalName := range []string{settingUCFriendUserID, settingUCChannelID} {
+		_, err := store.Get(ctx, optionalName)
+		if err != nil && !errors.Is(err, config.ErrNotSet) {
+			return fmt.Errorf("read settings: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // construct builds the notifier, the scheduler, the LLM client, the module, the runner and the
@@ -286,6 +325,31 @@ func (s *server) construct(settings runtimeSettings) error {
 	if err != nil {
 		return fmt.Errorf("create llm client: %w", err)
 	}
+
+	const ucBanterTemperature = 0.7
+
+	banterCfg := settings.llm
+	banterCfg.Prompt = uccalendar.DefaultBanterPrompt
+	banterCfg.Temperature = ucBanterTemperature
+
+	banterLLM, err := llm.New(banterCfg)
+	if err != nil {
+		return fmt.Errorf("create uc banter llm client: %w", err)
+	}
+
+	uc, err := uccalendar.New(uccalendar.Deps{
+		Pool:     s.pool,
+		Settings: settings.store,
+		Clock:    systemClock{},
+		Alerts:   notifier,
+		Banter:   banterLLM,
+		Logger:   s.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("create uccalendar: %w", err)
+	}
+
+	s.uc = uc
 
 	exchanges, err := giftexchange.New(giftexchange.Deps{
 		Pool:      s.pool,
@@ -314,7 +378,7 @@ func (s *server) construct(settings runtimeSettings) error {
 
 	s.runner = runner
 
-	adapter, err := discord.New(notifier, exchanges, s.logger)
+	adapter, err := discord.New(notifier, exchanges, uc, s.logger)
 	if err != nil {
 		return fmt.Errorf("create discord adapter: %w", err)
 	}
@@ -324,18 +388,21 @@ func (s *server) construct(settings runtimeSettings) error {
 	return nil
 }
 
-// serveGateway opens the Gateway and blocks until ctx ends or the Gateway fails to open. A
-// failure counts as a runtime failure; the end of ctx is the clean stop.
+// serveGateway performs the initial UC schedule sync, opens the Gateway and runs the UC
+// background worker until ctx ends or the Gateway fails to open. A failure counts as a runtime
+// failure; the end of ctx is the clean stop.
 func (s *server) serveGateway(ctx context.Context) error {
+	if !s.syncInitialUCSchedule(ctx) {
+		return nil
+	}
+
 	group, groupCtx := errgroup.WithContext(ctx)
 
 	group.Go(func() error {
 		return s.openGateway(ctx, groupCtx)
 	})
 	group.Go(func() error {
-		<-groupCtx.Done()
-
-		return nil
+		return s.uc.Run(groupCtx)
 	})
 
 	err := group.Wait()
@@ -344,6 +411,25 @@ func (s *server) serveGateway(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// syncInitialUCSchedule runs a best-effort UC schedule sync before opening the Gateway so the
+// in-memory schedule is ready as soon as commands arrive. It returns false only when ctx ends
+// during the sync; an upstream feed failure logs a warning and returns true so boot continues.
+func (s *server) syncInitialUCSchedule(ctx context.Context) bool {
+	err := s.uc.Sync(ctx)
+	if err == nil {
+		return true
+	}
+
+	isStopped := ctx.Err() != nil
+	if isStopped {
+		return false
+	}
+
+	s.logger.WarnContext(ctx, "uc initial schedule sync failed")
+
+	return true
 }
 
 // openGateway opens the Gateway under groupCtx. An Open that fails once the stop signal has
@@ -379,6 +465,10 @@ func (s *server) shutdown(ctx context.Context) error {
 
 	if s.isRunnerUp {
 		problems = append(problems, s.stopRunner(ctx))
+	}
+
+	if s.uc != nil {
+		problems = append(problems, s.uc.Close())
 	}
 
 	s.closeREST(ctx)

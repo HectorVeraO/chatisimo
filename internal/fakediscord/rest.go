@@ -82,6 +82,7 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("POST "+restPrefix+"/users/@me/channels", s.botOnly(s.faulted(routeCreateDM, s.handleCreateDM)))
 	mux.HandleFunc("POST "+restPrefix+"/channels/{channel}/messages", s.botOnly(s.faulted(routeCreateMessage, s.handleCreateMessage)))
 	mux.HandleFunc("POST "+llmPrefix+"/{model}", s.apiKeyOnly(s.faulted(routeGenerateContent, s.handleGenerateContent)))
+	mux.HandleFunc("GET "+ucPrefix+"/all/teams/885/schedule", s.faulted(routeGetUCSchedule, s.handleGetUCSchedule))
 	s.addWebhookRoutes(mux)
 	s.addControlRoutes(mux)
 	addWebRoutes(mux)

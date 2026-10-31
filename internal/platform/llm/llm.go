@@ -1,5 +1,5 @@
-// Package llm calls the Vertex AI generateContent REST endpoint to rephrase anonymous gift
-// exchange questions into neutral phrasing.
+// Package llm calls the Vertex AI generateContent REST endpoint for text generation and
+// anonymous gift-exchange question rephrasing.
 package llm
 
 import (
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,8 +24,12 @@ const (
 	DefaultModel = "gemini-3.5-flash-lite"
 	// DefaultBaseURL is the Vertex AI publisher models base URL used when Config.BaseURL is empty.
 	DefaultBaseURL = "https://aiplatform.googleapis.com/v1/publishers/google/models"
-	// DefaultTimeout bounds each Rephrase request.
+	// DefaultTimeout bounds each Generate or Rephrase request.
 	DefaultTimeout = 10 * time.Second
+	// DefaultTemperature is the sampling temperature used when Config.Temperature is zero.
+	DefaultTemperature = 0.2
+	// MaxTemperature is the highest sampling temperature accepted by Config.Temperature.
+	MaxTemperature = 2.0
 	// DefaultPrompt is the system instruction sent to Vertex AI when Config.Prompt is empty.
 	DefaultPrompt = "Rewrite the following anonymous gift-exchange question in neutral, natural phrasing " +
 		"so the author's writing style, slang, punctuation habits, typos, and capitalization cannot identify them. " +
@@ -46,12 +51,13 @@ const (
 // Config configures a Client. String, GoString, Format and LogValue render "[redacted]" so APIKey
 // cannot leak into logs or formatted output.
 type Config struct {
-	APIKey     string
-	Model      string
-	BaseURL    string
-	Prompt     string
-	HTTPClient *http.Client
-	Logger     *slog.Logger
+	APIKey      string
+	Model       string
+	BaseURL     string
+	Prompt      string
+	Temperature float64
+	HTTPClient  *http.Client
+	Logger      *slog.Logger
 }
 
 // String renders "[redacted]".
@@ -75,14 +81,15 @@ func (Config) LogValue() slog.Value {
 	return slog.StringValue(redacted)
 }
 
-// Client rephrases question text through the Vertex AI generateContent endpoint.
+// Client calls the Vertex AI generateContent endpoint.
 type Client struct {
-	apiKey     string
-	model      string
-	baseURL    string
-	prompt     string
-	httpClient *http.Client
-	log        *slog.Logger
+	apiKey      string
+	model       string
+	baseURL     string
+	prompt      string
+	temperature float64
+	httpClient  *http.Client
+	log         *slog.Logger
 }
 
 // String renders "[redacted]".
@@ -137,6 +144,14 @@ func New(cfg Config) (*Client, error) {
 		problems = append(problems, promptErr)
 	}
 
+	temperature := cfg.Temperature
+	isInvalidTemperature := math.IsNaN(temperature) || temperature < 0 || temperature > MaxTemperature
+	if isInvalidTemperature {
+		problems = append(problems, errors.New("llm: Temperature is out of range"))
+	} else if temperature == 0 {
+		temperature = DefaultTemperature
+	}
+
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 	}
@@ -152,12 +167,13 @@ func New(cfg Config) (*Client, error) {
 	}
 
 	client := &Client{
-		apiKey:     apiKey,
-		model:      model,
-		baseURL:    baseURL,
-		prompt:     prompt,
-		httpClient: httpClient,
-		log:        logger,
+		apiKey:      apiKey,
+		model:       model,
+		baseURL:     baseURL,
+		prompt:      prompt,
+		temperature: temperature,
+		httpClient:  httpClient,
+		log:         logger,
 	}
 
 	return client, nil
@@ -270,6 +286,14 @@ type generateContentResponse struct {
 // Rephrase rewrites text into neutral phrasing. Neither the input question, the rephrased text, nor
 // the API key is ever logged or included in returned errors.
 func (c *Client) Rephrase(ctx context.Context, text string) (string, error) {
+	rephrased, err := c.Generate(ctx, text)
+	return rephrased, err
+}
+
+// Generate sends text as user content to the configured Vertex AI model with the client's system
+// prompt and sampling temperature. Neither the input text, the generated text, nor the API key is
+// ever logged or included in returned errors.
+func (c *Client) Generate(ctx context.Context, text string) (string, error) {
 	if c == nil {
 		return "", errors.New("llm: nil client")
 	}
@@ -297,7 +321,7 @@ func (c *Client) Rephrase(ctx context.Context, text string) (string, error) {
 			},
 		},
 		GenerationConfig: generationConfig{
-			Temperature:     0.2,
+			Temperature:     c.temperature,
 			MaxOutputTokens: 256,
 		},
 	}

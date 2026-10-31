@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/discord"
@@ -18,8 +19,10 @@ import (
 
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/giftexchangecmd"
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/render"
+	"github.com/HectorVeraO/chatisimo/internal/discord/internal/uccmd"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
+	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
 
 const (
@@ -27,12 +30,14 @@ const (
 	opSendMessage = "send message"
 )
 
-// Notifier delivers giftexchange notifications as Discord direct messages. It implements
-// giftexchange.Notifier and is safe for concurrent use.
+// Notifier delivers giftexchange notifications as Discord direct messages and proactive
+// uccalendar alerts to configured Discord channels. It implements giftexchange.Notifier and
+// uccalendar.AlertSender and is safe for concurrent use.
 type Notifier struct {
-	rest   rest.Rest
-	caches cache.Caches
-	logger *slog.Logger
+	rest     rest.Rest
+	caches   cache.Caches
+	logger   *slog.Logger
+	location *time.Location
 	// token is kept for the Gateway client that Adapter.Open builds over this notifier.
 	token config.Secret
 
@@ -58,6 +63,11 @@ func NewNotifier(s Settings, logger *slog.Logger) (*Notifier, error) {
 		return nil, errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 	}
 
+	location, err := time.LoadLocation(timeZoneName)
+	if err != nil {
+		return nil, fmt.Errorf("discord notifier: load time zone: %w", err)
+	}
+
 	// disgo logs request and response bodies, which hold message text and snowflakes, so its
 	// own logger is silenced; the notifier logs what is safe.
 	silent := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -72,6 +82,7 @@ func NewNotifier(s Settings, logger *slog.Logger) (*Notifier, error) {
 		rest:         rest.New(client, rest.WithDefaultAllowedMentions(noMentions)),
 		caches:       cache.New(cache.WithCaches(cache.FlagGuilds)),
 		logger:       logger,
+		location:     location,
 		token:        s.Token,
 		userLocales:  make(map[snowflake.ID]string),
 		guildLocales: make(map[snowflake.ID]string),
@@ -120,6 +131,45 @@ func (n *Notifier) Notify(ctx context.Context, msg giftexchange.Notification) er
 	}
 
 	n.logger.DebugContext(ctx, "notification sent", slog.String("notification_id", msg.ID.String()))
+	return nil
+}
+
+// SendUCAlert delivers a proactive Universidad Catolica schedule alert in Chilean Spanish to
+// channelID with silent mentions. Errors carry only the alert kind and reduced Discord status/code
+// or operation, never snowflakes or message text.
+func (n *Notifier) SendUCAlert(ctx context.Context, channelID string, alert uccalendar.Alert) error {
+	if n == nil {
+		return errors.New("send uc alert: notifier is nil")
+	}
+
+	var problems []error
+	if ctx == nil {
+		problems = append(problems, errors.New("send uc alert: context is nil"))
+	}
+
+	chID, parseErr := snowflake.Parse(channelID)
+	if parseErr != nil || chID == 0 {
+		problems = append(problems, errors.New("send uc alert: invalid channel snowflake"))
+	}
+
+	message, renderErr := uccmd.RenderAlertIn(uccmd.LocaleESCL, alert, n.location)
+	if renderErr != nil {
+		problems = append(problems, fmt.Errorf("send uc alert: %w", renderErr))
+	}
+
+	if len(problems) > 0 {
+		return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+	}
+
+	noMentions := render.NoMentions()
+	message.AllowedMentions = &noMentions
+
+	_, err := n.rest.CreateMessage(chID, message, rest.WithCtx(ctx))
+	if err != nil {
+		return fmt.Errorf("send uc alert %s: %w", alert.Kind, reduceRESTError(opSendMessage, err))
+	}
+
+	n.logger.DebugContext(ctx, "uc alert sent", slog.String("kind", string(alert.Kind)))
 	return nil
 }
 

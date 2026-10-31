@@ -22,6 +22,7 @@ import (
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/jobs"
+	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
 
 // Fixed fake snowflakes.
@@ -55,6 +56,13 @@ func (c *fakeClock) Advance(d time.Duration) {
 	defer c.mu.Unlock()
 
 	c.now = c.now.Add(d)
+}
+
+func (c *fakeClock) Set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.now = t
 }
 
 type lockedRandom struct {
@@ -213,15 +221,52 @@ func (r *fakeRephraser) FailWith(err error) {
 	r.failWith = err
 }
 
-// service is a giftexchange.Service over the shared database that delivers through the
-// world's notifier, with its own River queue.
+// fakeUCSettings is a thread-safe in-memory uccalendar.SettingReader for adapter tests.
+type fakeUCSettings struct {
+	mu     sync.RWMutex
+	values map[string]string
+}
+
+func newFakeUCSettings(ucBaseURL string) *fakeUCSettings {
+	s := &fakeUCSettings{
+		values: map[string]string{
+			uccalendar.SettingAPIBaseURL:    ucBaseURL,
+			uccalendar.SettingSlangCacheTTL: "0s",
+		},
+	}
+	return s
+}
+
+func (s *fakeUCSettings) Get(_ context.Context, name string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	val, found := s.values[name]
+	if !found {
+		return "", config.ErrNotSet
+	}
+
+	return val, nil
+}
+
+func (s *fakeUCSettings) Set(name, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.values[name] = value
+}
+
+// service wires giftexchange.Service and uccalendar.Service over the shared database, delivering
+// through the world's notifier, with its own River queue.
 type service struct {
-	svc       *giftexchange.Service
-	clock     *fakeClock
-	rephraser *fakeRephraser
-	queue     string
-	people    map[string]person
-	group     giftexchange.GroupID
+	svc        *giftexchange.Service
+	uc         *uccalendar.Service
+	ucSettings *fakeUCSettings
+	clock      *fakeClock
+	rephraser  *fakeRephraser
+	queue      string
+	people     map[string]person
+	group      giftexchange.GroupID
 }
 
 type person struct {
@@ -261,13 +306,41 @@ func newService(t *testing.T, w *world) *service {
 		t.Fatalf("giftexchange.New: %v", err)
 	}
 
+	ucSettings := newFakeUCSettings(w.fake.UCBase())
+	uc, err := uccalendar.New(uccalendar.Deps{
+		Pool:        shared.Pool(),
+		Settings:    ucSettings,
+		Clock:       clock,
+		Alerts:      w.notifier,
+		Logger:      w.logger,
+		SettingsTTL: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("uccalendar.New: %v", err)
+	}
+	t.Cleanup(func() {
+		closeErr := uc.Close()
+		if closeErr != nil {
+			t.Errorf("uc.Close: %v", closeErr)
+		}
+	})
+
 	groupRef := giftexchange.GroupRef{Provider: giftexchange.ProviderDiscord, Subject: guildID}
 	group, err := svc.ResolveGroup(t.Context(), groupRef)
 	if err != nil {
 		t.Fatalf("ResolveGroup: %v", err)
 	}
 
-	s := &service{svc: svc, clock: clock, rephraser: rephraser, queue: queue, people: map[string]person{}, group: group}
+	s := &service{
+		svc:        svc,
+		uc:         uc,
+		ucSettings: ucSettings,
+		clock:      clock,
+		rephraser:  rephraser,
+		queue:      queue,
+		people:     map[string]person{},
+		group:      group,
+	}
 	for _, subject := range []string{userA, userB, userC} {
 		ref := giftexchange.IdentityRef{Provider: giftexchange.ProviderDiscord, Subject: subject}
 		actor, resolveErr := svc.ResolveActor(t.Context(), ref)

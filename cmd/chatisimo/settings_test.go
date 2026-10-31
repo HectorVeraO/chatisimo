@@ -421,3 +421,172 @@ func FuzzValidateLLMPrompt(f *testing.F) {
 		}
 	})
 }
+
+func settingAbuseSeeds() []string {
+	return []string{
+		strings.Repeat("9", 4096),
+		"a\u0301\u0308123",
+		"\u202e17:00",
+		"09:\u200b00",
+		"\U0001F60024h",
+		"<@100000000000000001>",
+		"@everyone",
+	}
+}
+
+func FuzzValidateUCAPIBaseURL(f *testing.F) {
+	seeds := append([]string{
+		"",
+		defaultUCAPIBaseURL,
+		"http://127.0.0.1:8080",
+		"https://example.com/",
+		"https://user:pass@example.com",
+		"https://example.com?a=b#c",
+		"ftp://example.com",
+		"https://exa mple.com",
+		"https://e\u0301xample.com\u200b",
+		"https://example.com/\U0001F600",
+		"%zz",
+		"http://[::1",
+	}, settingAbuseSeeds()...)
+	for _, seed := range seeds {
+		f.Add(seed, true)
+		f.Add(seed, false)
+	}
+
+	fixedErr := validateUCAPIBaseURL("ftp://user:pass@exa mple.com?a=b/", config.EnvProduction).Error()
+
+	f.Fuzz(func(t *testing.T, value string, isProduction bool) {
+		env := config.EnvLocal
+		if isProduction {
+			env = config.EnvProduction
+		}
+
+		err := validateUCAPIBaseURL(value, env)
+		if err != nil {
+			msg := err.Error()
+			if len(value) >= 4 && !strings.Contains(fixedErr, value) && strings.Contains(msg, value) {
+				t.Fatalf("error %q echoed input %q", msg, value)
+			}
+
+			return
+		}
+
+		parsed, parseErr := url.Parse(value)
+		if parseErr != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			t.Errorf("accepted %q, which is not an absolute http or https URL", value)
+		}
+
+		if isProduction && value != defaultUCAPIBaseURL {
+			t.Errorf("accepted non-default URL %q in production", value)
+		}
+	})
+}
+
+func FuzzValidateDiscordSnowflake(f *testing.F) {
+	seeds := append([]string{
+		"",
+		"0",
+		"01234",
+		"100000000000000001",
+		"18446744073709551615",
+		"18446744073709551616",
+		"not-a-snowflake",
+		"123 456",
+		"-100",
+	}, settingAbuseSeeds()...)
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	fixedErr := validateDiscordSnowflake("not-a-snowflake", config.EnvLocal).Error()
+
+	f.Fuzz(func(t *testing.T, value string) {
+		err := validateDiscordSnowflake(value, config.EnvLocal)
+		if err != nil {
+			msg := err.Error()
+			if len(value) >= 4 && !strings.Contains(fixedErr, value) && strings.Contains(msg, value) {
+				t.Fatalf("error %q echoed input %q", msg, value)
+			}
+
+			return
+		}
+
+		if len(value) < 1 || len(value) > 20 || value[0] < '1' || value[0] > '9' {
+			t.Fatalf("accepted invalid snowflake %q", value)
+		}
+	})
+}
+
+func FuzzValidateUCAlertClock(f *testing.F) {
+	seeds := append([]string{
+		"",
+		"00:00",
+		"09:00",
+		"17:00",
+		"23:59",
+		"24:00",
+		"12:60",
+		"9:00",
+		"17-00",
+		"bad-clock-marker",
+	}, settingAbuseSeeds()...)
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	fixedErr := validateUCAlertClock("bad-clock-marker", config.EnvLocal).Error()
+
+	f.Fuzz(func(t *testing.T, value string) {
+		err := validateUCAlertClock(value, config.EnvLocal)
+		if err != nil {
+			msg := err.Error()
+			if len(value) >= 4 && !strings.Contains(fixedErr, value) && strings.Contains(msg, value) {
+				t.Fatalf("error %q echoed input %q", msg, value)
+			}
+
+			return
+		}
+
+		if len(value) != 5 || value[2] != ':' {
+			t.Fatalf("accepted malformed clock %q", value)
+		}
+	})
+}
+
+func FuzzValidateUCSlangCacheTTL(f *testing.F) {
+	seeds := append([]string{
+		"",
+		"0s",
+		"1m",
+		"24h",
+		"168h",
+		"30s",
+		"169h",
+		"1500ms",
+		"-5m",
+		"+1h",
+		"bad-ttl-marker",
+	}, settingAbuseSeeds()...)
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	fixedErr := validateUCSlangCacheTTL("bad-ttl-marker", config.EnvLocal).Error()
+
+	f.Fuzz(func(t *testing.T, value string) {
+		err := validateUCSlangCacheTTL(value, config.EnvLocal)
+		if err != nil {
+			msg := err.Error()
+			if len(value) >= 4 && !strings.Contains(fixedErr, value) && strings.Contains(msg, value) {
+				t.Fatalf("error %q echoed input %q", msg, value)
+			}
+
+			return
+		}
+
+		if value == "" || value[0] < '0' || value[0] > '9' {
+			t.Fatalf("accepted invalid duration %q", value)
+		}
+	})
+}
