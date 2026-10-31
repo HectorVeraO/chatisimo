@@ -134,6 +134,12 @@ export class Control {
     await this.expectStatus(response, 204, "POST guild members");
   }
 
+  async setMemberPermissions(guildId: string, userId: string, permissions: string): Promise<void> {
+    const url = `${CONTROL}/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(userId)}`;
+    const response = await this.api.patch(url, { data: { permissions } });
+    await this.expectStatus(response, 204, "PATCH guild member");
+  }
+
   async interact(request: InteractionRequest): Promise<InteractionResult> {
     const response = await this.api.post(`${CONTROL}/interactions`, { data: request });
     return (await this.json(response, "POST interactions")) as InteractionResult;

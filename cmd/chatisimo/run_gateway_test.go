@@ -188,7 +188,7 @@ func TestRunRegistersTheGlobalCommands(t *testing.T) {
 	}
 
 	names := globalCommandNames(fake)
-	for _, want := range []string{"chatisimo", "ge", "uc"} {
+	for _, want := range []string{"chatisimo", "ge", "uc", "uc-config"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("registered commands = %v, want %q among them", names, want)
 		}
@@ -505,7 +505,6 @@ func TestRunServesUCCalendarSlashCommand(t *testing.T) {
 	database := newClone(t)
 	env := envFor(database, "local")
 	configureDiscord(t, env, fake)
-	storeSetting(t, env, "uc.friend_user_id", friendID)
 	storeSetting(t, env, "uc.slang_cache_ttl", "0s")
 
 	r := startRun(t, env)
@@ -520,6 +519,38 @@ func TestRunServesUCCalendarSlashCommand(t *testing.T) {
 	caller := fake.AddUser(fakediscord.User{ID: callerID, Name: "Caller", Locale: "es-419"})
 	friend := fake.AddUser(fakediscord.User{ID: friendID, Name: "Cruzado"})
 	guild := fake.AddGuild(fakediscord.Guild{Name: "Test Guild"}, caller, friend)
+
+	unconfiguredRes, err := fake.Slash(readyCtx, caller, fakediscord.Slash{
+		Guild:   &guild,
+		Path:    "/uc",
+		Options: map[string]any{"date": "2026-10-31"},
+	})
+	if err != nil {
+		t.Fatalf("unconfigured /uc: %v", err)
+	}
+
+	unconfiguredMsg := awaitInteractionMessage(t, fake, caller, unconfiguredRes)
+	if !strings.Contains(unconfiguredMsg.Content, "el hincha cruzado") || strings.Contains(unconfiguredMsg.Content, "<@") {
+		t.Errorf("unconfigured /uc reply = %q, want generic fallback without mention", unconfiguredMsg.Content)
+	}
+
+	if err := fake.SetMemberPermissions(guild, caller, "32"); err != nil {
+		t.Fatalf("SetMemberPermissions: %v", err)
+	}
+
+	cfgRes, err := fake.Slash(readyCtx, caller, fakediscord.Slash{
+		Guild:   &guild,
+		Path:    "/uc-config/set",
+		Options: map[string]any{"friend": friend},
+	})
+	if err != nil {
+		t.Fatalf("/uc-config/set: %v", err)
+	}
+
+	cfgMsg := awaitInteractionMessage(t, fake, caller, cfgRes)
+	if cfgMsg.EphemeralFor != callerID {
+		t.Errorf("/uc-config/set EphemeralFor = %q, want %q", cfgMsg.EphemeralFor, callerID)
+	}
 
 	res, err := fake.Slash(readyCtx, caller, fakediscord.Slash{
 		Guild:   &guild,

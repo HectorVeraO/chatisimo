@@ -154,6 +154,17 @@ func Mention(id string) (string, error) {
 	return mention, nil
 }
 
+// ChannelMention returns the channel link of the decimal snowflake id.
+func ChannelMention(id string) (string, error) {
+	isSnowflake := isDecimalID(id)
+	if !isSnowflake {
+		return "", ErrInvalidSnowflake
+	}
+
+	mention := "<#" + id + ">"
+	return mention, nil
+}
+
 func isDecimalID(id string) bool {
 	hasValidLength := len(id) > 0 && len(id) <= maxSnowflakeDigits
 	if !hasValidLength {

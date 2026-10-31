@@ -112,6 +112,20 @@ func (s *Server) SetGuildLocale(g Guild, locale string) error {
 	return nil
 }
 
+// SetMemberPermissions sets u's permission bitset string (such as "32" for ManageGuild) in g.
+func (s *Server) SetMemberPermissions(g Guild, u User, permissions string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	err := s.w.setMemberPermissions(g.ID, u.ID, permissions)
+	if err != nil {
+		return err
+	}
+	s.publishWorldChangedLocked()
+
+	return nil
+}
+
 // Slash sends a slash command interaction as the user and waits for the bot's first callback
 // or the deadline. A Result with StatusTimeout means the deadline passed.
 func (s *Server) Slash(ctx context.Context, as User, in Slash) (Result, error) {
@@ -228,16 +242,36 @@ func (s *Server) newUserOptionInput(in Slash, kind, focused string, guildID stri
 		bypass:       in.BypassValidation,
 		autocomplete: kind == kindAutocomplete,
 		focused:      focused,
-		userByID: func(id string) (User, bool) {
+		guildID:      guildID,
+		userJSONByID: func(id string) (userJSON, bool) {
+			if id == s.appID {
+				return s.botUser(), true
+			}
 			user, found := s.w.users[id]
-			return user, found
+			if !found {
+				return userJSON{}, false
+			}
+
+			return userToJSON(user), true
 		},
 		isGuildMember: func(id string) bool {
 			guild, found := s.w.guilds[guildID]
-			return found && slices.Contains(guild.members, id)
+			if !found {
+				return false
+			}
+			if id == s.appID {
+				return true
+			}
+
+			return slices.Contains(guild.members, id)
 		},
-		resolvedUsers:  map[string]userJSON{},
-		resolvedMember: map[string]map[string]any{},
+		channelByID: func(id string) (*channelState, bool) {
+			ch, found := s.w.channels[id]
+			return ch, found
+		},
+		resolvedUsers:    map[string]userJSON{},
+		resolvedMember:   map[string]map[string]any{},
+		resolvedChannels: map[string]map[string]any{},
 	}
 }
 
@@ -257,6 +291,15 @@ func (s *Server) planSlash(as User, in Slash, kind, focused string) (*plan, erro
 	if pathErr != nil {
 		problems = append(problems, pathErr)
 	}
+	if pathErr == nil && !in.BypassValidation && len(path.contexts) > 0 {
+		wantContext := 1
+		if guildID != "" {
+			wantContext = 0
+		}
+		if !slices.Contains(path.contexts, wantContext) {
+			problems = append(problems, fmt.Errorf("path %q: command is not allowed in this context", in.Path))
+		}
+	}
 	if len(problems) > 0 {
 		return nil, reject(problems)
 	}
@@ -269,19 +312,26 @@ func (s *Server) planSlash(as User, in Slash, kind, focused string) (*plan, erro
 
 	p := &plan{kind: kind, actorID: actor.ID}
 	p.data = templateData{
-		User:        userToJSON(actor),
-		Bot:         s.botUser(),
-		Locale:      userLocaleOf(actor),
-		GuildLocale: s.guildLocaleLocked(guildID),
-		CommandID:   path.command.ID,
-		CommandName: path.command.Name,
-		Options:     nestOptions(path, leaves),
+		User:              userToJSON(actor),
+		Bot:               s.botUser(),
+		Locale:            userLocaleOf(actor),
+		GuildLocale:       s.guildLocaleLocked(guildID),
+		MemberPermissions: s.w.memberPermissions(guildID, actor.ID),
+		CommandID:         path.command.ID,
+		CommandName:       path.command.Name,
+		Options:           nestOptions(path, leaves),
 	}
+	resolved := map[string]any{}
 	if len(input.resolvedUsers) > 0 {
-		resolved := map[string]any{"users": input.resolvedUsers}
+		resolved["users"] = input.resolvedUsers
 		if len(input.resolvedMember) > 0 {
 			resolved["members"] = input.resolvedMember
 		}
+	}
+	if len(input.resolvedChannels) > 0 {
+		resolved["channels"] = input.resolvedChannels
+	}
+	if len(resolved) > 0 {
 		p.data.Resolved = resolved
 	}
 

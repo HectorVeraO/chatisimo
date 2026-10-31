@@ -11,10 +11,6 @@ import (
 )
 
 const (
-	// SettingFriendUserID is the optional Discord user snowflake of the UC fan friend.
-	SettingFriendUserID = "uc.friend_user_id"
-	// SettingChannelID is the optional Discord channel snowflake for proactive UC alerts.
-	SettingChannelID = "uc.channel_id"
 	// SettingFridayAlertTime is the HH:MM America/Santiago time for Friday weekend summaries.
 	SettingFridayAlertTime = "uc.friday_alert_time"
 	// SettingMatchdayAlertTime is the HH:MM America/Santiago time for matchday morning reminders.
@@ -226,11 +222,47 @@ const (
 	ModeDate QueryMode = "date"
 )
 
-// Query specifies either a named Window or a raw Date ("DD/MM" or "YYYY-MM-DD"), never both.
+// Query specifies an optional GuildID (empty in direct messages) and either a named Window or a
+// raw Date ("DD/MM" or "YYYY-MM-DD"), never both.
 type Query struct {
-	Window WindowKind
-	Date   string
+	GuildID string
+	Window  WindowKind
+	Date    string
 }
+
+// GuildScope identifies the calling Discord guild and whether the caller holds server-management
+// permission (ManageGuild or Administrator) for guild configuration operations.
+type GuildScope struct {
+	GuildID        string
+	CanManageGuild bool
+}
+
+// GuildConfig holds one Discord guild's configured UC-fan friend and proactive alert channel.
+// Empty FriendUserID or ChannelID indicates that field is not configured for the guild.
+type GuildConfig struct {
+	GuildID      string
+	FriendUserID string
+	ChannelID    string
+}
+
+// GuildConfigUpdate specifies fields to set on a guild's UC configuration. Nil fields are left
+// unchanged; at least one field must be non-nil and hold a valid Discord snowflake.
+type GuildConfigUpdate struct {
+	FriendUserID *string
+	ChannelID    *string
+}
+
+// ClearTarget selects which guild configuration fields Service.ClearGuildConfig resets.
+type ClearTarget string
+
+const (
+	// ClearTargetAll clears both the guild's target friend and proactive alert channel.
+	ClearTargetAll ClearTarget = "all"
+	// ClearTargetFriend clears only the guild's target friend, keeping its alert channel.
+	ClearTargetFriend ClearTarget = "friend"
+	// ClearTargetChannel clears only the guild's proactive alert channel, keeping its target friend.
+	ClearTargetChannel ClearTarget = "channel"
+)
 
 // Match represents one Universidad Catolica fixture and its computed availability block in
 // America/Santiago time. When TBD is true, Kickoff, BlockStart, and BlockEnd are zero.
@@ -274,6 +306,7 @@ const (
 // Alert is the domain payload delivered to AlertSender for one proactive channel notification.
 type Alert struct {
 	Kind           AlertKind
+	GuildID        string
 	FriendUserID   string
 	Banter         string
 	WeekendStart   LocalDate

@@ -17,6 +17,63 @@ const (
 	clockLayout   = "15:04"
 )
 
+// ConfigReplyKind selects the header template rendered by RenderGuildConfigIn.
+type ConfigReplyKind int
+
+const (
+	// ConfigReplyShow formats the current guild configuration for /uc-config show.
+	ConfigReplyShow ConfigReplyKind = iota
+	// ConfigReplySaved formats the updated guild configuration for /uc-config set.
+	ConfigReplySaved
+	// ConfigReplyCleared formats the resulting guild configuration for /uc-config clear.
+	ConfigReplyCleared
+)
+
+// RenderGuildConfigIn formats a guild's UC calendar configuration in loc for /uc-config replies.
+func RenderGuildConfigIn(loc Locale, kind ConfigReplyKind, cfg uccalendar.GuildConfig) string {
+	c := CatalogFor(loc)
+	friendLabel := resolveConfigUser(c, cfg.FriendUserID)
+	channelLabel := resolveConfigChannel(c, cfg.ChannelID)
+
+	msgID := textConfigShow
+	switch kind {
+	case ConfigReplySaved:
+		msgID = textConfigSaved
+	case ConfigReplyCleared:
+		msgID = textConfigCleared
+	case ConfigReplyShow:
+		msgID = textConfigShow
+	}
+
+	formatted := c.Format(msgID, friendLabel, channelLabel)
+	truncated := render.Truncate(formatted, maxReplyRunes, "...")
+	return truncated
+}
+
+func resolveConfigUser(c Catalog, userID string) string {
+	if userID != "" {
+		mention, err := render.Mention(userID)
+		if err == nil {
+			return mention
+		}
+	}
+
+	unset := c.Get(textConfigUnset)
+	return unset
+}
+
+func resolveConfigChannel(c Catalog, channelID string) string {
+	if channelID != "" {
+		mention, err := render.ChannelMention(channelID)
+		if err == nil {
+			return mention
+		}
+	}
+
+	unset := c.Get(textConfigUnset)
+	return unset
+}
+
 // RenderReportIn formats a uccalendar.Report as localized Discord markdown in loc using tz for
 // local block clock times and calendar labels. All external and LLM strings are escaped, and the
 // final text is truncated to fit under Discord's message limit.

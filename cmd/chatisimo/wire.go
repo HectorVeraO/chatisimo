@@ -279,8 +279,7 @@ func (s *server) openStorage(ctx context.Context, env config.Env) (runtimeSettin
 	return out, nil
 }
 
-// checkUCSettings validates stored UC settings at boot while allowing optional snowflakes to
-// remain unset.
+// checkUCSettings validates stored platform-wide UC settings at boot.
 func checkUCSettings(ctx context.Context, store *config.Store) error {
 	for _, name := range []string{
 		settingUCAPIBaseURL,
@@ -290,13 +289,6 @@ func checkUCSettings(ctx context.Context, store *config.Store) error {
 	} {
 		_, err := store.Get(ctx, name)
 		if err != nil {
-			return fmt.Errorf("read settings: %w", err)
-		}
-	}
-
-	for _, optionalName := range []string{settingUCFriendUserID, settingUCChannelID} {
-		_, err := store.Get(ctx, optionalName)
-		if err != nil && !errors.Is(err, config.ErrNotSet) {
 			return fmt.Errorf("read settings: %w", err)
 		}
 	}

@@ -89,6 +89,7 @@ func (s *Server) addControlRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+controlPrefix+"/guilds", s.handleControlAddGuild)
 	mux.HandleFunc("PATCH "+controlPrefix+"/guilds/{id}", s.handleControlPatchGuild)
 	mux.HandleFunc("POST "+controlPrefix+"/guilds/{id}/members", s.handleControlAddMember)
+	mux.HandleFunc("PATCH "+controlPrefix+"/guilds/{id}/members/{user}", s.handleControlPatchMember)
 	mux.HandleFunc("POST "+controlPrefix+"/interactions", s.handleControlInteraction)
 	mux.HandleFunc("GET "+controlPrefix+"/channels/{id}/messages", s.handleControlChannelMessages)
 	mux.HandleFunc("GET "+controlPrefix+"/dms/{user}", s.handleControlDMs)
@@ -360,20 +361,25 @@ func (s *Server) addGuildLocked(name, locale string, memberIDs []string) outcome
 
 func (s *Server) handleControlAddMember(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		UserID string `json:"user_id"`
+		UserID      string `json:"user_id"`
+		Permissions string `json:"permissions"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
+	if body.Permissions != "" && !isDecimalBitset(body.Permissions) {
+		invalidBody("permissions: must be a decimal bitset").write(w)
+		return
+	}
 
 	s.mu.Lock()
-	out := s.addControlMemberLocked(r.PathValue("id"), body.UserID)
+	out := s.addControlMemberLocked(r.PathValue("id"), body.UserID, body.Permissions)
 	s.mu.Unlock()
 
 	out.write(w)
 }
 
-func (s *Server) addControlMemberLocked(guildID, userID string) outcome {
+func (s *Server) addControlMemberLocked(guildID, userID, permissions string) outcome {
 	_, hasGuild := s.w.guilds[guildID]
 	if !hasGuild {
 		return unknownEntity("guild")
@@ -387,9 +393,53 @@ func (s *Server) addControlMemberLocked(guildID, userID string) outcome {
 	if err != nil {
 		panic("fakediscord: guild vanished while adding a member: " + err.Error())
 	}
+	if permissions != "" {
+		permErr := s.w.setMemberPermissions(guildID, user.ID, permissions)
+		if permErr != nil {
+			return invalidBody(permErr.Error())
+		}
+	}
 	s.publishWorldChangedLocked()
 
 	return succeed(http.StatusNoContent, nil)
+}
+
+func (s *Server) handleControlPatchMember(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Permissions *string `json:"permissions"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if body.Permissions == nil || !isDecimalBitset(*body.Permissions) {
+		invalidBody("permissions: must be a decimal bitset").write(w)
+		return
+	}
+
+	guildID := r.PathValue("id")
+	userID := r.PathValue("user")
+
+	s.mu.Lock()
+	guild, hasGuild := s.w.guilds[guildID]
+	_, hasUser := s.w.users[userID]
+	isMember := hasGuild && slices.Contains(guild.members, userID)
+	s.mu.Unlock()
+
+	switch {
+	case !hasGuild:
+		unknownEntity("guild").write(w)
+		return
+	case !hasUser || !isMember:
+		unknownEntity("member").write(w)
+		return
+	}
+
+	err := s.SetMemberPermissions(Guild{ID: guildID}, User{ID: userID}, *body.Permissions)
+	if err != nil {
+		invalidBody(err.Error()).write(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleControlInteraction(w http.ResponseWriter, r *http.Request) {

@@ -7,6 +7,7 @@ const OPTION_STRING = 3;
 const OPTION_INTEGER = 4;
 const OPTION_BOOLEAN = 5;
 const OPTION_USER = 6;
+const OPTION_CHANNEL = 7;
 const OPTION_NUMBER = 10;
 const SUBCOMMAND = 1;
 const SUBCOMMAND_GROUP = 2;
@@ -101,7 +102,13 @@ function isNumeric(definition) {
 }
 
 function isSupported(definition) {
-  return definition.type === OPTION_STRING || definition.type === OPTION_BOOLEAN || definition.type === OPTION_USER || isNumeric(definition);
+  return (
+    definition.type === OPTION_STRING ||
+    definition.type === OPTION_BOOLEAN ||
+    definition.type === OPTION_USER ||
+    definition.type === OPTION_CHANNEL ||
+    isNumeric(definition)
+  );
 }
 
 // Required options come first, each group in its registered order.
@@ -133,6 +140,22 @@ function populateUsers(select, users, keep) {
     select.append(option);
   }
   const stillThere = users.some((user) => user.id === previous);
+  select.value = stillThere ? previous : '';
+}
+
+function populateChannels(select, channels, keep) {
+  const previous = keep === undefined ? select.value : keep;
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = 'Select a channel';
+  select.replaceChildren(blank);
+  for (const channel of channels) {
+    const option = document.createElement('option');
+    option.value = channel.id;
+    option.textContent = channel.name;
+    select.append(option);
+  }
+  const stillThere = channels.some((channel) => channel.id === previous);
   select.value = stillThere ? previous : '';
 }
 
@@ -290,6 +313,9 @@ export function createComposer(elements, deps) {
     } else if (definition.type === OPTION_USER) {
       control = make('select', 'option-control', 'slash-option');
       populateUsers(control, deps.getUsers());
+    } else if (definition.type === OPTION_CHANNEL) {
+      control = make('select', 'option-control', 'slash-option');
+      populateChannels(control, deps.getChannels ? deps.getChannels() : []);
     } else {
       control = make('input', 'option-control', 'slash-option');
       control.setAttribute('type', 'text');
@@ -442,6 +468,8 @@ export function createComposer(elements, deps) {
       for (const field of fields) {
         if (field.definition.type === OPTION_USER) {
           populateUsers(field.control, deps.getUsers());
+        } else if (field.definition.type === OPTION_CHANNEL) {
+          populateChannels(field.control, deps.getChannels ? deps.getChannels() : []);
         }
       }
       renderSuggestions();

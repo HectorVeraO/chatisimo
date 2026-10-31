@@ -14,6 +14,8 @@ import (
 const (
 	typeSubCommand = 1
 	typeString     = 3
+	typeUser       = 6
+	typeChannel    = 7
 	maxNameLength  = 32
 )
 
@@ -33,6 +35,7 @@ type optionJSON struct {
 	DescriptionLocalizations map[string]string `json:"description_localizations"`
 	Required                 bool              `json:"required"`
 	MaxLength                *int              `json:"max_length"`
+	ChannelTypes             []int             `json:"channel_types"`
 	Choices                  []choiceJSON      `json:"choices"`
 	Options                  []optionJSON      `json:"options"`
 }
@@ -41,6 +44,7 @@ type commandJSON struct {
 	Name                     string            `json:"name"`
 	Description              string            `json:"description"`
 	DescriptionLocalizations map[string]string `json:"description_localizations"`
+	DefaultMemberPermissions string            `json:"default_member_permissions"`
 	Contexts                 []int             `json:"contexts"`
 	IntegrationTypes         []int             `json:"integration_types"`
 	Options                  []optionJSON      `json:"options"`
@@ -153,6 +157,100 @@ func TestCommandOptionsChoicesAndLocalizationsFitDiscordLimits(t *testing.T) {
 	}
 	checkOptionNames(t, "/uc.date", dateOpt.Name, dateOpt.NameLocalizations, "fecha")
 	checkLocalizedText(t, "/uc.date.description", dateOpt.Description, dateOpt.DescriptionLocalizations, 1, 100)
+}
+
+func TestConfigCommandIsGuildOnlyManageGuildAndValidatesSubcommands(t *testing.T) {
+	t.Parallel()
+
+	raw, err := json.Marshal(uccmd.ConfigCommand())
+	if err != nil {
+		t.Fatalf("marshal ConfigCommand: %v", err)
+	}
+
+	var cfg commandJSON
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("unmarshal ConfigCommand: %v", err)
+	}
+
+	if cfg.Name != "uc-config" {
+		t.Fatalf("name = %q, want uc-config", cfg.Name)
+	}
+	checkCommandName(t, "/uc-config", cfg.Name)
+	checkLocalizedText(t, "/uc-config.description", cfg.Description, cfg.DescriptionLocalizations, 1, 100)
+
+	if cfg.DefaultMemberPermissions != "32" {
+		t.Errorf("default_member_permissions = %q, want 32 (ManageGuild)", cfg.DefaultMemberPermissions)
+	}
+	if !reflect.DeepEqual(cfg.Contexts, []int{0}) {
+		t.Errorf("/uc-config contexts = %v, want [0] (guild only)", cfg.Contexts)
+	}
+	if !reflect.DeepEqual(cfg.IntegrationTypes, []int{0}) {
+		t.Errorf("/uc-config integration_types = %v, want [0]", cfg.IntegrationTypes)
+	}
+	if len(cfg.Options) != 3 {
+		t.Fatalf("/uc-config subcommands = %d, want 3 (set, show, clear)", len(cfg.Options))
+	}
+
+	setSub := cfg.Options[0]
+	if setSub.Name != "set" || setSub.Type != typeSubCommand {
+		t.Fatalf("subcommand[0] = %+v, want subcommand set", setSub)
+	}
+	checkOptionNames(t, "/uc-config.set", setSub.Name, setSub.NameLocalizations, "configurar")
+	checkLocalizedText(t, "/uc-config.set.description", setSub.Description, setSub.DescriptionLocalizations, 1, 100)
+	if len(setSub.Options) != 2 {
+		t.Fatalf("/uc-config set options = %d, want 2 (friend, channel)", len(setSub.Options))
+	}
+	friendOpt := setSub.Options[0]
+	if friendOpt.Name != "friend" || friendOpt.Type != typeUser || friendOpt.Required {
+		t.Fatalf("friend option = %+v, want optional user option", friendOpt)
+	}
+	checkOptionNames(t, "/uc-config.set.friend", friendOpt.Name, friendOpt.NameLocalizations, "amigo")
+	checkLocalizedText(t, "/uc-config.set.friend.description", friendOpt.Description, friendOpt.DescriptionLocalizations, 1, 100)
+
+	channelOpt := setSub.Options[1]
+	if channelOpt.Name != "channel" || channelOpt.Type != typeChannel || channelOpt.Required {
+		t.Fatalf("channel option = %+v, want optional channel option", channelOpt)
+	}
+	if !reflect.DeepEqual(channelOpt.ChannelTypes, []int{0, 5}) {
+		t.Errorf("channel_types = %v, want [0 5]", channelOpt.ChannelTypes)
+	}
+	checkOptionNames(t, "/uc-config.set.channel", channelOpt.Name, channelOpt.NameLocalizations, "canal")
+	checkLocalizedText(t, "/uc-config.set.channel.description", channelOpt.Description, channelOpt.DescriptionLocalizations, 1, 100)
+
+	showSub := cfg.Options[1]
+	if showSub.Name != "show" || showSub.Type != typeSubCommand || len(showSub.Options) != 0 {
+		t.Fatalf("subcommand[1] = %+v, want subcommand show without options", showSub)
+	}
+	checkOptionNames(t, "/uc-config.show", showSub.Name, showSub.NameLocalizations, "ver")
+	checkLocalizedText(t, "/uc-config.show.description", showSub.Description, showSub.DescriptionLocalizations, 1, 100)
+
+	clearSub := cfg.Options[2]
+	if clearSub.Name != "clear" || clearSub.Type != typeSubCommand || len(clearSub.Options) != 1 {
+		t.Fatalf("subcommand[2] = %+v, want subcommand clear with target option", clearSub)
+	}
+	checkOptionNames(t, "/uc-config.clear", clearSub.Name, clearSub.NameLocalizations, "limpiar")
+	checkLocalizedText(t, "/uc-config.clear.description", clearSub.Description, clearSub.DescriptionLocalizations, 1, 100)
+
+	targetOpt := clearSub.Options[0]
+	if targetOpt.Name != "target" || targetOpt.Type != typeString || targetOpt.Required {
+		t.Fatalf("target option = %+v, want optional string option", targetOpt)
+	}
+	checkOptionNames(t, "/uc-config.clear.target", targetOpt.Name, targetOpt.NameLocalizations, "objetivo")
+	checkLocalizedText(t, "/uc-config.clear.target.description", targetOpt.Description, targetOpt.DescriptionLocalizations, 1, 100)
+	wantTargets := []string{
+		string(uccalendar.ClearTargetAll),
+		string(uccalendar.ClearTargetFriend),
+		string(uccalendar.ClearTargetChannel),
+	}
+	if len(targetOpt.Choices) != len(wantTargets) {
+		t.Fatalf("target choices = %d, want %d", len(targetOpt.Choices), len(wantTargets))
+	}
+	for i, ch := range targetOpt.Choices {
+		if ch.Value != wantTargets[i] {
+			t.Errorf("target choice[%d] = %q, want %q", i, ch.Value, wantTargets[i])
+		}
+		checkLocalizedText(t, "/uc-config.clear.target."+ch.Value, ch.Name, ch.NameLocalizations, 1, 100)
+	}
 }
 
 func checkCommandName(t *testing.T, where, name string) {

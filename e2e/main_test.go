@@ -129,7 +129,6 @@ func runHarness(m *testing.M) (int, error) {
 
 func runAgainst(ctx context.Context, m *testing.M, b *backend, dirs harnessDirs) (int, error) {
 	seedSharedUCFixtures(b.fake)
-	created.add("uc friend snowflake", sharedUCFriendID)
 
 	err := b.configure(ctx)
 	if err != nil {
@@ -197,7 +196,7 @@ func awaitReady(ctx context.Context, b *backend, p *process) error {
 	for _, command := range b.fake.Commands() {
 		names[command.Name] = true
 	}
-	for _, want := range []string{"chatisimo", "ge", "uc"} {
+	for _, want := range []string{"chatisimo", "ge", "uc", "uc-config"} {
 		if !names[want] {
 			problems = append(problems, fmt.Errorf("command tree /%s is not registered", want))
 		}

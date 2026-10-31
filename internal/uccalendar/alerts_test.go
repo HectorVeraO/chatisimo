@@ -2,6 +2,7 @@ package uccalendar_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"testing"
@@ -24,9 +25,7 @@ func TestAlertsDeduplicationAcrossTwoInstancesAndRetryOnSendFailure(t *testing.T
 	)
 
 	settings := newMapSettings(map[string]string{
-		uccalendar.SettingAPIBaseURL:   espnSrv.BaseURL(),
-		uccalendar.SettingFriendUserID: fakeFriendID,
-		uccalendar.SettingChannelID:    fakeChannelID,
+		uccalendar.SettingAPIBaseURL: espnSrv.BaseURL(),
 	})
 
 	alertsA := newFakeAlertSender()
@@ -66,6 +65,8 @@ func TestAlertsDeduplicationAcrossTwoInstancesAndRetryOnSendFailure(t *testing.T
 		_ = svcB.Close()
 	})
 
+	mustConfigureGuild(t, svcA, fakeGuildID, fakeFriendID, fakeChannelID)
+
 	if err := svcA.Sync(t.Context()); err != nil {
 		t.Fatalf("svcA.Sync: %v", err)
 	}
@@ -97,6 +98,11 @@ func TestAlertsDeduplicationAcrossTwoInstancesAndRetryOnSendFailure(t *testing.T
 	fridayAlert := gotFriday[0].Alert
 	if fridayAlert.Kind != uccalendar.AlertFridayWeekend {
 		t.Errorf("alert.Kind = %q, want %q", fridayAlert.Kind, uccalendar.AlertFridayWeekend)
+	}
+
+	if fridayAlert.GuildID != fakeGuildID || fridayAlert.FriendUserID != fakeFriendID {
+		t.Errorf("fridayAlert guild/friend = (%q, %q), want (%q, %q)",
+			fridayAlert.GuildID, fridayAlert.FriendUserID, fakeGuildID, fakeFriendID)
 	}
 
 	if fridayAlert.SaturdayStatus != uccalendar.StatusBlocked || fridayAlert.SundayStatus != uccalendar.StatusFree {
@@ -172,6 +178,113 @@ func TestAlertsDeduplicationAcrossTwoInstancesAndRetryOnSendFailure(t *testing.T
 	}
 }
 
+func TestAlertsMultiGuildIsolationPartialFailureAndSharedBanter(t *testing.T) {
+	pool := newIsolatedDB(t)
+	loc := santiagoLocation(t)
+	clock := newFakeClock(time.Date(2026, 10, 30, 17, 5, 0, 0, loc))
+
+	espnSrv := newFakeESPNServer(
+		t,
+		readTestdata(t, "completed_schedule.json"),
+		readTestdata(t, "upcoming_fixtures.json"),
+	)
+
+	settings := newMapSettings(map[string]string{
+		uccalendar.SettingAPIBaseURL: espnSrv.BaseURL(),
+	})
+
+	alerts := newFakeAlertSender()
+	banter := newFakeBanter("La Cato copa el sabado, organicemos domingo.")
+
+	svc, err := uccalendar.New(uccalendar.Deps{
+		Pool:       pool,
+		Settings:   settings,
+		Clock:      clock,
+		Alerts:     alerts,
+		Banter:     banter,
+		HTTPClient: espnSrv.server.Client(),
+		Logger:     slog.New(slog.DiscardHandler),
+	})
+	if err != nil {
+		t.Fatalf("uccalendar.New: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = svc.Close()
+	})
+
+	if err := svc.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	// No guilds configured yet -> CheckAlerts is a no-op with 0 LLM calls.
+	if err := svc.CheckAlerts(t.Context()); err != nil {
+		t.Fatalf("CheckAlerts with no guilds: %v", err)
+	}
+	if len(alerts.Delivered()) != 0 || banter.Calls() != 0 {
+		t.Fatalf("unconfigured CheckAlerts delivered=%d banterCalls=%d, want 0 and 0",
+			len(alerts.Delivered()), banter.Calls())
+	}
+
+	// Configure three guilds:
+	// - fakeGuildID: both friend and channel
+	// - otherGuildID: channel only (no friend -> generic fallback)
+	// - thirdGuildID: friend only (no channel -> no proactive alerts)
+	mustConfigureGuild(t, svc, fakeGuildID, fakeFriendID, fakeChannelID)
+	mustConfigureGuild(t, svc, otherGuildID, "", otherChannelID)
+	mustConfigureGuild(t, svc, thirdGuildID, otherFriendID, "")
+
+	// Fail delivery to fakeChannelID on the first tick: otherGuildID must still receive its alert,
+	// and fakeGuildID's claim must be released for retry on the next tick.
+	alerts.SetChannelFailure(fakeChannelID, errors.New("discord channel forbidden"))
+	if err := svc.CheckAlerts(t.Context()); err == nil {
+		t.Fatal("CheckAlerts succeeded when fakeChannelID failed, want error")
+	}
+
+	firstTick := alerts.Delivered()
+	if len(firstTick) != 1 {
+		t.Fatalf("first tick delivered = %d, want 1 (otherGuildID): %+v", len(firstTick), firstTick)
+	}
+	if firstTick[0].ChannelID != otherChannelID || firstTick[0].Alert.GuildID != otherGuildID || firstTick[0].Alert.FriendUserID != "" {
+		t.Errorf("firstTick[0] = %+v, want channel=%s guild=%s friend=''", firstTick[0], otherChannelID, otherGuildID)
+	}
+	if banter.Calls() != 1 {
+		t.Errorf("banter.Calls() after multi-guild tick = %d, want 1 shared call", banter.Calls())
+	}
+
+	// Restore fakeChannelID and retry: fakeGuildID receives its Friday alert, otherGuildID is deduplicated!
+	alerts.SetChannelFailure(fakeChannelID, nil)
+	if err := svc.CheckAlerts(t.Context()); err != nil {
+		t.Fatalf("CheckAlerts retry for fakeGuildID: %v", err)
+	}
+
+	secondTick := alerts.Delivered()
+	if len(secondTick) != 2 {
+		t.Fatalf("second tick total delivered = %d, want 2: %+v", len(secondTick), secondTick)
+	}
+	if secondTick[1].ChannelID != fakeChannelID || secondTick[1].Alert.GuildID != fakeGuildID || secondTick[1].Alert.FriendUserID != fakeFriendID {
+		t.Errorf("secondTick[1] = %+v, want channel=%s guild=%s friend=%s",
+			secondTick[1], fakeChannelID, fakeGuildID, fakeFriendID)
+	}
+	if banter.Calls() != 1 {
+		t.Errorf("banter.Calls() after retry = %d, want 1 cached call", banter.Calls())
+	}
+
+	// On matchday Saturday 2026-10-31 09:00, simulate banter failure: must invoke Generate only once
+	// across both guilds rather than once per guild!
+	banter.SetResponse("", errors.New("vertex quota exceeded"))
+	clock.Set(time.Date(2026, 10, 31, 9, 0, 0, 0, loc))
+	if err := svc.CheckAlerts(t.Context()); err != nil {
+		t.Fatalf("CheckAlerts matchday with failing banter: %v", err)
+	}
+
+	if len(alerts.Delivered()) != 4 {
+		t.Fatalf("total delivered after matchday = %d, want 4", len(alerts.Delivered()))
+	}
+	if banter.Calls() != 2 {
+		t.Errorf("banter.Calls() after failing matchday = %d, want 2 (1 Friday + 1 memoized matchday attempt)", banter.Calls())
+	}
+}
+
 func TestRunLifecycleRecoversFromInitialSyncErrorAndCancelsCleanly(t *testing.T) {
 	pool := newIsolatedDB(t)
 	loc := santiagoLocation(t)
@@ -186,9 +299,7 @@ func TestRunLifecycleRecoversFromInitialSyncErrorAndCancelsCleanly(t *testing.T)
 	espnSrv.SetStatus(http.StatusServiceUnavailable)
 
 	settings := newMapSettings(map[string]string{
-		uccalendar.SettingAPIBaseURL:   espnSrv.BaseURL(),
-		uccalendar.SettingFriendUserID: fakeFriendID,
-		uccalendar.SettingChannelID:    fakeChannelID,
+		uccalendar.SettingAPIBaseURL: espnSrv.BaseURL(),
 	})
 
 	alerts := newFakeAlertSender()
@@ -209,6 +320,8 @@ func TestRunLifecycleRecoversFromInitialSyncErrorAndCancelsCleanly(t *testing.T)
 	if err != nil {
 		t.Fatalf("uccalendar.New: %v", err)
 	}
+
+	mustConfigureGuild(t, svc, fakeGuildID, fakeFriendID, fakeChannelID)
 
 	runCtx, cancelRun := context.WithCancel(t.Context())
 	runDone := make(chan error, 1)

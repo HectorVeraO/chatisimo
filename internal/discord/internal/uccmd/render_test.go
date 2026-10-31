@@ -457,3 +457,90 @@ func TestRenderReportAndAlertCoverAllWeekdaysEmptyVenuesAndNilLocation(t *testin
 		}
 	}
 }
+
+func TestRenderGuildConfigInFormatsShowSavedClearedAndUnsetInBothLocales(t *testing.T) {
+	t.Parallel()
+
+	const testChannelID = "300000000000000001"
+
+	tests := []struct {
+		name     string
+		loc      uccmd.Locale
+		kind     uccmd.ConfigReplyKind
+		cfg      uccalendar.GuildConfig
+		wantSubs []string
+		omitSubs []string
+	}{
+		{
+			name: "show with both unset in English",
+			loc:  uccmd.LocaleENUS,
+			kind: uccmd.ConfigReplyShow,
+			cfg:  uccalendar.GuildConfig{},
+			wantSubs: []string{
+				"**UC calendar configuration for this server**",
+				"- **UC-fan friend:** not configured",
+				"- **Proactive alert channel:** not configured",
+			},
+		},
+		{
+			name: "saved with friend and channel in Chilean Spanish",
+			loc:  uccmd.LocaleESCL,
+			kind: uccmd.ConfigReplySaved,
+			cfg: uccalendar.GuildConfig{
+				FriendUserID: testFriendID,
+				ChannelID:    testChannelID,
+			},
+			wantSubs: []string{
+				"**Configuraci\u00f3n del calendario UC actualizada**",
+				"- **Hincha cruzado:** <@" + testFriendID + ">",
+				"- **Canal de alertas:** <#" + testChannelID + ">",
+			},
+		},
+		{
+			name: "cleared friend only in English keeps channel link",
+			loc:  uccmd.LocaleENUS,
+			kind: uccmd.ConfigReplyCleared,
+			cfg: uccalendar.GuildConfig{
+				ChannelID: testChannelID,
+			},
+			wantSubs: []string{
+				"**UC calendar configuration cleared**",
+				"- **UC-fan friend:** not configured",
+				"- **Proactive alert channel:** <#" + testChannelID + ">",
+			},
+		},
+		{
+			name: "invalid non-snowflake IDs fall back to unset without injecting raw text",
+			loc:  uccmd.LocaleESCL,
+			kind: uccmd.ConfigReplyShow,
+			cfg: uccalendar.GuildConfig{
+				FriendUserID: "@everyone",
+				ChannelID:    "<#bad>",
+			},
+			wantSubs: []string{
+				"- **Hincha cruzado:** sin configurar",
+				"- **Canal de alertas:** sin configurar",
+			},
+			omitSubs: []string{
+				"@everyone",
+				"<#bad>",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := uccmd.RenderGuildConfigIn(tt.loc, tt.kind, tt.cfg)
+			for _, want := range tt.wantSubs {
+				if !strings.Contains(got, want) {
+					t.Errorf("RenderGuildConfigIn missing %q in:\n%s", want, got)
+				}
+			}
+			for _, omit := range tt.omitSubs {
+				if strings.Contains(got, omit) {
+					t.Errorf("RenderGuildConfigIn unexpectedly contains %q in:\n%s", omit, got)
+				}
+			}
+		})
+	}
+}

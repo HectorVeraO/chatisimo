@@ -483,41 +483,6 @@ func FuzzValidateUCAPIBaseURL(f *testing.F) {
 	})
 }
 
-func FuzzValidateDiscordSnowflake(f *testing.F) {
-	seeds := append([]string{
-		"",
-		"0",
-		"01234",
-		"100000000000000001",
-		"18446744073709551615",
-		"18446744073709551616",
-		"not-a-snowflake",
-		"123 456",
-		"-100",
-	}, settingAbuseSeeds()...)
-	for _, seed := range seeds {
-		f.Add(seed)
-	}
-
-	fixedErr := validateDiscordSnowflake("not-a-snowflake", config.EnvLocal).Error()
-
-	f.Fuzz(func(t *testing.T, value string) {
-		err := validateDiscordSnowflake(value, config.EnvLocal)
-		if err != nil {
-			msg := err.Error()
-			if len(value) >= 4 && !strings.Contains(fixedErr, value) && strings.Contains(msg, value) {
-				t.Fatalf("error %q echoed input %q", msg, value)
-			}
-
-			return
-		}
-
-		if len(value) < 1 || len(value) > 20 || value[0] < '1' || value[0] > '9' {
-			t.Fatalf("accepted invalid snowflake %q", value)
-		}
-	})
-}
-
 func FuzzValidateUCAlertClock(f *testing.F) {
 	seeds := append([]string{
 		"",

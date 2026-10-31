@@ -233,8 +233,6 @@ func (b *backend) runCLI(ctx context.Context, stdin string, args ...string) (cli
 	return result, nil
 }
 
-const sharedUCFriendID = "199000000000000042"
-
 // configure stores the fake's token and REST base URL through the CLI, which reads each from
 // stdin. All commands must succeed and print nothing of the token.
 func (b *backend) configure(ctx context.Context) error {
@@ -244,7 +242,6 @@ func (b *backend) configure(ctx context.Context) error {
 		{"llm.api_key", b.fake.Token()},
 		{"llm.base_url", b.fake.LLMBase()},
 		{"uc.api_base_url", b.fake.UCBase()},
-		{"uc.friend_user_id", sharedUCFriendID},
 	}
 
 	var problems []error

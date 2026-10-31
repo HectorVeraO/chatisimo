@@ -144,7 +144,7 @@ func New(n *Notifier, gx GiftExchange, uc UCCalendar, logger *slog.Logger) (*Ada
 
 func buildCommands() []discord.ApplicationCommandCreate {
 	gxCommands := giftexchangecmd.Commands()
-	commands := make([]discord.ApplicationCommandCreate, 0, len(gxCommands)+1)
+	commands := make([]discord.ApplicationCommandCreate, 0, len(gxCommands)+2)
 	for _, cmd := range gxCommands {
 		slash, isSlash := cmd.(discord.SlashCommandCreate)
 		if isSlash && slash.Name == "chatisimo" {
@@ -158,7 +158,7 @@ func buildCommands() []discord.ApplicationCommandCreate {
 
 		commands = append(commands, cmd)
 	}
-	commands = append(commands, uccmd.Command())
+	commands = append(commands, uccmd.Command(), uccmd.ConfigCommand())
 	return commands
 }
 
