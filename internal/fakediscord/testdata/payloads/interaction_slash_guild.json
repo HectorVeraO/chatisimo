@@ -17,7 +17,7 @@
     "user": {{json .User}},
     "roles": [],
     "joined_at": "2024-01-01T00:00:00.000000+00:00",
-    "permissions": "0",
+    "permissions": {{if .MemberPermissions}}{{json .MemberPermissions}}{{else}}"0"{{end}},
     "flags": 0,
     "deaf": false,
     "mute": false

@@ -54,8 +54,54 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 	created.add("user snowflake", englishCaller.ID)
 	s.fake.AddMember(s.guild, englishCaller)
 
+	friend := s.fake.AddUser(fakediscord.User{Name: "Cruzado", Locale: "es-419"})
+	created.add("user snowflake", friend.ID)
+	s.fake.AddMember(s.guild, friend)
+
 	observer := s.members[1]
-	friendMention := "<@" + sharedUCFriendID + ">"
+	friendMention := "<@" + friend.ID + ">"
+
+	// Before configuration, /uc uses generic fallback copy without any user mention.
+	unconfigured := s.slash(t, spanishCaller, "/uc", map[string]any{"date": "2030-05-11"})
+	if unconfigured.message.EphemeralFor != "" {
+		t.Errorf("unconfigured /uc EphemeralFor = %q, want public", unconfigured.message.EphemeralFor)
+	}
+	if !strings.Contains(unconfigured.text, "el hincha cruzado") || strings.Contains(unconfigured.text, "<@") {
+		t.Errorf("unconfigured /uc = %q, want generic Spanish fallback without mention", unconfigured.text)
+	}
+
+	// Non-managers cannot mutate or inspect guild UC configuration.
+	deniedSet := s.slash(t, spanishCaller, "/uc-config/set", map[string]any{"friend": friend})
+	if deniedSet.message.EphemeralFor != spanishCaller.ID || strings.Contains(deniedSet.text, friendMention) {
+		t.Errorf("non-manager /uc-config/set = %q (ephemeral=%q), want ephemeral refusal",
+			deniedSet.text, deniedSet.message.EphemeralFor)
+	}
+
+	deniedShow := s.slash(t, englishCaller, "/uc-config/show", nil)
+	if deniedShow.message.EphemeralFor != englishCaller.ID {
+		t.Errorf("non-manager /uc-config/show EphemeralFor = %q, want %q",
+			deniedShow.message.EphemeralFor, englishCaller.ID)
+	}
+
+	// Grant ManageGuild ("32") to both managers, configure the guild's UC-fan friend, and inspect it.
+	if err := s.fake.SetMemberPermissions(s.guild, spanishCaller, "32"); err != nil {
+		t.Fatalf("SetMemberPermissions spanishCaller: %v", err)
+	}
+	if err := s.fake.SetMemberPermissions(s.guild, englishCaller, "32"); err != nil {
+		t.Fatalf("SetMemberPermissions englishCaller: %v", err)
+	}
+
+	setReply := s.slash(t, spanishCaller, "/uc-config/set", map[string]any{"friend": friend})
+	if setReply.message.EphemeralFor != spanishCaller.ID || !strings.Contains(setReply.text, friendMention) {
+		t.Fatalf("/uc-config/set = %q (ephemeral=%q), want ephemeral confirmation mentioning %s",
+			setReply.text, setReply.message.EphemeralFor, friendMention)
+	}
+
+	showReply := s.slash(t, englishCaller, "/uc-config/show", nil)
+	if showReply.message.EphemeralFor != englishCaller.ID || !strings.Contains(showReply.text, friendMention) {
+		t.Errorf("/uc-config/show = %q (ephemeral=%q), want ephemeral config mentioning %s",
+			showReply.text, showReply.message.EphemeralFor, friendMention)
+	}
 
 	// Default no-option /uc and /chatisimo/uc both post publicly in the channel.
 	defaultShort := s.slash(t, spanishCaller, "/uc", nil)
@@ -123,6 +169,19 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 		}
 	}
 
+	// Cross-guild and DM isolation: neither another guild nor a bot DM mentions s.guild's configured friend.
+	otherGuild := newGuild(t, 1)
+	otherReply := otherGuild.slash(t, otherGuild.members[0], "/uc", map[string]any{"date": "2030-05-11"})
+	if strings.Contains(otherReply.text, friend.ID) || !strings.Contains(otherReply.text, "the UC fan") {
+		t.Errorf("unconfigured other guild /uc = %q, want generic English fallback without %s",
+			otherReply.text, friend.ID)
+	}
+
+	dmReply := s.dmSlash(t, spanishCaller, "/uc", map[string]any{"date": "2030-05-11"})
+	if strings.Contains(dmReply.text, friend.ID) || !strings.Contains(dmReply.text, "el hincha cruzado") {
+		t.Errorf("bot DM /uc = %q, want generic Spanish fallback without %s", dmReply.text, friend.ID)
+	}
+
 	// Validation errors are ephemeral and never echo raw user input.
 	bothOpts := s.slash(t, spanishCaller, "/uc", map[string]any{"window": "today", "date": "2030-05-11"})
 	if bothOpts.message.EphemeralFor != spanishCaller.ID {
@@ -163,10 +222,25 @@ func TestUCProactiveMatchdayAlertAndRestartDedup(t *testing.T) {
 	member := b.fake.AddUser(fakediscord.User{Name: "Observer", Locale: "es-419"})
 	friend := b.fake.AddUser(fakediscord.User{Name: "Cruzado", Locale: "es-419"})
 	guild := b.fake.AddGuild(fakediscord.Guild{Name: "San Carlos Guild"}, member, friend)
+	alertChannelID := b.fake.AddChannel(guild, "uc-alerts")
+	if err := b.fake.SetMemberPermissions(guild, member, "32"); err != nil {
+		t.Fatalf("SetMemberPermissions member: %v", err)
+	}
+
+	otherMember := b.fake.AddUser(fakediscord.User{Name: "AwayManager", Locale: "es-419"})
+	otherGuild := b.fake.AddGuild(fakediscord.Guild{Name: "Away Guild"}, otherMember)
+	if err := b.fake.SetMemberPermissions(otherGuild, otherMember, "32"); err != nil {
+		t.Fatalf("SetMemberPermissions otherMember: %v", err)
+	}
+
 	secrets.add("member snowflake", member.ID)
 	secrets.add("friend snowflake", friend.ID)
 	secrets.add("guild snowflake", guild.ID)
-	secrets.add("channel snowflake", guild.ChannelID)
+	secrets.add("general channel snowflake", guild.ChannelID)
+	secrets.add("alert channel snowflake", alertChannelID)
+	secrets.add("other member snowflake", otherMember.ID)
+	secrets.add("other guild snowflake", otherGuild.ID)
+	secrets.add("other channel snowflake", otherGuild.ChannelID)
 
 	nowSantiago := time.Now().In(loc)
 	kickoffToday := time.Date(
@@ -202,17 +276,12 @@ func TestUCProactiveMatchdayAlertAndRestartDedup(t *testing.T) {
 	if err := b.configure(t.Context()); err != nil {
 		t.Fatalf("configure: %v", err)
 	}
-	for _, setting := range []struct{ key, value string }{
-		{"uc.friend_user_id", friend.ID},
-		{"uc.channel_id", guild.ChannelID},
-		{"uc.matchday_alert_time", "00:00"},
-	} {
-		res, setErr := b.runCLI(t.Context(), setting.value, "config", "set", setting.key)
-		if setErr != nil || res.code != 0 {
-			t.Fatalf("config set %s: err=%v res=%+v", setting.key, setErr, res)
-		}
+	res, setErr := b.runCLI(t.Context(), "00:00", "config", "set", "uc.matchday_alert_time")
+	if setErr != nil || res.code != 0 {
+		t.Fatalf("config set uc.matchday_alert_time: err=%v res=%+v", setErr, res)
 	}
 
+	// Run 1: configure per-guild UC targets via Discord slash commands (/uc-config set).
 	tempLogs := t.TempDir()
 	log1 := filepath.Join(tempLogs, "run1.log")
 	p1, err := b.start(log1)
@@ -226,12 +295,33 @@ func TestUCProactiveMatchdayAlertAndRestartDedup(t *testing.T) {
 		t.Fatalf("awaitReady run 1: %v", err)
 	}
 
-	countAlerts := func() (int, fakediscord.Message) {
+	sceneA := &scene{fake: b.fake, guild: guild}
+	cfgA := sceneA.slash(t, member, "/uc-config/set", map[string]any{
+		"friend":  friend,
+		"channel": alertChannelID,
+	})
+	if cfgA.message.EphemeralFor != member.ID || !strings.Contains(cfgA.text, "<#"+alertChannelID+">") {
+		t.Fatalf("guild A /uc-config/set = %q (ephemeral=%q)", cfgA.text, cfgA.message.EphemeralFor)
+	}
+
+	sceneB := &scene{fake: b.fake, guild: otherGuild}
+	cfgB := sceneB.slash(t, otherMember, "/uc-config/set", map[string]any{
+		"channel": otherGuild.ChannelID,
+	})
+	if cfgB.message.EphemeralFor != otherMember.ID || !strings.Contains(cfgB.text, "<#"+otherGuild.ChannelID+">") {
+		t.Fatalf("guild B /uc-config/set = %q (ephemeral=%q)", cfgB.text, cfgB.message.EphemeralFor)
+	}
+
+	if err := p1.stopGracefully(stopTimeout); err != nil {
+		t.Fatalf("stop run 1: %v", err)
+	}
+
+	countAlertsIn := func(viewer fakediscord.User, channelID string) (int, fakediscord.Message) {
 		count := 0
 		var last fakediscord.Message
-		for _, msg := range b.fake.Visible(member, guild.ChannelID) {
+		for _, msg := range b.fake.Visible(viewer, channelID) {
 			isMatchdayAlert := msg.EphemeralFor == "" &&
-				strings.Contains(msg.Content, "Aviso de utilidad pública") &&
+				strings.Contains(msg.Content, "Aviso de utilidad p\u00fablica") &&
 				strings.Contains(msg.Content, "Audax Italiano")
 			if isMatchdayAlert {
 				count++
@@ -241,30 +331,49 @@ func TestUCProactiveMatchdayAlertAndRestartDedup(t *testing.T) {
 		return count, last
 	}
 
-	var alertMsg fakediscord.Message
-	waitFor(t, "proactive matchday alert in configured channel", func() bool {
-		var count int
-		count, alertMsg = countAlerts()
-		return count >= 1
+	// Run 2: startup CheckAlerts reads persisted uccalendar.guild_config and delivers per-guild alerts.
+	log2 := filepath.Join(tempLogs, "run2.log")
+	p2, err := b.start(log2)
+	if err != nil {
+		t.Fatalf("start run 2: %v", err)
+	}
+
+	var alertMsgA, alertMsgB fakediscord.Message
+	waitFor(t, "proactive matchday alerts in both configured guild channels", func() bool {
+		if p2.hasExited() {
+			t.Fatalf("run 2 exited before delivering proactive alerts")
+		}
+		var countA, countB int
+		countA, alertMsgA = countAlertsIn(member, alertChannelID)
+		countB, alertMsgB = countAlertsIn(otherMember, otherGuild.ChannelID)
+		return countA >= 1 && countB >= 1
 	})
+
+	if generalCount, _ := countAlertsIn(member, guild.ChannelID); generalCount != 0 {
+		t.Errorf("unselected general channel received %d alerts, want 0", generalCount)
+	}
 
 	wantStartToday := kickoffToday.Add(-2 * time.Hour).In(loc).Format("15:04")
 	wantEndToday := kickoffToday.Add(3*time.Hour + 30*time.Minute).In(loc).Format("15:04")
 	wantStartTomorrow := kickoffTomorrow.Add(-2 * time.Hour).In(loc).Format("15:04")
 	wantEndTomorrow := kickoffTomorrow.Add(3*time.Hour + 30*time.Minute).In(loc).Format("15:04")
 
-	hasTodayWindow := strings.Contains(alertMsg.Content, wantStartToday) && strings.Contains(alertMsg.Content, wantEndToday)
+	hasTodayWindow := strings.Contains(alertMsgA.Content, wantStartToday) && strings.Contains(alertMsgA.Content, wantEndToday)
 	hasTomorrowWindow := nearMidnight &&
-		strings.Contains(alertMsg.Content, wantStartTomorrow) &&
-		strings.Contains(alertMsg.Content, wantEndTomorrow)
+		strings.Contains(alertMsgA.Content, wantStartTomorrow) &&
+		strings.Contains(alertMsgA.Content, wantEndTomorrow)
 	if !hasTodayWindow && !hasTomorrowWindow {
-		t.Errorf("matchday alert = %q, want block window %s..%s", alertMsg.Content, wantStartToday, wantEndToday)
+		t.Errorf("matchday alert A = %q, want block window %s..%s", alertMsgA.Content, wantStartToday, wantEndToday)
 	}
 
 	for _, want := range []string{"Audax Italiano", "<@" + friend.ID + ">", "<t:"} {
-		if !strings.Contains(alertMsg.Content, want) {
-			t.Errorf("matchday alert = %q, want substring %q", alertMsg.Content, want)
+		if !strings.Contains(alertMsgA.Content, want) {
+			t.Errorf("matchday alert A = %q, want substring %q", alertMsgA.Content, want)
 		}
+	}
+
+	if strings.Contains(alertMsgB.Content, friend.ID) || !strings.Contains(alertMsgB.Content, "el hincha cruzado") {
+		t.Errorf("matchday alert B = %q, want generic fallback without guild A friend %s", alertMsgB.Content, friend.ID)
 	}
 
 	for _, record := range b.fake.Outbound() {
@@ -273,21 +382,19 @@ func TestUCProactiveMatchdayAlertAndRestartDedup(t *testing.T) {
 		}
 	}
 
-	if err := p1.stopGracefully(stopTimeout); err != nil {
-		t.Fatalf("stop run 1: %v", err)
+	if err := p2.stopGracefully(stopTimeout); err != nil {
+		t.Fatalf("stop run 2: %v", err)
 	}
 
-	// Restart against the same database: uccalendar.sent_alert must prevent a duplicate alert.
-	log2 := filepath.Join(tempLogs, "run2.log")
-	p2, err := b.start(log2)
+	// Run 3: restart against the same database; (guild_id, alert_key) in uccalendar.sent_alert prevents duplicates.
+	log3 := filepath.Join(tempLogs, "run3.log")
+	p3, err := b.start(log3)
 	if err != nil {
-		t.Fatalf("start run 2: %v", err)
+		t.Fatalf("start run 3: %v", err)
 	}
-	// Wait for run 2 to connect its Gateway session and answer a /uc slash command (WaitReady is
-	// latched from run 1 on the same fake server).
-	waitFor(t, "run 2 to answer a /uc slash command", func() bool {
-		if p2.hasExited() {
-			t.Fatalf("run 2 exited before answering /uc")
+	waitFor(t, "run 3 to answer a /uc slash command", func() bool {
+		if p3.hasExited() {
+			t.Fatalf("run 3 exited before answering /uc")
 		}
 		slashRes, slashErr := b.fake.Slash(t.Context(), member, fakediscord.Slash{
 			Guild:   &guild,
@@ -298,15 +405,18 @@ func TestUCProactiveMatchdayAlertAndRestartDedup(t *testing.T) {
 		return slashErr == nil && slashRes.Status != fakediscord.StatusTimeout && slashRes.Message != nil
 	})
 
-	if count, _ := countAlerts(); count != 1 {
-		t.Errorf("matchday alert count after restart = %d, want 1 (deduplicated)", count)
+	if countA, _ := countAlertsIn(member, alertChannelID); countA != 1 {
+		t.Errorf("guild A matchday alert count after restart = %d, want 1 (deduplicated)", countA)
+	}
+	if countB, _ := countAlertsIn(otherMember, otherGuild.ChannelID); countB != 1 {
+		t.Errorf("guild B matchday alert count after restart = %d, want 1 (deduplicated)", countB)
 	}
 
-	if err := p2.stopGracefully(stopTimeout); err != nil {
-		t.Fatalf("stop run 2: %v", err)
+	if err := p3.stopGracefully(stopTimeout); err != nil {
+		t.Fatalf("stop run 3: %v", err)
 	}
 
-	for _, path := range []string{log1, log2} {
+	for _, path := range []string{log1, log2, log3} {
 		if auditErr := auditLog(path, &secrets); auditErr != nil {
 			t.Error(auditErr)
 		}

@@ -49,6 +49,22 @@ func listTables(t *testing.T, schema string) []string {
 	return names
 }
 
+func readDownSQL(t *testing.T, files fs.FS, name string) string {
+	t.Helper()
+
+	rawSQL, err := fs.ReadFile(files, name)
+	if err != nil {
+		t.Fatalf("ReadFile %s: %v", name, err)
+	}
+
+	_, downSQL, hasDown := strings.Cut(string(rawSQL), "-- +goose Down")
+	if !hasDown {
+		t.Fatalf("%s is missing -- +goose Down", name)
+	}
+
+	return downSQL
+}
+
 func TestMigrationSourceNamesSchemaUCCalendar(t *testing.T) {
 	source, err := uccalendar.MigrationSource()
 	if err != nil {
@@ -127,9 +143,9 @@ func TestMigrationSourceFingerprintTracksContent(t *testing.T) {
 	}
 }
 
-func TestMigrateCreatesSentAlertInUCCalendarAndNothingInPublic(t *testing.T) {
+func TestMigrateCreatesTablesInUCCalendarAndNothingInPublic(t *testing.T) {
 	got := listTables(t, "uccalendar")
-	want := []string{"goose_db_version", "sent_alert"}
+	want := []string{"goose_db_version", "guild_config", "sent_alert"}
 
 	if !slices.Equal(got, want) {
 		t.Errorf("tables in uccalendar = %v, want %v", got, want)
@@ -168,32 +184,28 @@ func TestMigration0001InitUpAndDown(t *testing.T) {
 		t.Fatalf("store.Migrations: %v", err)
 	}
 
-	rawSQL, err := fs.ReadFile(files, "0001_init.sql")
-	if err != nil {
-		t.Fatalf("ReadFile 0001_init.sql: %v", err)
-	}
+	down0002 := readDownSQL(t, files, "0002_guild_config.sql")
+	down0001 := readDownSQL(t, files, "0001_init.sql")
 
-	_, downSQL, hasDown := strings.Cut(string(rawSQL), "-- +goose Down")
-	if !hasDown {
-		t.Fatal("0001_init.sql is missing -- +goose Down")
-	}
-
-	_, err = pool.Exec(t.Context(), downSQL+"; DELETE FROM uccalendar.goose_db_version WHERE version_id = 1;")
+	_, err = pool.Exec(
+		t.Context(),
+		down0002+"; "+down0001+"; DELETE FROM uccalendar.goose_db_version WHERE version_id >= 1;",
+	)
 	if err != nil {
-		t.Fatalf("exec Down migration: %v", err)
+		t.Fatalf("exec Down migrations: %v", err)
 	}
 
 	var count int
 	err = pool.QueryRow(
 		t.Context(),
-		"SELECT count(*) FROM information_schema.tables WHERE table_schema = 'uccalendar' AND table_name = 'sent_alert'",
+		"SELECT count(*) FROM information_schema.tables WHERE table_schema = 'uccalendar' AND table_name IN ('guild_config', 'sent_alert')",
 	).Scan(&count)
 	if err != nil {
-		t.Fatalf("count sent_alert after Down: %v", err)
+		t.Fatalf("count tables after Down: %v", err)
 	}
 
 	if count != 0 {
-		t.Errorf("sent_alert count after Down = %d, want 0", count)
+		t.Errorf("table count after Down = %d, want 0", count)
 	}
 
 	err = db.Migrate(t.Context(), pool, source)
@@ -203,13 +215,102 @@ func TestMigration0001InitUpAndDown(t *testing.T) {
 
 	err = pool.QueryRow(
 		t.Context(),
-		"SELECT count(*) FROM information_schema.tables WHERE table_schema = 'uccalendar' AND table_name = 'sent_alert'",
+		"SELECT count(*) FROM information_schema.tables WHERE table_schema = 'uccalendar' AND table_name IN ('guild_config', 'sent_alert')",
 	).Scan(&count)
 	if err != nil {
-		t.Fatalf("count sent_alert after Up: %v", err)
+		t.Fatalf("count tables after Up: %v", err)
 	}
 
-	if count != 1 {
-		t.Errorf("sent_alert count after Up = %d, want 1", count)
+	if count != 2 {
+		t.Errorf("table count after Up = %d, want 2", count)
+	}
+}
+
+func TestMigration0002GuildConfigUpAndDown(t *testing.T) {
+	source, err := uccalendar.MigrationSource()
+	if err != nil {
+		t.Fatalf("MigrationSource: %v", err)
+	}
+
+	isolated, err := pgtest.New(t.Context(), pgtest.Options{Sources: []db.Source{source}})
+	if err != nil {
+		t.Fatalf("pgtest.New: %v", err)
+	}
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), closeDeadline)
+		defer cancel()
+
+		closeErr := isolated.Close(closeCtx)
+		if closeErr != nil {
+			t.Errorf("isolated.Close: %v", closeErr)
+		}
+	})
+
+	pool := isolated.Pool()
+
+	// Seed per-guild config and duplicate alert_key rows across two guilds before rolling 0002 Down.
+	_, err = pool.Exec(t.Context(), `
+		INSERT INTO uccalendar.guild_config (guild_id, friend_user_id, channel_id, updated_at)
+		VALUES ('200000000000000001', '100000000000000001', '300000000000000001', '2026-10-30T17:00:00Z');
+
+		INSERT INTO uccalendar.sent_alert (guild_id, alert_key, sent_at) VALUES
+		('200000000000000001', 'friday:2026-10-30', '2026-10-30T20:00:00Z'),
+		('200000000000000002', 'friday:2026-10-30', '2026-10-30T20:05:00Z');
+	`)
+	if err != nil {
+		t.Fatalf("seed 0002 rows: %v", err)
+	}
+
+	files, err := store.Migrations()
+	if err != nil {
+		t.Fatalf("store.Migrations: %v", err)
+	}
+
+	down0002 := readDownSQL(t, files, "0002_guild_config.sql")
+	_, err = pool.Exec(t.Context(), down0002+"; DELETE FROM uccalendar.goose_db_version WHERE version_id = 2;")
+	if err != nil {
+		t.Fatalf("exec 0002 Down: %v", err)
+	}
+
+	var sentRows int
+	err = pool.QueryRow(t.Context(), "SELECT count(*) FROM uccalendar.sent_alert").Scan(&sentRows)
+	if err != nil {
+		t.Fatalf("count sent_alert after 0002 Down: %v", err)
+	}
+	if sentRows != 1 {
+		t.Errorf("sent_alert rows after 0002 Down deduplication = %d, want 1", sentRows)
+	}
+
+	// Re-apply 0002 Up on top of the legacy pre-0002 sent_alert row.
+	err = db.Migrate(t.Context(), pool, source)
+	if err != nil {
+		t.Fatalf("re-apply 0002 Up on legacy sent_alert row: %v", err)
+	}
+
+	var migratedGuildID string
+	err = pool.QueryRow(
+		t.Context(),
+		"SELECT guild_id FROM uccalendar.sent_alert WHERE alert_key = 'friday:2026-10-30'",
+	).Scan(&migratedGuildID)
+	if err != nil {
+		t.Fatalf("read migrated sent_alert row: %v", err)
+	}
+	if migratedGuildID != "" {
+		t.Errorf("migrated legacy sent_alert guild_id = %q, want empty sentinel", migratedGuildID)
+	}
+
+	var hasDefault bool
+	err = pool.QueryRow(t.Context(), `
+		SELECT column_default IS NOT NULL
+		FROM information_schema.columns
+		WHERE table_schema = 'uccalendar'
+		  AND table_name = 'sent_alert'
+		  AND column_name = 'guild_id'
+	`).Scan(&hasDefault)
+	if err != nil {
+		t.Fatalf("inspect sent_alert.guild_id default: %v", err)
+	}
+	if hasDefault {
+		t.Error("sent_alert.guild_id still has a column DEFAULT after 0002 Up, want DEFAULT dropped")
 	}
 }

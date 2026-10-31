@@ -95,7 +95,15 @@ func TestCommandTrees(t *testing.T) {
 
 	short := registeredTree(t, "ge")
 	ucShort := registeredTree(t, "uc")
+	ucConfig := registeredTree(t, "uc-config")
 	long := registeredTree(t, "chatisimo")
+
+	if got, want := optionNames(ucConfig.Options), []string{"set", "show", "clear"}; !slices.Equal(got, want) {
+		t.Errorf("/uc-config options = %v, want %v", got, want)
+	}
+	if !slices.Equal(ucConfig.Contexts, []int{0}) {
+		t.Errorf("/uc-config contexts = %v, want guild-only [0]", ucConfig.Contexts)
+	}
 
 	if got, want := optionNames(long.Options), []string{"giftexchange", "uc"}; !slices.Equal(got, want) {
 		t.Fatalf("/chatisimo options = %v, want %v", got, want)

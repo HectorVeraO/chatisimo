@@ -213,6 +213,61 @@ func TestMention(t *testing.T) {
 	}
 }
 
+func TestChannelMention(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      string
+		want    string
+		wantErr bool
+	}{
+		{"snowflake", fakeUser, "<#100000000000000001>", false},
+		{"empty", "", "", true},
+		{"letters", "abc", "", true},
+		{"markup", "1> @everyone <#2", "", true},
+		{"sign", "+12", "", true},
+		{"21 digits", "123456789012345678901", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ChannelMention(tt.id)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ChannelMention(%q) error = %v, wantErr %v", tt.id, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("ChannelMention(%q) = %q, want %q", tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
+func FuzzChannelMention(f *testing.F) {
+	seeds := []string{
+		fakeUser, "", "abc", "1> @everyone <#2", "+12", "123456789012345678901",
+		"0", "\u0661\u0662", "1\u200b2", "\n1", "18446744073709551616", "<#1>",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, id string) {
+		got, err := ChannelMention(id)
+		if err != nil {
+			if got != "" {
+				t.Errorf("ChannelMention(%q) = %q with error %v", id, got, err)
+			}
+			return
+		}
+		if want := "<#" + id + ">"; got != want {
+			t.Errorf("ChannelMention(%q) = %q, want %q", id, got, want)
+		}
+		for _, r := range id {
+			if r < '0' || r > '9' {
+				t.Errorf("ChannelMention accepted non-digit rune %U in %q", r, id)
+			}
+		}
+	})
+}
+
 func FuzzMention(f *testing.F) {
 	seeds := []string{
 		fakeUser, "", "abc", "1> @everyone <@2", "+12", "123456789012345678901",

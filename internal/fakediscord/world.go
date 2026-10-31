@@ -64,13 +64,16 @@ type Command struct {
 
 type guildState struct {
 	Guild
-	members []string
+	members     []string
+	memberPerms map[string]string
 }
 
 type channelState struct {
 	id          string
 	guildID     string
 	recipientID string
+	name        string
+	channelType int
 }
 
 // pendingModal is a modal waiting for its user to submit it.
@@ -180,11 +183,39 @@ func (w *world) upsertGuild(g Guild, ids *snowflakes) (stored Guild, isNew bool)
 		g.Locale = "en-US"
 	}
 	g.ChannelID = ids.next()
-	w.guilds[g.ID] = &guildState{Guild: g}
+	w.guilds[g.ID] = &guildState{
+		Guild:       g,
+		memberPerms: map[string]string{},
+	}
 	w.guildOrder = append(w.guildOrder, g.ID)
-	w.channels[g.ChannelID] = &channelState{id: g.ChannelID, guildID: g.ID}
+	w.channels[g.ChannelID] = &channelState{
+		id:          g.ChannelID,
+		guildID:     g.ID,
+		name:        "general",
+		channelType: 0,
+	}
 
 	return g, true
+}
+
+func (w *world) addGuildChannel(guildID, name string, channelType int, ids *snowflakes) (string, error) {
+	_, found := w.guilds[guildID]
+	if !found {
+		return "", fmt.Errorf("add channel: unknown guild %q", guildID)
+	}
+
+	channelID := ids.next()
+	if name == "" {
+		name = "channel-" + channelID
+	}
+	w.channels[channelID] = &channelState{
+		id:          channelID,
+		guildID:     guildID,
+		name:        name,
+		channelType: channelType,
+	}
+
+	return channelID, nil
 }
 
 func (w *world) addMember(guildID string, u User, ids *snowflakes) error {
@@ -201,6 +232,63 @@ func (w *world) addMember(guildID string, u User, ids *snowflakes) error {
 	return nil
 }
 
+func isDecimalBitset(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		isDigit := value[i] >= '0' && value[i] <= '9'
+		if !isDigit {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (w *world) setMemberPermissions(guildID, userID, permissions string) error {
+	guild, hasGuild := w.guilds[guildID]
+	if !hasGuild {
+		return fmt.Errorf("set member permissions: %w", ErrUnknownGuild)
+	}
+	_, hasUser := w.users[userID]
+	if !hasUser {
+		return fmt.Errorf("set member permissions: %w", ErrUnknownUser)
+	}
+	if !slices.Contains(guild.members, userID) {
+		return fmt.Errorf("set member permissions: user %q is not a member of guild %q", userID, guildID)
+	}
+	if permissions == "" {
+		permissions = "0"
+	}
+	if !isDecimalBitset(permissions) {
+		return fmt.Errorf("set member permissions: %q is not a decimal bitset", permissions)
+	}
+	if guild.memberPerms == nil {
+		guild.memberPerms = map[string]string{}
+	}
+	if permissions == "0" {
+		delete(guild.memberPerms, userID)
+		return nil
+	}
+	guild.memberPerms[userID] = permissions
+
+	return nil
+}
+
+func (w *world) memberPermissions(guildID, userID string) string {
+	guild, found := w.guilds[guildID]
+	if !found {
+		return "0"
+	}
+	perms := guild.memberPerms[userID]
+	if perms == "" {
+		return "0"
+	}
+
+	return perms
+}
+
 // dmChannelFor returns the DM channel between the bot and the user, creating it once.
 func (w *world) dmChannelFor(userID string, ids *snowflakes) *channelState {
 	channelID, found := w.dmByUser[userID]
@@ -208,7 +296,7 @@ func (w *world) dmChannelFor(userID string, ids *snowflakes) *channelState {
 		return w.channels[channelID]
 	}
 
-	channel := &channelState{id: ids.next(), recipientID: userID}
+	channel := &channelState{id: ids.next(), recipientID: userID, channelType: 1}
 	w.channels[channel.id] = channel
 	w.dmByUser[userID] = channel.id
 

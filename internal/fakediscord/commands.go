@@ -54,22 +54,25 @@ type optionDef struct {
 	MinValue     *float64          `json:"min_value"`
 	MaxValue     *float64          `json:"max_value"`
 	Choices      []json.RawMessage `json:"choices"`
+	ChannelTypes []int             `json:"channel_types"`
 	Options      []optionDef       `json:"options"`
 }
 
 // commandDef is a registered command's definition.
 type commandDef struct {
-	Name    string      `json:"name"`
-	Type    int         `json:"type"`
-	Options []optionDef `json:"options"`
+	Name     string      `json:"name"`
+	Type     int         `json:"type"`
+	Contexts []int       `json:"contexts"`
+	Options  []optionDef `json:"options"`
 }
 
 // parsedPath is a slash path resolved against a registered command.
 type parsedPath struct {
-	command Command
-	group   string
-	sub     string
-	leaves  []optionDef
+	command  Command
+	group    string
+	sub      string
+	leaves   []optionDef
+	contexts []int
 }
 
 // resolvePath maps a path like /ge/join to the registered command, its subcommand group and
@@ -94,7 +97,7 @@ func resolvePath(commands []Command, guildID, path string) (parsedPath, error) {
 		return parsedPath{}, fmt.Errorf("path %q: the registered definition is unreadable", path)
 	}
 
-	resolved := parsedPath{command: command, leaves: def.Options}
+	resolved := parsedPath{command: command, leaves: def.Options, contexts: def.Contexts}
 	for depth, segment := range segments[1:] {
 		next, isFound := findSubcommand(resolved.leaves, segment)
 		if !isFound {
@@ -149,14 +152,17 @@ func findSubcommand(options []optionDef, name string) (optionDef, bool) {
 
 // optionInput is how option building sees the world.
 type optionInput struct {
-	values         map[string]any
-	bypass         bool
-	autocomplete   bool
-	focused        string
-	userByID       func(id string) (User, bool)
-	isGuildMember  func(id string) bool
-	resolvedUsers  map[string]userJSON
-	resolvedMember map[string]map[string]any
+	values           map[string]any
+	bypass           bool
+	autocomplete     bool
+	focused          string
+	guildID          string
+	userJSONByID     func(id string) (userJSON, bool)
+	isGuildMember    func(id string) bool
+	channelByID      func(id string) (*channelState, bool)
+	resolvedUsers    map[string]userJSON
+	resolvedMember   map[string]map[string]any
+	resolvedChannels map[string]map[string]any
 }
 
 // buildOptions validates the values against the leaf definitions and returns the leaf
@@ -256,19 +262,37 @@ func buildLeaf(def optionDef, value any, in *optionInput) (map[string]any, error
 	return leaf, nil
 }
 
-// resolve records the user a user option points at, so the bot can resolve it.
+// resolve records the user or channel an option points at, so the bot can resolve it.
 func (in *optionInput) resolve(optionType int, wire any) {
-	isUser := optionType == optionUser || optionType == optionMentionable
 	id, isString := wire.(string)
-	if !isUser || !isString {
+	if !isString {
 		return
 	}
-	user, found := in.userByID(id)
+	if optionType == optionChannel {
+		ch, found := in.channelByID(id)
+		isInGuild := found && in.guildID != "" && ch.guildID == in.guildID
+		if !isInGuild {
+			return
+		}
+		in.resolvedChannels[id] = map[string]any{
+			"id":          ch.id,
+			"name":        ch.name,
+			"type":        ch.channelType,
+			"permissions": "0",
+		}
+
+		return
+	}
+	isUser := optionType == optionUser || optionType == optionMentionable
+	if !isUser {
+		return
+	}
+	user, found := in.userJSONByID(id)
 	if !found {
 		return
 	}
 
-	in.resolvedUsers[id] = userToJSON(user)
+	in.resolvedUsers[id] = user
 	if in.isGuildMember(id) {
 		in.resolvedMember[id] = map[string]any{
 			"roles":       []string{},
@@ -369,10 +393,23 @@ func coerceSnowflake(def optionDef, value any, in *optionInput) (any, error) {
 	if !isSnowflake(id) {
 		return nil, fmt.Errorf("option %q: %q is not an ID", def.Name, id)
 	}
-	if def.Type == optionUser {
-		_, found := in.userByID(id)
-		if !found {
-			return nil, fmt.Errorf("option %q: unknown user", def.Name)
+	if !in.bypass {
+		if def.Type == optionUser {
+			_, found := in.userJSONByID(id)
+			if !found {
+				return nil, fmt.Errorf("option %q: unknown user", def.Name)
+			}
+		}
+		if def.Type == optionChannel {
+			ch, found := in.channelByID(id)
+			isInGuild := found && in.guildID != "" && ch.guildID == in.guildID
+			if !isInGuild {
+				return nil, fmt.Errorf("option %q: unknown channel", def.Name)
+			}
+			hasRestrictedTypes := len(def.ChannelTypes) > 0
+			if hasRestrictedTypes && !slices.Contains(def.ChannelTypes, ch.channelType) {
+				return nil, fmt.Errorf("option %q: channel type %d is not allowed", def.Name, ch.channelType)
+			}
 		}
 	}
 

@@ -125,6 +125,22 @@ func (r *Request) InGuild() bool {
 	return isGuild
 }
 
+// CanManageGuild reports whether the interacting guild member holds ManageGuild or Administrator.
+func (r *Request) CanManageGuild() bool {
+	if !r.InGuild() || r.event == nil || r.event.Interaction == nil {
+		return false
+	}
+	member := r.event.Member()
+	if member == nil {
+		return false
+	}
+	hasManage := member.Permissions.Has(discord.PermissionManageGuild)
+	hasAdmin := member.Permissions.Has(discord.PermissionAdministrator)
+	canManage := hasManage || hasAdmin
+
+	return canManage
+}
+
 // Locale returns the interacting user's Discord locale tag (e.g. "en-US", "es-419").
 func (r *Request) Locale() string {
 	if r.event == nil || r.event.Interaction == nil {

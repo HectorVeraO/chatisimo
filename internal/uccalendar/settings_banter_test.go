@@ -55,19 +55,19 @@ func TestSettings5MinuteTTLLiveUpdatesAndKillSwitch(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	// Optional uc.friend_user_id and uc.channel_id default to "" when unset in config.Store.
-	initialRep, err := svc.Check(t.Context(), uccalendar.Query{})
+	// Unconfigured guild defaults FriendUserID to "".
+	initialRep, err := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
 	if err != nil {
 		t.Fatalf("initial Check: %v", err)
 	}
 
 	if initialRep.FriendUserID != "" {
-		t.Errorf("initial FriendUserID = %q, want empty when unset", initialRep.FriendUserID)
+		t.Errorf("initial FriendUserID = %q, want empty when guild is unconfigured", initialRep.FriendUserID)
 	}
 
 	// Wait for initial cold async banter refresh to populate the cache at T = 15:10.
 	waitForCondition(t, "initial banter cache warm", func() bool {
-		rep, checkErr := svc.Check(t.Context(), uccalendar.Query{})
+		rep, checkErr := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
 		return checkErr == nil && rep.Banter != ""
 	})
 
@@ -75,20 +75,15 @@ func TestSettings5MinuteTTLLiveUpdatesAndKillSwitch(t *testing.T) {
 		t.Fatalf("banter.Calls() = %d, want 1", banter.Calls())
 	}
 
-	// Configure channel_id and change friday_alert_time from 17:00 -> 15:00 in Postgres.
-	if err := cfgStore.Set(t.Context(), uccalendar.SettingChannelID, fakeChannelID); err != nil {
-		t.Fatalf("Set channel_id: %v", err)
-	}
-
-	if err := cfgStore.Set(t.Context(), uccalendar.SettingFriendUserID, otherFriendID); err != nil {
-		t.Fatalf("Set friend_user_id: %v", err)
-	}
+	// Configure guild friend and alert channel immediately (no TTL delay on guild_config!) and
+	// change friday_alert_time from 17:00 -> 15:00 in platform.setting (subject to 5m TTL).
+	mustConfigureGuild(t, svc, fakeGuildID, otherFriendID, fakeChannelID)
 
 	if err := cfgStore.Set(t.Context(), uccalendar.SettingFridayAlertTime, "15:00"); err != nil {
 		t.Fatalf("Set friday_alert_time: %v", err)
 	}
 
-	// At T + 2m (15:12), settings cache is still within 5m TTL -> alert does NOT fire yet.
+	// At T + 2m (15:12), platform settings cache is still within 5m TTL -> alert does NOT fire yet.
 	clock.Advance(2 * time.Minute)
 	if err := svc.CheckAlerts(t.Context()); err != nil {
 		t.Fatalf("CheckAlerts before 5m TTL: %v", err)
@@ -98,7 +93,7 @@ func TestSettings5MinuteTTLLiveUpdatesAndKillSwitch(t *testing.T) {
 		t.Fatalf("alerts delivered before 5m settings TTL = %d, want 0", len(alerts.Delivered()))
 	}
 
-	// Advance past 5m settings TTL (T = 15:16) -> reloads 15:00 and channel_id, firing Friday alert!
+	// Advance past 5m settings TTL (T = 15:16) -> reloads 15:00 and fires Friday alert for fakeGuildID!
 	clock.Advance(4 * time.Minute)
 	if err := svc.CheckAlerts(t.Context()); err != nil {
 		t.Fatalf("CheckAlerts after 5m TTL: %v", err)
@@ -117,7 +112,7 @@ func TestSettings5MinuteTTLLiveUpdatesAndKillSwitch(t *testing.T) {
 	clock.Advance(2 * time.Hour)
 	banter.SetResponse("Frase renovada tras bajar el TTL a una hora.", nil)
 
-	repUnder24h, err := svc.Check(t.Context(), uccalendar.Query{})
+	repUnder24h, err := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
 	if err != nil {
 		t.Fatalf("Check under 24h TTL: %v", err)
 	}
@@ -134,7 +129,7 @@ func TestSettings5MinuteTTLLiveUpdatesAndKillSwitch(t *testing.T) {
 	clock.Advance(5 * time.Minute)
 
 	// First Check sees 2h11m >= 1h immediately: returns stale phrase in <1ms and triggers async refresh!
-	staleRep, err := svc.Check(t.Context(), uccalendar.Query{})
+	staleRep, err := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
 	if err != nil {
 		t.Fatalf("Check after shrinking TTL to 1h: %v", err)
 	}
@@ -144,7 +139,7 @@ func TestSettings5MinuteTTLLiveUpdatesAndKillSwitch(t *testing.T) {
 	}
 
 	waitForCondition(t, "revalidated banter after TTL shrink", func() bool {
-		rep, checkErr := svc.Check(t.Context(), uccalendar.Query{})
+		rep, checkErr := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
 		return checkErr == nil && rep.Banter == "Frase renovada tras bajar el TTL a una hora."
 	})
 
@@ -156,7 +151,7 @@ func TestSettings5MinuteTTLLiveUpdatesAndKillSwitch(t *testing.T) {
 	clock.Advance(5 * time.Minute)
 	callsBeforeKillSwitch := banter.Calls()
 
-	disabledRep, err := svc.Check(t.Context(), uccalendar.Query{})
+	disabledRep, err := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
 	if err != nil {
 		t.Fatalf("Check with 0s kill-switch: %v", err)
 	}
@@ -181,9 +176,7 @@ func TestStaleWhileRevalidateSingleflightSanitizationEvictionAndLogSafety(t *tes
 	)
 
 	settings := newMapSettings(map[string]string{
-		uccalendar.SettingAPIBaseURL:   espnSrv.BaseURL(),
-		uccalendar.SettingFriendUserID: fakeFriendID,
-		uccalendar.SettingChannelID:    fakeChannelID,
+		uccalendar.SettingAPIBaseURL: espnSrv.BaseURL(),
 	})
 
 	var logBuf syncBuffer
@@ -213,6 +206,9 @@ func TestStaleWhileRevalidateSingleflightSanitizationEvictionAndLogSafety(t *tes
 		_ = svc.Close()
 	})
 
+	cleanGuildConfigs(t, shared.Pool())
+	mustConfigureGuild(t, svc, fakeGuildID, fakeFriendID, fakeChannelID)
+
 	if err := svc.Sync(t.Context()); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
@@ -224,7 +220,7 @@ func TestStaleWhileRevalidateSingleflightSanitizationEvictionAndLogSafety(t *tes
 		go func() {
 			defer wg.Done()
 
-			rep, checkErr := svc.Check(t.Context(), uccalendar.Query{})
+			rep, checkErr := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
 			if checkErr != nil {
 				t.Errorf("concurrent Check: %v", checkErr)
 				return
@@ -246,7 +242,7 @@ func TestStaleWhileRevalidateSingleflightSanitizationEvictionAndLogSafety(t *tes
 
 	var sanitized string
 	waitForCondition(t, "sanitized banter stored", func() bool {
-		rep, checkErr := svc.Check(t.Context(), uccalendar.Query{})
+		rep, checkErr := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
 		if checkErr == nil && rep.Banter != "" {
 			sanitized = rep.Banter
 			return true
@@ -263,10 +259,10 @@ func TestStaleWhileRevalidateSingleflightSanitizationEvictionAndLogSafety(t *tes
 		t.Errorf("sanitized banter %q still contains forbidden characters", sanitized)
 	}
 
-	// Verify prompts sent to LLM never include user IDs or channel IDs.
+	// Verify prompts sent to LLM never include guild, user, or channel IDs.
 	for _, p := range banter.Prompts() {
-		if strings.Contains(p, fakeFriendID) || strings.Contains(p, fakeChannelID) {
-			t.Errorf("LLM prompt %q leaked user or channel snowflake", p)
+		if strings.Contains(p, fakeGuildID) || strings.Contains(p, fakeFriendID) || strings.Contains(p, fakeChannelID) {
+			t.Errorf("LLM prompt %q leaked guild, user, or channel snowflake", p)
 		}
 	}
 
@@ -330,7 +326,7 @@ func TestStaleWhileRevalidateSingleflightSanitizationEvictionAndLogSafety(t *tes
 		return banter.Calls() > callsBeforeEvictedCheck
 	})
 
-	// Also exercise LLM error & AlertSender failure to verify error logs never leak snowflakes or banter!
+	// Also exercise LLM error, guild config clear, and AlertSender failure to verify logs never leak snowflakes or banter!
 	banter.SetResponse("", errors.New("upstream vertex failure"))
 	clock.Advance(25 * time.Hour)
 	_, _ = svc.Check(t.Context(), uccalendar.Query{Date: "2027-01-02"})
@@ -343,12 +339,22 @@ func TestStaleWhileRevalidateSingleflightSanitizationEvictionAndLogSafety(t *tes
 	clock.Set(time.Date(2027, 1, 1, 18, 0, 0, 0, loc)) // Friday 2027-01-01 18:00
 	_ = svc.CheckAlerts(t.Context())
 
+	_, clearErr := svc.ClearGuildConfig(
+		t.Context(),
+		uccalendar.GuildScope{GuildID: fakeGuildID, CanManageGuild: true},
+		uccalendar.ClearTargetFriend,
+	)
+	if clearErr != nil {
+		t.Fatalf("ClearGuildConfig: %v", clearErr)
+	}
+
 	if err := svc.Close(); err != nil {
 		t.Fatalf("svc.Close: %v", err)
 	}
 
 	logs := logBuf.String()
 	for _, forbidden := range []string{
+		fakeGuildID,
 		fakeFriendID,
 		fakeChannelID,
 		"Panorama libre o cruzado",
@@ -371,8 +377,6 @@ func TestInvalidSettingsAggregationAndDiscardedBanter(t *testing.T) {
 	)
 
 	badSettings := newMapSettings(map[string]string{
-		uccalendar.SettingFriendUserID:      "not-a-snowflake",
-		uccalendar.SettingChannelID:         "0",
 		uccalendar.SettingFridayAlertTime:   "25:00",
 		uccalendar.SettingMatchdayAlertTime: "9:00",
 		uccalendar.SettingSlangCacheTTL:     "10s",
@@ -404,8 +408,6 @@ func TestInvalidSettingsAggregationAndDiscardedBanter(t *testing.T) {
 	}
 
 	for _, key := range []string{
-		uccalendar.SettingFriendUserID,
-		uccalendar.SettingChannelID,
 		uccalendar.SettingFridayAlertTime,
 		uccalendar.SettingMatchdayAlertTime,
 		uccalendar.SettingSlangCacheTTL,
@@ -418,10 +420,11 @@ func TestInvalidSettingsAggregationAndDiscardedBanter(t *testing.T) {
 
 	// Fix settings and sync away match 8004 on Wednesday 2026-11-04 to test away matchday alert & sanitizer discard.
 	cleanSentAlerts(t, shared.Pool())
+	cleanGuildConfigs(t, shared.Pool())
+	mustConfigureGuild(t, svc, fakeGuildID, fakeFriendID, fakeChannelID)
+
 	goodSettings := newMapSettings(map[string]string{
-		uccalendar.SettingAPIBaseURL:   espnSrv.BaseURL(),
-		uccalendar.SettingFriendUserID: fakeFriendID,
-		uccalendar.SettingChannelID:    fakeChannelID,
+		uccalendar.SettingAPIBaseURL: espnSrv.BaseURL(),
 	})
 	badSettings.mu.Lock()
 	badSettings.values = goodSettings.values

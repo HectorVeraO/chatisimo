@@ -3,10 +3,12 @@ package uccalendar
 import "errors"
 
 // Sentinel errors returned by Service and parsers. Callers branch on them with errors.Is and
-// errors.As; error strings never contain raw user input, user IDs, or channel IDs.
+// errors.As; error strings never contain raw user input, guild IDs, user IDs, or channel IDs.
 var (
 	// ErrInvalidInput reports an invalid parameter, setting value, query window, or date.
 	ErrInvalidInput = errors.New("uccalendar: invalid input")
+	// ErrForbidden reports that the caller lacks server-management permission for guild config.
+	ErrForbidden = errors.New("uccalendar: forbidden")
 	// ErrScheduleUnavailable reports that no ESPN schedule sync has succeeded yet.
 	ErrScheduleUnavailable = errors.New("uccalendar: schedule is unavailable")
 )

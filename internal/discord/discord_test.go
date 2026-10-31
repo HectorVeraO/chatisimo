@@ -83,8 +83,8 @@ func TestOpenRegistersBothTreesAndAsksForTheGuildsIntentOnly(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	if !slices.Equal(names, []string{"chatisimo", "ge", "uc"}) {
-		t.Errorf("registered commands = %v, want chatisimo, ge and uc", names)
+	if !slices.Equal(names, []string{"chatisimo", "ge", "uc", "uc-config"}) {
+		t.Errorf("registered commands = %v, want chatisimo, ge, uc and uc-config", names)
 	}
 }
 

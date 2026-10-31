@@ -63,6 +63,20 @@ func TestNilReceiverAndNilContextGuards(t *testing.T) {
 		t.Errorf("nilSvc.Run = %v, want ErrInvalidInput", err)
 	}
 
+	scope := uccalendar.GuildScope{GuildID: fakeGuildID, CanManageGuild: true}
+	friend := fakeFriendID
+	if _, err := nilSvc.GetGuildConfig(t.Context(), scope); !errors.Is(err, uccalendar.ErrInvalidInput) {
+		t.Errorf("nilSvc.GetGuildConfig = %v, want ErrInvalidInput", err)
+	}
+
+	if _, err := nilSvc.UpdateGuildConfig(t.Context(), scope, uccalendar.GuildConfigUpdate{FriendUserID: &friend}); !errors.Is(err, uccalendar.ErrInvalidInput) {
+		t.Errorf("nilSvc.UpdateGuildConfig = %v, want ErrInvalidInput", err)
+	}
+
+	if _, err := nilSvc.ClearGuildConfig(t.Context(), scope, uccalendar.ClearTargetAll); !errors.Is(err, uccalendar.ErrInvalidInput) {
+		t.Errorf("nilSvc.ClearGuildConfig = %v, want ErrInvalidInput", err)
+	}
+
 	svc, err := uccalendar.New(uccalendar.Deps{
 		Pool:     shared.Pool(),
 		Settings: newMapSettings(nil),
@@ -87,9 +101,9 @@ func TestNilReceiverAndNilContextGuards(t *testing.T) {
 	}
 
 	//nolint:staticcheck // testing aggregated nil context + invalid query validation
-	_, joinedErr := svc.Check(nil, uccalendar.Query{Window: "bad"})
-	if joinedErr == nil || !strings.Contains(joinedErr.Error(), "ctx") || !strings.Contains(joinedErr.Error(), "window") {
-		t.Errorf("svc.Check(nil, bad query) = %v, want joined ctx and window errors", joinedErr)
+	_, joinedErr := svc.Check(nil, uccalendar.Query{GuildID: "bad-guild", Window: "bad"})
+	if joinedErr == nil || !strings.Contains(joinedErr.Error(), "ctx") || !strings.Contains(joinedErr.Error(), "guild_id") || !strings.Contains(joinedErr.Error(), "window") {
+		t.Errorf("svc.Check(nil, bad query) = %v, want joined ctx, guild_id, and window errors", joinedErr)
 	}
 
 	//nolint:staticcheck // testing nil context guard
@@ -100,6 +114,21 @@ func TestNilReceiverAndNilContextGuards(t *testing.T) {
 	//nolint:staticcheck // testing nil context guard
 	if err := svc.Run(nil); !errors.Is(err, uccalendar.ErrInvalidInput) {
 		t.Errorf("svc.Run(nil) = %v, want ErrInvalidInput", err)
+	}
+
+	//nolint:staticcheck // testing nil context + invalid guild_id aggregation
+	if _, err := svc.GetGuildConfig(nil, uccalendar.GuildScope{GuildID: "bad"}); !errors.Is(err, uccalendar.ErrInvalidInput) {
+		t.Errorf("svc.GetGuildConfig(nil, bad) = %v, want ErrInvalidInput", err)
+	}
+
+	//nolint:staticcheck // testing nil context guard
+	if _, err := svc.UpdateGuildConfig(nil, scope, uccalendar.GuildConfigUpdate{FriendUserID: &friend}); !errors.Is(err, uccalendar.ErrInvalidInput) {
+		t.Errorf("svc.UpdateGuildConfig(nil) = %v, want ErrInvalidInput", err)
+	}
+
+	//nolint:staticcheck // testing nil context guard
+	if _, err := svc.ClearGuildConfig(nil, scope, uccalendar.ClearTargetAll); !errors.Is(err, uccalendar.ErrInvalidInput) {
+		t.Errorf("svc.ClearGuildConfig(nil) = %v, want ErrInvalidInput", err)
 	}
 }
 
@@ -115,8 +144,7 @@ func TestColdBootUnavailableAndUpstreamFailureRetainsLastValidSchedule(t *testin
 	espnSrv.SetStatus(http.StatusServiceUnavailable)
 
 	settings := newMapSettings(map[string]string{
-		uccalendar.SettingAPIBaseURL:   espnSrv.BaseURL(),
-		uccalendar.SettingFriendUserID: fakeFriendID,
+		uccalendar.SettingAPIBaseURL: espnSrv.BaseURL(),
 	})
 
 	svc, err := uccalendar.New(uccalendar.Deps{
@@ -202,8 +230,7 @@ func TestHomeAwayBlockMathPostMatchWindowAndWindows(t *testing.T) {
 	)
 
 	settings := newMapSettings(map[string]string{
-		uccalendar.SettingAPIBaseURL:   espnSrv.BaseURL(),
-		uccalendar.SettingFriendUserID: fakeFriendID,
+		uccalendar.SettingAPIBaseURL: espnSrv.BaseURL(),
 	})
 
 	svc, err := uccalendar.New(uccalendar.Deps{
@@ -219,6 +246,9 @@ func TestHomeAwayBlockMathPostMatchWindowAndWindows(t *testing.T) {
 	t.Cleanup(func() {
 		_ = svc.Close()
 	})
+
+	cleanGuildConfigs(t, shared.Pool())
+	mustConfigureGuild(t, svc, fakeGuildID, fakeFriendID, "")
 
 	if err := svc.Sync(t.Context()); err != nil {
 		t.Fatalf("Sync: %v", err)
@@ -250,7 +280,10 @@ func TestHomeAwayBlockMathPostMatchWindowAndWindows(t *testing.T) {
 	// 2. Move to Tuesday 2026-10-27 11:00 Santiago and check all 5 WindowKinds + default + dates.
 	clock.Set(time.Date(2026, 10, 27, 11, 0, 0, 0, loc))
 
-	todayRep, err := svc.Check(t.Context(), uccalendar.Query{Window: uccalendar.WindowToday})
+	todayRep, err := svc.Check(t.Context(), uccalendar.Query{
+		GuildID: fakeGuildID,
+		Window:  uccalendar.WindowToday,
+	})
 	if err != nil {
 		t.Fatalf("Check(today): %v", err)
 	}
@@ -413,6 +446,9 @@ func TestFridayNightMatchIncludedInWeekendAndValidationErrors(t *testing.T) {
 	t.Cleanup(func() {
 		_ = svc.Close()
 	})
+
+	cleanGuildConfigs(t, shared.Pool())
+	mustConfigureGuild(t, svc, fakeGuildID, fakeFriendID, "")
 
 	if err := svc.Sync(t.Context()); err != nil {
 		t.Fatalf("Sync: %v", err)
@@ -647,6 +683,9 @@ func TestWeekendWindowWeekdayBoundariesAndChileFallBackDST(t *testing.T) {
 	t.Cleanup(func() {
 		_ = svc.Close()
 	})
+
+	cleanGuildConfigs(t, shared.Pool())
+	mustConfigureGuild(t, svc, fakeGuildID, fakeFriendID, "")
 
 	if err := svc.Sync(t.Context()); err != nil {
 		t.Fatalf("Sync: %v", err)

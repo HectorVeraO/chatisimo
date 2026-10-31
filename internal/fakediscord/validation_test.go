@@ -401,6 +401,89 @@ func TestWaitDMEndsWithItsContext(t *testing.T) {
 	}
 }
 
+func TestMemberPermissionsChannelsAndGuildOnlyContexts(t *testing.T) {
+	w := newInteractionWorld(t, fakediscord.Options{})
+	otherGuild := w.srv.AddGuild(fakediscord.Guild{Name: "Other guild"}, w.carol)
+	alertsChannelID := w.srv.AddChannel(w.guild, "alerts")
+	voiceChannelID := w.srv.AddTypedChannel(w.guild, "voice", 2)
+
+	configCommand := `[` +
+		`{"name":"cfg","description":"Configure guild","type":1,"contexts":[0],"options":[` +
+		`{"name":"set","description":"Set","type":1,"options":[` +
+		`{"name":"friend","description":"Friend","type":6},` +
+		`{"name":"channel","description":"Channel","type":7,"channel_types":[0,5]}` +
+		`]}]}` +
+		`]`
+	putPath := "/api/v10/applications/" + w.srv.ApplicationID() + "/commands"
+	if got := call(t, w.srv, http.MethodPut, putPath, botAuth(w.srv), configCommand); got.status != http.StatusOK {
+		t.Fatalf("register cfg: %d %s", got.status, got.body)
+	}
+
+	if err := w.srv.SetMemberPermissions(w.guild, w.alice, "32"); err != nil {
+		t.Fatalf("SetMemberPermissions: %v", err)
+	}
+	if err := w.srv.SetMemberPermissions(w.guild, w.carol, "32"); err == nil {
+		t.Errorf("SetMemberPermissions for non-member succeeded, want error")
+	}
+	if err := w.srv.SetMemberPermissions(w.guild, w.alice, "abc"); err == nil {
+		t.Errorf("SetMemberPermissions with non-decimal bitset succeeded, want error")
+	}
+
+	ctx := testContext(t, actionTimeout)
+	if _, err := w.srv.Slash(ctx, w.alice, fakediscord.Slash{Path: "/cfg/set"}); !errors.Is(err, fakediscord.ErrRejected) {
+		t.Errorf("guild-only command in DM = %v, want ErrRejected", err)
+	}
+	if _, err := w.srv.Slash(ctx, w.alice, fakediscord.Slash{
+		Guild: &w.guild, Path: "/cfg/set", Options: map[string]any{"channel": otherGuild.ChannelID},
+	}); !errors.Is(err, fakediscord.ErrRejected) {
+		t.Errorf("other guild channel without bypass = %v, want ErrRejected", err)
+	}
+	if _, err := w.srv.Slash(ctx, w.alice, fakediscord.Slash{
+		Guild: &w.guild, Path: "/cfg/set", Options: map[string]any{"channel": voiceChannelID},
+	}); !errors.Is(err, fakediscord.ErrRejected) {
+		t.Errorf("voice channel without bypass = %v, want ErrRejected", err)
+	}
+
+	sent, done := w.slashAs(t, w.alice, fakediscord.Slash{
+		Guild: &w.guild,
+		Path:  "/cfg/set",
+		Options: map[string]any{
+			"friend":  w.srv.ApplicationID(),
+			"channel": alertsChannelID,
+		},
+	})
+	var member struct {
+		Permissions string `json:"permissions"`
+	}
+	decodeJSON(t, sent.Member, &member)
+	if member.Permissions != "32" {
+		t.Errorf("member.permissions = %q, want 32", member.Permissions)
+	}
+	_, _, resolved := interactionData(t, sent)
+	if _, ok := resolved["channels"][alertsChannelID]; !ok {
+		t.Errorf("resolved channels = %v, want %s", resolved["channels"], alertsChannelID)
+	}
+	if _, ok := resolved["users"][w.srv.ApplicationID()]; !ok {
+		t.Errorf("resolved users = %v, want bot user %s", resolved["users"], w.srv.ApplicationID())
+	}
+	w.ack(t, sent, done)
+
+	bypassed, bypassDone := w.slashAs(t, w.alice, fakediscord.Slash{
+		Guild:            &w.guild,
+		Path:             "/cfg/set",
+		Options:          map[string]any{"channel": otherGuild.ChannelID},
+		BypassValidation: true,
+	})
+	_, bypassTree, bypassResolved := interactionData(t, bypassed)
+	if len(bypassTree) != 1 || len(bypassTree[0].Options) != 1 || bypassTree[0].Options[0].Type != 7 {
+		t.Errorf("bypassed channel option = %+v, want type 7", bypassTree)
+	}
+	if _, ok := bypassResolved["channels"][otherGuild.ChannelID]; ok {
+		t.Errorf("cross-guild channel leaked into resolved.channels: %v", bypassResolved)
+	}
+	w.ack(t, bypassed, bypassDone)
+}
+
 func FuzzSlashInput(f *testing.F) {
 	srv := newFake(f, fakediscord.Options{})
 	alice := srv.AddUser(fakediscord.User{ID: aliceID, Name: "Alice"})

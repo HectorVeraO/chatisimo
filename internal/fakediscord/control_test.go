@@ -783,6 +783,49 @@ func TestUserAndGuildLocaleThroughGoAndControlAPI(t *testing.T) {
 	}
 }
 
+func TestControlMemberPermissions(t *testing.T) {
+	w := newInteractionWorld(t, fakediscord.Options{})
+
+	patched := control(t, w.srv, http.MethodPatch, "/guilds/"+winterGuildID+"/members/"+aliceID, `{"permissions":"32"}`)
+	if patched.status != http.StatusNoContent {
+		t.Fatalf("patch member permissions = %d %s, want 204", patched.status, patched.body)
+	}
+
+	done := w.controlInteraction(t, `{"as":"`+aliceID+`","kind":"slash","guild_id":"`+winterGuildID+`","path":"/ping"}`)
+	sent := w.bot.nextInteraction(t)
+	if got := w.respond(t, sent, `{"type":4,"data":{"content":"pong"}}`); got.status != http.StatusNoContent {
+		t.Fatalf("callback = %d %s", got.status, got.body)
+	}
+	waitChan(t, done, actionTimeout, "the control API to answer")
+
+	var member struct {
+		Permissions string `json:"permissions"`
+	}
+	decodeJSON(t, sent.Member, &member)
+	if member.Permissions != "32" {
+		t.Errorf("member.permissions = %q, want 32", member.Permissions)
+	}
+
+	for name, tc := range map[string]struct {
+		method     string
+		path       string
+		body       string
+		wantStatus int
+	}{
+		"missing permissions": {http.MethodPatch, "/guilds/" + winterGuildID + "/members/" + aliceID, `{}`, http.StatusBadRequest},
+		"non-decimal":         {http.MethodPatch, "/guilds/" + winterGuildID + "/members/" + aliceID, `{"permissions":"admin"}`, http.StatusBadRequest},
+		"non-member":          {http.MethodPatch, "/guilds/" + winterGuildID + "/members/" + carolID, `{"permissions":"32"}`, http.StatusNotFound},
+		"unknown guild":       {http.MethodPatch, "/guilds/" + missingID + "/members/" + aliceID, `{"permissions":"32"}`, http.StatusNotFound},
+		"bad add permissions": {http.MethodPost, "/guilds/" + winterGuildID + "/members", `{"user_id":"` + carolID + `","permissions":"bad"}`, http.StatusBadRequest},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := control(t, w.srv, tc.method, tc.path, tc.body); got.status != tc.wantStatus {
+				t.Errorf("%s %s = %d (%s), want %d", tc.method, tc.path, got.status, got.body, tc.wantStatus)
+			}
+		})
+	}
+}
+
 func FuzzControlWorldBodies(f *testing.F) {
 	targets := []struct {
 		method string
@@ -793,6 +836,7 @@ func FuzzControlWorldBodies(f *testing.F) {
 		{http.MethodPost, "/guilds"},
 		{http.MethodPatch, "/guilds/" + winterGuildID},
 		{http.MethodPost, "/guilds/" + winterGuildID + "/members"},
+		{http.MethodPatch, "/guilds/" + winterGuildID + "/members/" + aliceID},
 		{http.MethodPost, "/faults"},
 		{http.MethodPost, "/uc-fixtures"},
 	}

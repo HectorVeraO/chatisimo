@@ -27,9 +27,13 @@ import (
 var testdataFS embed.FS
 
 const (
-	fakeFriendID  = "100000000000000001"
-	otherFriendID = "100000000000000002"
-	fakeChannelID = "300000000000000001"
+	fakeGuildID    = "200000000000000001"
+	otherGuildID   = "200000000000000002"
+	thirdGuildID   = "200000000000000003"
+	fakeFriendID   = "100000000000000001"
+	otherFriendID  = "100000000000000002"
+	fakeChannelID  = "300000000000000001"
+	otherChannelID = "300000000000000002"
 )
 
 // syncBuffer is a bytes.Buffer safe for concurrent writes from slog and reads from tests.
@@ -201,26 +205,33 @@ type deliveredAlert struct {
 }
 
 type fakeAlertSender struct {
-	mu        sync.Mutex
-	delivered []deliveredAlert
-	failNext  int
-	failErr   error
-	notifyCh  chan struct{}
+	mu          sync.Mutex
+	delivered   []deliveredAlert
+	failNext    int
+	failErr     error
+	failChannel map[string]error
+	notifyCh    chan struct{}
 }
 
 func newFakeAlertSender() *fakeAlertSender {
 	return &fakeAlertSender{
-		notifyCh: make(chan struct{}, 32),
+		failChannel: make(map[string]error),
+		notifyCh:    make(chan struct{}, 32),
 	}
 }
 
 func (a *fakeAlertSender) SendUCAlert(_ context.Context, channelID string, alert uccalendar.Alert) error {
 	a.mu.Lock()
+	if chErr, hasChErr := a.failChannel[channelID]; hasChErr {
+		a.mu.Unlock()
+		return chErr
+	}
+
 	if a.failNext > 0 {
 		a.failNext--
 		err := a.failErr
 		if err == nil {
-			err = errors.New("simulated discord rest error for channel " + channelID)
+			err = errors.New("simulated discord rest error")
 		}
 		a.mu.Unlock()
 
@@ -245,6 +256,16 @@ func (a *fakeAlertSender) SetFailNext(n int, err error) {
 	a.mu.Lock()
 	a.failNext = n
 	a.failErr = err
+	a.mu.Unlock()
+}
+
+func (a *fakeAlertSender) SetChannelFailure(channelID string, err error) {
+	a.mu.Lock()
+	if err == nil {
+		delete(a.failChannel, channelID)
+	} else {
+		a.failChannel[channelID] = err
+	}
 	a.mu.Unlock()
 }
 
@@ -397,28 +418,6 @@ func newRealConfigStore(t *testing.T, pool *pgxpool.Pool) *config.Store {
 
 	keys := []config.Key{
 		{
-			Name: uccalendar.SettingFriendUserID,
-			Validate: func(v string, _ config.Environment) error {
-				if snowErr := uccalendar.ValidateSnowflake(v); snowErr != nil {
-					return fmt.Errorf("invalid snowflake: %w", snowErr)
-				}
-
-				return nil
-			},
-			Doc: "UC friend user ID",
-		},
-		{
-			Name: uccalendar.SettingChannelID,
-			Validate: func(v string, _ config.Environment) error {
-				if snowErr := uccalendar.ValidateSnowflake(v); snowErr != nil {
-					return fmt.Errorf("invalid snowflake: %w", snowErr)
-				}
-
-				return nil
-			},
-			Doc: "UC alerts channel ID",
-		},
-		{
 			Name:    uccalendar.SettingFridayAlertTime,
 			Default: uccalendar.DefaultFridayAlertTime,
 			Validate: func(v string, _ config.Environment) error {
@@ -493,6 +492,40 @@ func cleanSentAlerts(t *testing.T, pool *pgxpool.Pool) {
 	_, err := pool.Exec(t.Context(), "DELETE FROM uccalendar.sent_alert")
 	if err != nil {
 		t.Fatalf("clean uccalendar.sent_alert: %v", err)
+	}
+}
+
+func cleanGuildConfigs(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+
+	_, err := pool.Exec(t.Context(), "DELETE FROM uccalendar.guild_config")
+	if err != nil {
+		t.Fatalf("clean uccalendar.guild_config: %v", err)
+	}
+}
+
+func mustConfigureGuild(t *testing.T, svc *uccalendar.Service, guildID, friendID, channelID string) {
+	t.Helper()
+
+	var update uccalendar.GuildConfigUpdate
+	if friendID != "" {
+		f := friendID
+		update.FriendUserID = &f
+	}
+
+	if channelID != "" {
+		c := channelID
+		update.ChannelID = &c
+	}
+
+	scope := uccalendar.GuildScope{
+		GuildID:        guildID,
+		CanManageGuild: true,
+	}
+
+	_, err := svc.UpdateGuildConfig(t.Context(), scope, update)
+	if err != nil {
+		t.Fatalf("UpdateGuildConfig(%s): %v", guildID, err)
 	}
 }
 

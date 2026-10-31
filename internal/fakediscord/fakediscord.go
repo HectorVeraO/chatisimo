@@ -394,6 +394,27 @@ func (s *Server) AddMember(g Guild, u User) {
 	s.publishWorldChangedLocked()
 }
 
+// AddChannel adds a text channel (type 0) to g and returns its generated channel ID. It panics
+// when g is not known to the fake.
+func (s *Server) AddChannel(g Guild, name string) string {
+	return s.AddTypedChannel(g, name, 0)
+}
+
+// AddTypedChannel adds a channel of the given Discord channelType to g and returns its
+// generated channel ID. It panics when g is not known to the fake.
+func (s *Server) AddTypedChannel(g Guild, name string, channelType int) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	channelID, err := s.w.addGuildChannel(g.ID, name, channelType, s.ids)
+	if err != nil {
+		panic("fakediscord: " + err.Error())
+	}
+	s.publishWorldChangedLocked()
+
+	return channelID
+}
+
 // Visible returns the messages of a channel that as can see: public ones, and ephemeral ones
 // meant for as. It is empty when as cannot see the channel at all.
 func (s *Server) Visible(as User, channelID string) []Message {

@@ -41,14 +41,15 @@ type templateData struct {
 	ResumeURL         string
 	UnavailableGuilds []map[string]any
 
-	InteractionID string
-	Token         string
-	GuildID       string
-	GuildName     string
-	GuildLocale   string
-	OwnerID       string
-	ChannelID     string
-	Locale        string
+	InteractionID     string
+	Token             string
+	GuildID           string
+	GuildName         string
+	GuildLocale       string
+	OwnerID           string
+	ChannelID         string
+	Locale            string
+	MemberPermissions string
 
 	CommandID          string
 	CommandName        string

@@ -6,9 +6,9 @@ import * as texts from "./texts";
 export { expect } from "@playwright/test";
 
 // One value of a slash command option. A string fills a text field; a boolean sets a checkbox;
-// { user } picks a member of the guild by name; { choose } types into an autocomplete field and
-// clicks the choice with that name.
-export type SlashValue = string | boolean | { user: string } | { choose: string };
+// { user } picks a member of the guild by name; { channel } picks a channel of the guild by id;
+// { choose } types into an autocomplete field and clicks the choice with that name.
+export type SlashValue = string | boolean | { user: string } | { channel: string } | { choose: string };
 
 const DEFAULT_CAST = ["Alice", "Bruno", "Carla"];
 export const GUILD_NAME = "Test server";
@@ -447,6 +447,8 @@ export class World {
       await control.setChecked(value);
     } else if ("user" in value) {
       await control.selectOption({ value: this.user(value.user).id });
+    } else if ("channel" in value) {
+      await control.selectOption({ value: value.channel });
     } else {
       await control.fill(value.choose);
       await this.page.getByTestId("autocomplete-choice").filter({ hasText: exactly(value.choose) }).click();

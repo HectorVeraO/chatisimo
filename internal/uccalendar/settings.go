@@ -13,8 +13,6 @@ import (
 )
 
 type resolvedSettings struct {
-	friendUserID   string
-	channelID      string
 	fridayHour     int
 	fridayMinute   int
 	matchdayHour   int
@@ -55,24 +53,6 @@ func (s *Service) getSettings(ctx context.Context) (resolvedSettings, error) {
 
 func (s *Service) loadSettingsFromReader(ctx context.Context, loadedAt time.Time) (resolvedSettings, error) {
 	var problems []error
-
-	friendID, err := readOptionalSetting(ctx, s.settings, SettingFriendUserID, "")
-	if err != nil {
-		problems = append(problems, err)
-	} else if friendID != "" {
-		if snowErr := ValidateSnowflake(friendID); snowErr != nil {
-			problems = append(problems, fmt.Errorf("setting %s: %w", SettingFriendUserID, snowErr))
-		}
-	}
-
-	channelID, err := readOptionalSetting(ctx, s.settings, SettingChannelID, "")
-	if err != nil {
-		problems = append(problems, err)
-	} else if channelID != "" {
-		if snowErr := ValidateSnowflake(channelID); snowErr != nil {
-			problems = append(problems, fmt.Errorf("setting %s: %w", SettingChannelID, snowErr))
-		}
-	}
 
 	fridayRaw, err := readOptionalSetting(ctx, s.settings, SettingFridayAlertTime, DefaultFridayAlertTime)
 	fridayHour := 0
@@ -130,8 +110,6 @@ func (s *Service) loadSettingsFromReader(ctx context.Context, loadedAt time.Time
 	}
 
 	resolved := resolvedSettings{
-		friendUserID:   friendID,
-		channelID:      channelID,
 		fridayHour:     fridayHour,
 		fridayMinute:   fridayMinute,
 		matchdayHour:   matchdayHour,

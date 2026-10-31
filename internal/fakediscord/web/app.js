@@ -580,6 +580,14 @@ function composerUsers() {
   return state.users.map((user) => ({ id: user.id, name: user.name }));
 }
 
+function composerChannels() {
+  if (state.view.kind === 'guild') {
+    const guild = guildById(state.view.guildId);
+    return guild ? [{ id: guild.channel_id, name: '#' + guild.channel }] : [];
+  }
+  return [];
+}
+
 const composer = createComposer(
   {
     form: dom.composer,
@@ -592,6 +600,7 @@ const composer = createComposer(
     getNodes: () => state.nodes,
     isDirectMessage: () => state.view.kind === 'dm',
     getUsers: composerUsers,
+    getChannels: composerChannels,
     autocomplete,
     submit: submitSlash,
   },

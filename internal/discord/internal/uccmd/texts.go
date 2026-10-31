@@ -1,5 +1,5 @@
-// Package uccmd implements the /uc and /chatisimo uc slash commands and renders Universidad
-// Catolica schedule reports and proactive channel alerts.
+// Package uccmd implements the /uc, /chatisimo uc, and /uc-config slash commands and renders
+// Universidad Catolica schedule reports, guild configuration replies, and proactive channel alerts.
 package uccmd
 
 import (
@@ -126,19 +126,35 @@ func (c Catalog) Format(id MsgID, args ...any) string {
 
 // Slash command, option, and choice localization keys.
 const (
-	textCmdUCDesc         MsgID = "textCmdUCDesc"
-	textOptWindowName     MsgID = "textOptWindowName"
-	textOptWindowDesc     MsgID = "textOptWindowDesc"
-	textOptDateName       MsgID = "textOptDateName"
-	textOptDateDesc       MsgID = "textOptDateDesc"
-	textChoiceToday       MsgID = "textChoiceToday"
-	textChoiceTomorrow    MsgID = "textChoiceTomorrow"
-	textChoiceThisWeekend MsgID = "textChoiceThisWeekend"
-	textChoiceNextWeekend MsgID = "textChoiceNextWeekend"
-	textChoiceThisMonth   MsgID = "textChoiceThisMonth"
+	textCmdUCDesc          MsgID = "textCmdUCDesc"
+	textCmdUCConfigDesc    MsgID = "textCmdUCConfigDesc"
+	textSubConfigSetName   MsgID = "textSubConfigSetName"
+	textSubConfigSetDesc   MsgID = "textSubConfigSetDesc"
+	textSubConfigShowName  MsgID = "textSubConfigShowName"
+	textSubConfigShowDesc  MsgID = "textSubConfigShowDesc"
+	textSubConfigClearName MsgID = "textSubConfigClearName"
+	textSubConfigClearDesc MsgID = "textSubConfigClearDesc"
+	textOptWindowName      MsgID = "textOptWindowName"
+	textOptWindowDesc      MsgID = "textOptWindowDesc"
+	textOptDateName        MsgID = "textOptDateName"
+	textOptDateDesc        MsgID = "textOptDateDesc"
+	textOptFriendName      MsgID = "textOptFriendName"
+	textOptFriendDesc      MsgID = "textOptFriendDesc"
+	textOptChannelName     MsgID = "textOptChannelName"
+	textOptChannelDesc     MsgID = "textOptChannelDesc"
+	textOptClearTargetName MsgID = "textOptClearTargetName"
+	textOptClearTargetDesc MsgID = "textOptClearTargetDesc"
+	textChoiceToday        MsgID = "textChoiceToday"
+	textChoiceTomorrow     MsgID = "textChoiceTomorrow"
+	textChoiceThisWeekend  MsgID = "textChoiceThisWeekend"
+	textChoiceNextWeekend  MsgID = "textChoiceNextWeekend"
+	textChoiceThisMonth    MsgID = "textChoiceThisMonth"
+	textChoiceClearAll     MsgID = "textChoiceClearAll"
+	textChoiceClearFriend  MsgID = "textChoiceClearFriend"
+	textChoiceClearChannel MsgID = "textChoiceClearChannel"
 )
 
-// Weekday, period, report, alert, and error keys.
+// Weekday, period, report, alert, configuration, and error keys.
 const (
 	textWeekdaySun               MsgID = "textWeekdaySun"
 	textWeekdayMon               MsgID = "textWeekdayMon"
@@ -178,6 +194,17 @@ const (
 	textAlertWeekendFreeDay      MsgID = "textAlertWeekendFreeDay"
 	textAlertFridayFallback      MsgID = "textAlertFridayFallback"
 	textAlertMatchdayLine        MsgID = "textAlertMatchdayLine"
+	textConfigUnset              MsgID = "textConfigUnset"
+	textConfigShow               MsgID = "textConfigShow"
+	textConfigSaved              MsgID = "textConfigSaved"
+	textConfigCleared            MsgID = "textConfigCleared"
+	textConfigGuildOnly          MsgID = "textConfigGuildOnly"
+	textConfigForbidden          MsgID = "textConfigForbidden"
+	textConfigEmptyUpdate        MsgID = "textConfigEmptyUpdate"
+	textConfigFriendBot          MsgID = "textConfigFriendBot"
+	textConfigInvalidFriend      MsgID = "textConfigInvalidFriend"
+	textConfigInvalidChannel     MsgID = "textConfigInvalidChannel"
+	textConfigInvalidClearTarget MsgID = "textConfigInvalidClearTarget"
 	textScheduleUnavailable      MsgID = "textScheduleUnavailable"
 	textMutuallyExclusiveOptions MsgID = "textMutuallyExclusiveOptions"
 	textInvalidDate              MsgID = "textInvalidDate"

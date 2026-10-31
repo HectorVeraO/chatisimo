@@ -136,7 +136,7 @@ func tree() []discord.ApplicationCommandCreate {
 		Description: "test commands",
 		Options: []discord.ApplicationCommandOption{
 			sub("boom"), sub("reject"), sub("deferred"), sub("ok"), sub("public"), sub("card"), sub("public-card"),
-			sub("guild"), sub("locale"), sub("ac", query),
+			sub("guild"), sub("locale"), sub("perm"), sub("ac", query),
 		},
 		Contexts:         []discord.InteractionContextType{discord.InteractionContextTypeGuild, discord.InteractionContextTypeBotDM},
 		IntegrationTypes: []discord.ApplicationIntegrationType{discord.ApplicationIntegrationTypeGuildInstall},
@@ -678,5 +678,45 @@ func TestPublicAnswersChannelVisiblyWithSilentMentions(t *testing.T) {
 	}
 	if len(sent.Parse)+len(sent.Users)+len(sent.Roles) != 0 {
 		t.Errorf("allowed_mentions = %+v, want zero permitted mentions", sent)
+	}
+}
+
+func TestRequestCanManageGuildChecksPermissionsAndContext(t *testing.T) {
+	g := newRig(t)
+	var seen bool
+	g.router.RegisterVerb(router.Verb{
+		Roots: []string{"/t"},
+		Name:  "perm",
+		Command: func(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+			req := request(t, e.Ctx)
+			seen = req.CanManageGuild()
+			return req.Ephemeral(e.Ctx, discord.MessageCreate{Content: "ok"})
+		},
+	})
+
+	g.slash(t, "/t/perm", true)
+	if seen {
+		t.Error("CanManageGuild() = true with default 0 permissions, want false")
+	}
+
+	if err := g.fake.SetMemberPermissions(g.guild, g.user, "32"); err != nil {
+		t.Fatalf("SetMemberPermissions(ManageGuild): %v", err)
+	}
+	g.slash(t, "/t/perm", true)
+	if !seen {
+		t.Error("CanManageGuild() = false with ManageGuild (32), want true")
+	}
+
+	if err := g.fake.SetMemberPermissions(g.guild, g.user, "8"); err != nil {
+		t.Fatalf("SetMemberPermissions(Administrator): %v", err)
+	}
+	g.slash(t, "/t/perm", true)
+	if !seen {
+		t.Error("CanManageGuild() = false with Administrator (8), want true")
+	}
+
+	g.slash(t, "/t/perm", false)
+	if seen {
+		t.Error("CanManageGuild() = true in DM, want false")
 	}
 }

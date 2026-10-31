@@ -220,9 +220,7 @@ func TestConfigListFormat(t *testing.T) {
 	before := invoke(t, env, strings.NewReader(""), "config", "list")
 
 	ucTail := "uc.api_base_url\tplain\t" + defaultUCAPIBaseURL + " (default)\tESPN soccer API base URL\n" +
-		"uc.channel_id\tplain\t(unset)\tDiscord channel snowflake for UC alerts\n" +
 		"uc.friday_alert_time\tplain\t" + defaultUCFridayAlertTime + " (default)\tFriday UC weekend summary time (HH:MM Santiago)\n" +
-		"uc.friend_user_id\tplain\t(unset)\tDiscord user snowflake of the UC fan friend\n" +
 		"uc.matchday_alert_time\tplain\t" + defaultUCMatchdayAlertTime + " (default)\tMatchday UC morning alert time (HH:MM Santiago)\n" +
 		"uc.slang_cache_ttl\tplain\t" + defaultUCSlangCacheTTL + " (default)\tUC Chilean banter cache TTL (0s disables LLM)\n"
 
@@ -261,10 +259,15 @@ func TestConfigUCSettings(t *testing.T) {
 	local := envFor(database, "local")
 	prod := envFor(database, "production")
 
-	for _, unsetKey := range []string{"uc.friend_user_id", "uc.channel_id"} {
-		unsetGet := invoke(t, local, strings.NewReader(""), "config", "get", unsetKey)
-		if unsetGet.code != 1 || unsetGet.stdout != "" {
-			t.Errorf("unset get %s = %+v, want exit 1", unsetKey, unsetGet)
+	for _, removedKey := range []string{"uc.friend_user_id", "uc.channel_id"} {
+		setRes := invoke(t, local, forbiddenReader{t: t}, "config", "set", removedKey)
+		if setRes.code != 2 || setRes.stdout != "" {
+			t.Errorf("removed key set %s = %+v, want exit 2 without reading stdin", removedKey, setRes)
+		}
+
+		getRes := invoke(t, local, strings.NewReader(""), "config", "get", removedKey)
+		if getRes.code != 2 || getRes.stdout != "" {
+			t.Errorf("removed key get %s = %+v, want exit 2", removedKey, getRes)
 		}
 	}
 
@@ -272,8 +275,6 @@ func TestConfigUCSettings(t *testing.T) {
 		key   string
 		value string
 	}{
-		{key: "uc.friend_user_id", value: "100000000000000042"},
-		{key: "uc.channel_id", value: "200000000000000099"},
 		{key: "uc.friday_alert_time", value: "18:30"},
 		{key: "uc.matchday_alert_time", value: "08:45"},
 		{key: "uc.slang_cache_ttl", value: "0s"},
@@ -291,9 +292,6 @@ func TestConfigUCSettings(t *testing.T) {
 		key   string
 		value string
 	}{
-		{key: "uc.friend_user_id", value: "012345"},
-		{key: "uc.friend_user_id", value: "not-a-snowflake-marker"},
-		{key: "uc.channel_id", value: "0"},
 		{key: "uc.friday_alert_time", value: "24:00"},
 		{key: "uc.matchday_alert_time", value: "9:00"},
 		{key: "uc.slang_cache_ttl", value: "30s"},

@@ -21,9 +21,7 @@ const (
 	settingLLMBaseURL          = "llm.base_url"
 	settingLLMPrompt           = "llm.prompt"
 	settingUCAPIBaseURL        = uccalendar.SettingAPIBaseURL
-	settingUCChannelID         = uccalendar.SettingChannelID
 	settingUCFridayAlertTime   = uccalendar.SettingFridayAlertTime
-	settingUCFriendUserID      = uccalendar.SettingFriendUserID
 	settingUCMatchdayAlertTime = uccalendar.SettingMatchdayAlertTime
 	settingUCSlangCacheTTL     = uccalendar.SettingSlangCacheTTL
 
@@ -89,20 +87,10 @@ func settingKeys() []config.Key {
 			Doc:      "ESPN soccer API base URL",
 		},
 		{
-			Name:     settingUCChannelID,
-			Validate: validateDiscordSnowflake,
-			Doc:      "Discord channel snowflake for UC alerts",
-		},
-		{
 			Name:     settingUCFridayAlertTime,
 			Default:  defaultUCFridayAlertTime,
 			Validate: validateUCAlertClock,
 			Doc:      "Friday UC weekend summary time (HH:MM Santiago)",
-		},
-		{
-			Name:     settingUCFriendUserID,
-			Validate: validateDiscordSnowflake,
-			Doc:      "Discord user snowflake of the UC fan friend",
 		},
 		{
 			Name:     settingUCMatchdayAlertTime,
@@ -188,17 +176,6 @@ func validateLLMBaseURL(value string, env config.Environment) error {
 // the value.
 func validateUCAPIBaseURL(value string, env config.Environment) error {
 	return validateAPIBaseURL(value, env, defaultUCAPIBaseURL)
-}
-
-// validateDiscordSnowflake accepts a non-zero uint64 Discord snowflake in decimal ASCII without
-// leading zeros. Its errors never carry the value.
-func validateDiscordSnowflake(value string, _ config.Environment) error {
-	err := uccalendar.ValidateSnowflake(value)
-	if err != nil {
-		return errors.New("must be a valid Discord snowflake (1-20 ASCII digits, non-zero)")
-	}
-
-	return nil
 }
 
 // validateUCAlertClock accepts a strict 5-byte 24-hour clock value HH:MM in 00:00..23:59. Its
