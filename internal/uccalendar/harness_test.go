@@ -1,6 +1,7 @@
 package uccalendar_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"embed"
@@ -30,6 +31,26 @@ const (
 	otherFriendID = "100000000000000002"
 	fakeChannelID = "300000000000000001"
 )
+
+// syncBuffer is a bytes.Buffer safe for concurrent writes from slog and reads from tests.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p) //nolint:wrapcheck // bytes.Buffer never fails
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
 
 type fakeClock struct {
 	mu  sync.RWMutex

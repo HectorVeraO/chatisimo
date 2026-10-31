@@ -1,7 +1,6 @@
 package uccalendar_test
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -187,7 +186,7 @@ func TestStaleWhileRevalidateSingleflightSanitizationEvictionAndLogSafety(t *tes
 		uccalendar.SettingChannelID:    fakeChannelID,
 	})
 
-	var logBuf bytes.Buffer
+	var logBuf syncBuffer
 	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	gate := make(chan struct{})
