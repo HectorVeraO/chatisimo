@@ -49,6 +49,7 @@ test("a server manager configures /uc-config and /uc defaults to es-CL until swi
   // Before /uc-config set, /uc posts publicly in es-CL with UC white/blue circles even for en-US users.
   await world.slash("/uc");
   await expect(world.messageWithContentContaining("⚪🔵")).toBeVisible();
+  await expect(world.messageWithContentContaining("Calendario UC")).toBeVisible();
   await expect(world.messageWithContentContaining("el hincha cruzado")).toBeVisible();
 
   await world.control.setMemberPermissions(world.guild.id, alice.id, "32");
@@ -63,6 +64,7 @@ test("a server manager configures /uc-config and /uc defaults to es-CL until swi
   await expect(world.ephemeralMessages).toHaveCount(1);
 
   await world.slash("/uc");
+  await expect(world.messageWithContentContaining("UC Schedule")).toBeVisible();
   await expect(world.messageWithContentContaining("All clear")).toBeVisible();
 
   await world.asUser("Bruno");

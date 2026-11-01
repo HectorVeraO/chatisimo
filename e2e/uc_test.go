@@ -132,7 +132,7 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 	if blocked.message.EphemeralFor != "" {
 		t.Errorf("blocked reply EphemeralFor = %q, want public", blocked.message.EphemeralFor)
 	}
-	for _, want := range []string{"\u26aa\U0001f535", "\U0001F534", "\u26bd", "Deportes Iquique", "Claro Arena", "15:00", "20:30", "<t:", friendMention} {
+	for _, want := range []string{"\u26aa\U0001f535 **Calendario UC", "\U0001f6ab", "\u26bd", "Deportes Iquique", "Claro Arena", "15:00", "20:30", "<t:", friendMention} {
 		if !strings.Contains(blocked.text, want) {
 			t.Errorf("blocked /uc date:2030-05-11 = %q, want substring %q", blocked.text, want)
 		}
@@ -154,15 +154,15 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 
 	// Scenario B: Free day warning about nearest upcoming away match (-30m to +2h30m -> 17:00 to 20:00).
 	freeDay := s.slash(t, spanishCaller, "/uc", map[string]any{"date": "2030-05-18"})
-	for _, want := range []string{"\u26aa\U0001f535", "\U0001F7E2", "Colo-Colo", "17:00", "20:00", friendMention, "-# Pr\u00f3ximo partido:"} {
+	for _, want := range []string{"\u26aa\U0001f535 **Calendario UC", "\u2705", "Colo-Colo", "17:00", "20:00", friendMention, "-# Pr\u00f3ximo partido:"} {
 		if !strings.Contains(freeDay.text, want) {
 			t.Errorf("free /uc date:2030-05-18 = %q, want substring %q", freeDay.text, want)
 		}
 	}
 
-	// Scenario C: Pending ANFP (TBD kickoff -> yellow light, no placeholder timestamp).
+	// Scenario C: Pending ANFP (TBD kickoff -> hourglass icon, no placeholder timestamp).
 	pending := s.slash(t, spanishCaller, "/uc", map[string]any{"date": "2030-05-26"})
-	for _, want := range []string{"\u26aa\U0001f535", "\U0001F7E1", "Huachipato", "ANFP", friendMention} {
+	for _, want := range []string{"\u26aa\U0001f535 **Calendario UC", "\u23f3", "Huachipato", "ANFP", friendMention} {
 		if !strings.Contains(pending.text, want) {
 			t.Errorf("pending /uc date:2030-05-26 = %q, want substring %q", pending.text, want)
 		}
@@ -178,7 +178,7 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 	}
 
 	englishBlocked := s.slash(t, spanishCaller, "/chatisimo/uc", map[string]any{"date": "2030-05-11"})
-	for _, want := range []string{"\u26aa\U0001f535 \U0001f534 **Blocked", "Deportes Iquique", "15:00", "20:30", friendMention} {
+	for _, want := range []string{"\u26aa\U0001f535 **UC Schedule", "- \U0001f6ab **Blocked:**", "Deportes Iquique", "15:00", "20:30", friendMention} {
 		if !strings.Contains(englishBlocked.text, want) {
 			t.Errorf("english /chatisimo/uc = %q, want substring %q", englishBlocked.text, want)
 		}

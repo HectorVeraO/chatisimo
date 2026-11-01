@@ -185,7 +185,7 @@ func TestTemplateCacheLiveReloadsPreEscapesInputsAndFallsBackOnInvalidOrFailedRe
 
 	// Unset keys use the embedded default template.
 	initial := uccmd.RenderReportWith(t.Context(), cache, uccmd.LocaleESCL, report, tz)
-	if !strings.Contains(initial, "\u26aa\U0001f535 \U0001f534 **Bloqueado \u00b7 hoy**") {
+	if !strings.Contains(initial, "\u26aa\U0001f535 **Calendario UC \u00b7 hoy**") {
 		t.Fatalf("initial default render = %q, want default es-CL header", initial)
 	}
 
@@ -271,7 +271,7 @@ func TestTemplateCacheLiveReloadsPreEscapesInputsAndFallsBackOnInvalidOrFailedRe
 	reader.Set(uccmd.SettingReportTemplateESCL, "{{.BrokenField}}")
 	advance(6 * time.Minute)
 	afterCorrupt := uccmd.RenderReportWith(t.Context(), cache, uccmd.LocaleESCL, report, tz)
-	if !strings.Contains(afterCorrupt, "\u26aa\U0001f535 \U0001f534 **Bloqueado \u00b7 hoy**") {
+	if !strings.Contains(afterCorrupt, "\u26aa\U0001f535 **Calendario UC \u00b7 hoy**") {
 		t.Errorf("corrupt template fallback = %q, want default es-CL report header", afterCorrupt)
 	}
 }
