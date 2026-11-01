@@ -56,7 +56,7 @@ var (
 	selfNicknameRe = regexp.MustCompile(`(?i)\b(capi|capis|braulio|braulitros)\b`)
 
 	firstPersonArrivalVerbRe = regexp.MustCompile(
-		`(?i)\b(llego|llegando|lleganding|voy|vengo|salgo|saliendo|caigo|entro|me\s+conecto|conectando|toy\s+ready|estoy\s+ready|ready|en\s+camino|hasta\s+las|a\s+las|tipo)\b`,
+		`(?i)\b(llego|llegando|lleganding|voy|vengo|salgo|saliendo|caigo|entro|me\s+conecto|conectando|me\s+meto|estar[eé]|aparezco|prendo|juego|jugamos|toy\s+ready|estoy\s+ready|ready|en\s+camino|in\s+pc|en\s+el\s+pc|al\s+pc|hasta\s+las|a\s+las|tipo)\b`,
 	)
 
 	thirdPersonSingularVerbRe = regexp.MustCompile(`(?i)\b(llega|viene|va\s+saliendo|est[aá]\s+llegando|est[aá]\s+ready)\b`)
@@ -100,6 +100,9 @@ var weekdayRules = []weekdayRule{
 }
 
 var (
+	todayNightRe        = regexp.MustCompile(`(?i)\b(?:hoy\s+(?:en\s+la\s+|por\s+la\s+|a\s+la\s+|al\s+)?(?:noche|night)|(?:esta|en\s+la|a\s+la)\s+noche|al\s+night)\b`)
+	todayAfternoonRe    = regexp.MustCompile(`(?i)\b(?:hoy\s+)?(?:en\s+la\s+|por\s+la\s+)tarde\b`)
+	laterTodayRe        = regexp.MustCompile(`(?i)\b(?:m[aá]s\s+rato|m[aá]s\s+tarde|en\s+un\s+rato)\b`)
 	tomorrowMorningRe   = regexp.MustCompile(`(?i)\bma[nñ]ana\s+(?:en\s+la\s+|por\s+la\s+)?ma[nñ]ana\b`)
 	tomorrowAfternoonRe = regexp.MustCompile(`(?i)\bma[nñ]ana\s+(?:en\s+la\s+|por\s+la\s+)?tarde\b`)
 	tomorrowNightRe     = regexp.MustCompile(`(?i)\bma[nñ]ana\s+(?:en\s+la\s+|por\s+la\s+)?noche\b`)
@@ -183,6 +186,47 @@ func parseDayOrWeekdayClaim(cleaned string, ref time.Time, hasIntentContext bool
 	}
 
 	clockHour, clockMin, hasClock := extractClockHHMM(cleaned)
+
+	if todayNightRe.MatchString(cleaned) && !tomorrowNightRe.MatchString(cleaned) {
+		hour, minute := 22, 0
+		if hasClock {
+			hour, minute = clockHour, clockMin
+		}
+		target := resolveNextClockInstant(ref, hour, minute)
+		return ArrivalClaim{
+			Detected:     true,
+			Immediate:    false,
+			ClaimedAt:    target,
+			ClaimSummary: "hoy en la noche",
+		}, true
+	}
+
+	if todayAfternoonRe.MatchString(cleaned) && !tomorrowAfternoonRe.MatchString(cleaned) {
+		hour, minute := 18, 0
+		if hasClock {
+			hour, minute = clockHour, clockMin
+		}
+		target := resolveNextClockInstant(ref, hour, minute)
+		return ArrivalClaim{
+			Detected:     true,
+			Immediate:    false,
+			ClaimedAt:    target,
+			ClaimSummary: "hoy en la tarde",
+		}, true
+	}
+
+	if laterTodayRe.MatchString(cleaned) {
+		target := ref.Add(30 * time.Minute)
+		if hasClock {
+			target = resolveNextClockInstant(ref, clockHour, clockMin)
+		}
+		return ArrivalClaim{
+			Detected:     true,
+			Immediate:    false,
+			ClaimedAt:    target,
+			ClaimSummary: "mas rato",
+		}, true
+	}
 
 	if tomorrowMorningRe.MatchString(cleaned) {
 		hour, minute := 10, 0

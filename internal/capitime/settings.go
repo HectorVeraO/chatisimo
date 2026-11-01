@@ -36,14 +36,16 @@ const (
 	DefaultBanterPrompt = "" +
 		"Genera UNA sola frase corta (maximo 140 caracteres, una sola linea) de talla chilena de grupo de amigos " +
 		"para traducir una promesa de llegada a 'Capi Time' (hora real con atraso exagerado). " +
-		"Usa espanol chileno con tuteo (tienes, vas, llegas) y jerga natural como 'mi king', 'mi rey', 'la bendi' o 'quedo pana'. " +
+		"Usa espanol chileno con tuteo (tienes, vas, llegas) y jerga natural como 'mi king', 'mi rey' o 'quedo pana'. " +
+		"No menciones hijos, familia ni 'la bendi'. " +
 		"Prohibido usar voseo argentino (tenes, vas a llegar vos, podes, sos). " +
 		"No incluyas etiquetas <t:...> ni saltos de linea; responde solo la frase de talla."
 
 	DefaultEasterEggPrompt = "" +
 		"Genera UNA sola frase corta (maximo 140 caracteres, una sola linea) de sorpresa humoristica chilena " +
 		"porque ocurrio el milagro del siglo: el Capi va a llegar exactamente a la hora que dijo, sin atraso. " +
-		"Usa espanol chileno con tuteo y jerga como 'mi king', 'mi rey', 'la bendi' o 'quedo pana'. " +
+		"Usa espanol chileno con tuteo y jerga como 'mi king', 'mi rey' o 'quedo pana'. " +
+		"No menciones hijos, familia ni 'la bendi'. " +
 		"Prohibido usar voseo argentino (tenes, podes, sos). " +
 		"No incluyas etiquetas <t:...> ni saltos de linea; responde solo la frase."
 )

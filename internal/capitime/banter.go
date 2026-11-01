@@ -24,7 +24,7 @@ var (
 )
 
 var voseoTokens = []string{
-	"tenés", "tenes", "podés", "podes", "sos", "llegás", "llegas vos", "venís", "venis",
+	"tenés", "tenes", "podés", "podes", "sos", "llegás", "llegas vos", "venís", "venis", "bendi",
 }
 
 // LLMBanterConfig configures an LLMBanterGenerator.
