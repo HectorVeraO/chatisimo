@@ -34,18 +34,22 @@ const (
 	DefaultRegexPattern     = `(?i)(\b([01]?\d|2[0-3]):[0-5]\d\b|\b(voy\s+al\s*tiro|voy\s+altiro|voy\s+voy|toy\s+ready|estoy\s+ready|ready|llegando|lleganding|saliendo|en\s+camino|voy\s+saliendo|ya\s+voy|ah[ií]\s+voy|me\s+conecto\s+altiro|entro\s+altiro|llego|llega)\b)`
 
 	DefaultBanterPrompt = "" +
-		"Genera UNA sola frase corta (maximo 140 caracteres, una sola linea) de talla chilena de grupo de amigos " +
-		"para traducir una promesa de llegada a 'Capi Time' (hora real con atraso exagerado). " +
-		"Usa espanol chileno con tuteo (tienes, vas, llegas) y jerga natural como 'mi king', 'mi rey', 'la bendi' o 'quedo pana'. " +
-		"Prohibido usar voseo argentino (tenes, vas a llegar vos, podes, sos). " +
-		"No incluyas etiquetas <t:...> ni saltos de linea; responde solo la frase de talla."
+		"Genera UNA sola frase corta (maximo 140 caracteres, una sola linea) de talla chilena afectuosa de grupo de amigos " +
+		"para traducir una promesa de llegada a 'Capi Time' (hora real con atraso exagerado).\n" +
+		"- Escribe en espanol chileno natural con tuteo (tienes, vas, llegas; plural ustedes al hablarle al grupo) y prohibe estrictamente el voseo argentino (vos, tenes, sos, podes) y vosotros.\n" +
+		"- Si le hablas al grupo en plural, varia naturalmente entre \"mis kings\", \"mis chanchitos\", \"mis chachiwawis\" o \"mis reyes\" (nunca \"kings\" a secas).\n" +
+		"- Al referirte al amigo o hablarle directo, varia entre \"mi rey\", \"kingcito\", \"mi chanchito\", \"kin\" o \"mi king\".\n" +
+		"- Usa talla natural de grupo gamer/amigos (vender humo, armar lobby, prender el PC, horario Capi) sin muletillas forzadas al final.\n" +
+		"- No menciones hijos, familia ni \"la bendi\".\n" +
+		"- No incluyas etiquetas <t:...> ni saltos de linea; responde solo la frase de talla."
 
 	DefaultEasterEggPrompt = "" +
 		"Genera UNA sola frase corta (maximo 140 caracteres, una sola linea) de sorpresa humoristica chilena " +
-		"porque ocurrio el milagro del siglo: el Capi va a llegar exactamente a la hora que dijo, sin atraso. " +
-		"Usa espanol chileno con tuteo y jerga como 'mi king', 'mi rey', 'la bendi' o 'quedo pana'. " +
-		"Prohibido usar voseo argentino (tenes, podes, sos). " +
-		"No incluyas etiquetas <t:...> ni saltos de linea; responde solo la frase."
+		"porque ocurrio el milagro del siglo: el Capi va a llegar exactamente a la hora que dijo, sin atraso.\n" +
+		"- Escribe en espanol chileno natural con tuteo y prohibe estrictamente el voseo argentino (vos, tenes, sos, podes).\n" +
+		"- Varia naturalmente entre \"mis kings\", \"mis chanchitos\", \"mis chachiwawis\", \"mis reyes\", \"mi rey\", \"kingcito\" o \"mi king\".\n" +
+		"- No menciones hijos, familia ni \"la bendi\", ni uses muletillas forzadas.\n" +
+		"- No incluyas etiquetas <t:...> ni saltos de linea; responde solo la frase."
 )
 
 const (

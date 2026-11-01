@@ -489,7 +489,7 @@ func TestStage2LLMDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 	llmFake := &fakeLLM{
 		responses: []string{
 			`{"arrival":true,"immediate":false,"offset_minutes":20,"clock":""}`,
-			"Dice que en 20 min mi king, pero con Capi Time sumale 90 min mientras duerme a la bendi, quedo pana.",
+			"Dice que en 20 min mi king, pero con Capi Time sumenle 90 min mis chanchitos mientras prende el PC.",
 		},
 	}
 
@@ -525,7 +525,7 @@ func TestStage2LLMDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 	if !rep.Handled || rep.Prediction.DelayMinutes != 90 {
 		t.Fatalf("rep = %+v, want Handled=true with 90m delay", rep)
 	}
-	if !strings.Contains(rep.Content, "quedo pana") {
+	if !strings.Contains(rep.Content, "mis chanchitos") {
 		t.Errorf("rep.Content %q did not use dynamic LLM banter", rep.Content)
 	}
 

@@ -288,11 +288,17 @@ func (a *Adapter) onMessageCreate(ctx context.Context, event *events.MessageCrea
 
 	_, sendErr := a.notifier.rest.CreateMessage(event.ChannelID, message, rest.WithCtx(ctx))
 	if sendErr != nil {
-		a.logger.ErrorContext(
-			ctx,
-			"capi time reply send failed",
-			slog.String("error", reduceRESTError(opSendMessage, sendErr).Error()),
-		)
+		// Discord rejects message_reference with 403 code 160002 when the bot lacks
+		// Read Message History in the channel; fall back to a plain channel message.
+		plainMessage := discord.NewMessageCreate().WithContent(reply.Content)
+		plainMessage.AllowedMentions = &noMentions
+		if _, retryErr := a.notifier.rest.CreateMessage(event.ChannelID, plainMessage, rest.WithCtx(ctx)); retryErr != nil {
+			a.logger.ErrorContext(
+				ctx,
+				"capi time reply send failed",
+				slog.String("error", reduceRESTError(opSendMessage, retryErr).Error()),
+			)
+		}
 	}
 }
 
