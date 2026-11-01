@@ -18,7 +18,7 @@ type Params struct {
 var standardESCL = []func(Params) string{
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Dijo %q (%s), pero en Capi Time son +%d min mi king, as\u00ed que reci\u00e9n cae tipo %s; cuida a la bendi mientras tanto.",
+			"Dijo %q (%s), pero en Capi Time son +%d min mi king, as\u00ed que reci\u00e9n cae tipo %s; armen lobby sin apuro.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
@@ -30,7 +30,7 @@ var standardESCL = []func(Params) string{
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Alerta de humo con ese %q (%s), mi king: con +%d min de Capi Time asoma reci\u00e9n a las %s despuecito de dormir a la bendi.",
+			"Alerta de humo con ese %q (%s), mi king: con +%d min de Capi Time asoma reci\u00e9n a las %s cuando por fin prenda el PC.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
@@ -45,7 +45,7 @@ var standardESCL = []func(Params) string{
 var easterEggESCL = []func(Params) string{
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Milagro hist\u00f3rico mi king: dijo %q y por primera vez el Capi llega puntual a las %s, qued\u00f3 pana y hasta la bendi aplaude.",
+			"Milagro hist\u00f3rico mi king: dijo %q y por primera vez el Capi llega puntual a las %s, qued\u00f3 pana.",
 			p.ClaimSummary, p.ClaimedClock,
 		)
 	},
@@ -60,7 +60,7 @@ var easterEggESCL = []func(Params) string{
 var standardENUS = []func(Params) string{
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Claimed %q (%s), which translates to +%d min in Capi Time mi king: expect arrival around %s while la bendi waits.",
+			"Claimed %q (%s), which translates to +%d min in Capi Time mi king: expect arrival around %s.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},

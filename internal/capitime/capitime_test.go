@@ -489,7 +489,7 @@ func TestStage2LLMDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 	llmFake := &fakeLLM{
 		responses: []string{
 			`{"arrival":true,"immediate":false,"offset_minutes":20,"clock":""}`,
-			"Dice que en 20 min mi king, pero con Capi Time sumale 90 min mientras duerme a la bendi, quedo pana.",
+			"Dice que en 20 min mi king, pero con Capi Time sumale 90 min mientras prende el PC, quedo pana.",
 		},
 	}
 
