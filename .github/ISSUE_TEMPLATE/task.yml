@@ -6,19 +6,20 @@ body:
     id: goal
     attributes:
       label: Goal
-      description: What should be true when this is done?
+      description: What should be true when this is done? (High-level functional or user capability).
     validations:
       required: true
   - type: textarea
     id: acceptance
     attributes:
       label: Acceptance criteria
-      description: Observable, checkable conditions.
-      placeholder: "- [ ] ..."
+      description: Observable, checkable conditions from the user/operator perspective. Do not include internal Go package paths, database migrations, or code symbols here.
+      placeholder: |
+        - [ ] **<Feature Title>:** <Observable behavioral condition, inputs, rules, outputs, or error states.>
     validations:
       required: true
   - type: textarea
     id: notes
     attributes:
       label: Notes
-      description: Context, constraints, links. Do not paste secrets or tokens.
+      description: Context, constraints, links, registered settings. Include expandable <details> blocks for "📋 Examples per Acceptance Criterion" and "⚙️ Technical Implementation Notes" (see .claude/references/issue-format.md). Do not paste secrets or real user data.
