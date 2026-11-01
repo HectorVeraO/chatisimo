@@ -157,6 +157,22 @@ func TestParseArrivalMessageDetectsExplicitClocksAndSlang(t *testing.T) {
 			wantDayDiff: 0,
 		},
 		{
+			name:        "spanglish hoy estare al night in pc",
+			input:       "Hoy estaré al night in pc",
+			wantDetect:  true,
+			wantImmed:   false,
+			wantClock:   "22:00",
+			wantDayDiff: 0,
+		},
+		{
+			name:        "mas rato me meto",
+			input:       "más rato me meto al pc",
+			wantDetect:  true,
+			wantImmed:   false,
+			wantClock:   "21:30",
+			wantDayDiff: 0,
+		},
+		{
 			name:       "rejects past tense ayer llegue",
 			input:      "ayer llegué a las 22:30",
 			wantDetect: false,
