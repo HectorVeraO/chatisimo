@@ -56,7 +56,7 @@ var (
 	selfNicknameRe = regexp.MustCompile(`(?i)\b(capi|capis|braulio|braulitros)\b`)
 
 	firstPersonArrivalVerbRe = regexp.MustCompile(
-		`(?i)\b(llego|llegando|lleganding|voy|vengo|salgo|saliendo|caigo|entro|me\s+conecto|conectando|me\s+meto|estar[eé]|aparezco|prendo|juego|jugamos|toy\s+ready|estoy\s+ready|ready|en\s+camino|in\s+pc|en\s+el\s+pc|al\s+pc|hasta\s+las|a\s+las|tipo)\b`,
+		`(?i)\b(llego|llegando|lleganding|voy|vengo|salgo|saliendo|caigo|entro|me\s+conecto|conectando|me\s+meto|instalo|instalado|estar[eé]|aparezco|prendo|juego|jugamos|toy\s+ready|estoy\s+ready|ready|en\s+camino|in\s+pc|en\s+pc|en\s+el\s+pc|al\s+pc|hasta\s+las|a\s+las|de\s+las|tipo)\b`,
 	)
 
 	thirdPersonSingularVerbRe = regexp.MustCompile(`(?i)\b(llega|viene|va\s+saliendo|est[aá]\s+llegando|est[aá]\s+ready)\b`)

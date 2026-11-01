@@ -24,19 +24,19 @@ var standardESCL = []func(Params) string{
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Traducci\u00f3n oficial de %q (%s): sumale %d min de Capi Time mi rey, llega a las %s y qued\u00f3 pana el atraso.",
+			"Traducci\u00f3n oficial de %q (%s): s\u00famenle %d min de Capi Time mis kings, reci\u00e9n se conecta a las %s.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Alerta de humo con ese %q (%s), mi king: con +%d min de Capi Time asoma reci\u00e9n a las %s cuando por fin prenda el PC.",
+			"Alerta de humo con ese %q (%s), kingcito: con +%d min de Capi Time asoma reci\u00e9n a las %s cuando por fin prenda el PC.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"El cl\u00e1sico %q (%s) del Capi: aplicale +%d min de peaje mi rey, cae a las %s y qued\u00f3 pana la espera.",
+			"El cl\u00e1sico %q (%s) del Capi: apl\u00edquenle +%d min de desfase mis chanchitos, cae recién a las %s.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
@@ -45,13 +45,13 @@ var standardESCL = []func(Params) string{
 var easterEggESCL = []func(Params) string{
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Milagro hist\u00f3rico mi king: dijo %q y por primera vez el Capi llega puntual a las %s, qued\u00f3 pana.",
+			"Milagro hist\u00f3rico mis kings: dijo %q y por primera vez el Capi llega puntual a las %s sin un minuto de atraso.",
 			p.ClaimSummary, p.ClaimedClock,
 		)
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Pidan un deseo mi rey: %q sin atraso, hoy se alinearon los astros y cae clavado a las %s, qued\u00f3 pana.",
+			"Pidan un deseo mis chanchitos: %q sin atraso, hoy se alinearon los astros y cae clavado a las %s.",
 			p.ClaimSummary, p.ClaimedClock,
 		)
 	},
@@ -66,7 +66,7 @@ var standardENUS = []func(Params) string{
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Official Capi Time conversion for %q (%s): add %d min mi rey, landing at %s and quedo pana.",
+			"Official Capi Time conversion for %q (%s): add %d min mi rey, landing around %s.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
@@ -75,7 +75,7 @@ var standardENUS = []func(Params) string{
 var easterEggENUS = []func(Params) string{
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Miracle alert mi king: claimed %q and Capi is actually arriving on time at %s, quedo pana!",
+			"Miracle alert mi king: claimed %q and Capi is actually arriving on time at %s!",
 			p.ClaimSummary, p.ClaimedClock,
 		)
 	},
