@@ -136,6 +136,7 @@ a report, not a required check.
 ```text
 cmd/chatisimo/        binary entry point
 cookbooks/            architecture, coding and testing rules
+docs/                 Terms of Service and Privacy Policy (GitHub Pages)
 .claude/              Claude Code agents, skills, hooks and settings
 .github/              CI workflow, Dependabot, issue and pull request templates
 .deploy/local/        local compose stack and E2E images
