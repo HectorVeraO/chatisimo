@@ -19,6 +19,7 @@ type resolvedSettings struct {
 	matchdayMinute int
 	slangCacheTTL  time.Duration
 	apiBaseURL     string
+	banterPrompt   string
 	loadedAt       time.Time
 }
 
@@ -105,6 +106,18 @@ func (s *Service) loadSettingsFromReader(ctx context.Context, loadedAt time.Time
 		}
 	}
 
+	promptRaw, err := readOptionalSetting(ctx, s.settings, SettingBanterPrompt, DefaultBanterPrompt)
+	banterPrompt := ""
+	if err != nil {
+		problems = append(problems, err)
+	} else {
+		var promptErr error
+		banterPrompt, promptErr = ValidateBanterPrompt(promptRaw)
+		if promptErr != nil {
+			problems = append(problems, fmt.Errorf("setting %s: %w", SettingBanterPrompt, promptErr))
+		}
+	}
+
 	if len(problems) > 0 {
 		return resolvedSettings{}, errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 	}
@@ -116,6 +129,7 @@ func (s *Service) loadSettingsFromReader(ctx context.Context, loadedAt time.Time
 		matchdayMinute: matchdayMinute,
 		slangCacheTTL:  slangTTL,
 		apiBaseURL:     apiBaseURL,
+		banterPrompt:   banterPrompt,
 		loadedAt:       loadedAt,
 	}
 

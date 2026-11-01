@@ -119,6 +119,10 @@ func TestAlertsDeduplicationAcrossTwoInstancesAndRetryOnSendFailure(t *testing.T
 		t.Errorf("fridayAlert.Banter = %q, want synchronous generated banter", fridayAlert.Banter)
 	}
 
+	if fridayAlert.Locale != uccalendar.LocaleESCL {
+		t.Errorf("fridayAlert.Locale = %q, want default %q", fridayAlert.Locale, uccalendar.LocaleESCL)
+	}
+
 	// Subsequent CheckAlerts on BOTH svcA and svcB must be deduplicated via uccalendar.sent_alert!
 	if err := svcA.CheckAlerts(t.Context()); err != nil {
 		t.Fatalf("svcA duplicate CheckAlerts: %v", err)
@@ -282,6 +286,34 @@ func TestAlertsMultiGuildIsolationPartialFailureAndSharedBanter(t *testing.T) {
 	}
 	if banter.Calls() != 2 {
 		t.Errorf("banter.Calls() after failing matchday = %d, want 2 (1 Friday + 1 memoized matchday attempt)", banter.Calls())
+	}
+
+	// Configure otherGuildID to en-US and verify alerts deliver per-guild Locale and localized banter scenario!
+	enLocale := uccalendar.LocaleENUS
+	_, err = svc.UpdateGuildConfig(
+		t.Context(),
+		uccalendar.GuildScope{GuildID: otherGuildID, CanManageGuild: true},
+		uccalendar.GuildConfigUpdate{Locale: &enLocale},
+	)
+	if err != nil {
+		t.Fatalf("set en-US locale on otherGuildID: %v", err)
+	}
+
+	cleanSentAlerts(t, pool)
+	banter.SetResponse("Our king is locked in for matchday.", nil)
+	if err := svc.CheckAlerts(t.Context()); err != nil {
+		t.Fatalf("CheckAlerts with mixed es-CL and en-US guilds: %v", err)
+	}
+
+	mixedAlerts := alerts.Delivered()[4:]
+	if len(mixedAlerts) != 2 {
+		t.Fatalf("mixed locale matchday alerts = %d, want 2: %+v", len(mixedAlerts), mixedAlerts)
+	}
+	if mixedAlerts[0].Alert.GuildID != fakeGuildID || mixedAlerts[0].Alert.Locale != uccalendar.LocaleESCL {
+		t.Errorf("mixedAlerts[0] = (guild=%s, locale=%s), want (%s, es-CL)", mixedAlerts[0].Alert.GuildID, mixedAlerts[0].Alert.Locale, fakeGuildID)
+	}
+	if mixedAlerts[1].Alert.GuildID != otherGuildID || mixedAlerts[1].Alert.Locale != uccalendar.LocaleENUS {
+		t.Errorf("mixedAlerts[1] = (guild=%s, locale=%s), want (%s, en-US)", mixedAlerts[1].Alert.GuildID, mixedAlerts[1].Alert.Locale, otherGuildID)
 	}
 }
 

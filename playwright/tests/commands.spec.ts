@@ -38,13 +38,18 @@ test("the composer offers the four top-level commands in a server and hides /uc-
   await expect.poll(() => suggestedPaths(page)).toEqual(["/chatisimo", "/ge", "/uc"]);
 });
 
-test("a server manager configures /uc-config and a regular member is refused ephemerally", async ({ world }) => {
+test("a server manager configures /uc-config and /uc defaults to es-CL until switched to en-US", async ({ world }) => {
   const alice = world.user("Alice");
   const bruno = world.user("Bruno");
 
   await world.asUser("Bruno");
   await world.slash("/uc-config set", { friend: { user: "Carla" } });
   await expect(world.ephemeralMessages).toHaveCount(1);
+
+  // Before /uc-config set, /uc posts publicly in es-CL with UC white/blue circles even for en-US users.
+  await world.slash("/uc");
+  await expect(world.messageWithContentContaining("⚪🔵")).toBeVisible();
+  await expect(world.messageWithContentContaining("el hincha cruzado")).toBeVisible();
 
   await world.control.setMemberPermissions(world.guild.id, alice.id, "32");
   await world.asUser("Alice");
@@ -53,18 +58,25 @@ test("a server manager configures /uc-config and a regular member is refused eph
   await world.slash("/uc-config set", {
     friend: { user: "Carla" },
     channel: { channel: world.guild.channel_id },
+    locale: "en-US",
   });
   await expect(world.ephemeralMessages).toHaveCount(1);
+
+  await world.slash("/uc");
+  await expect(world.messageWithContentContaining("All clear")).toBeVisible();
 
   await world.asUser("Bruno");
   await expect(world.ephemeralMessages).toHaveCount(1);
 
   const records = await world.castRecords();
-  expect(records).toHaveLength(2);
+  expect(records).toHaveLength(4);
   for (const record of records) {
-    expect(record.ephemeral).toBe(true);
     expect(record.pings).toEqual([]);
   }
+  expect(records[0]?.ephemeral).toBe(true);
+  expect(records[1]?.ephemeral).toBe(false);
+  expect(records[2]?.ephemeral).toBe(true);
+  expect(records[3]?.ephemeral).toBe(false);
 });
 
 test("/ge lists the 18 verbs", async ({ world }) => {

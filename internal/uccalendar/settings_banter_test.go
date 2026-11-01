@@ -143,6 +143,27 @@ func TestSettings5MinuteTTLLiveUpdatesAndKillSwitch(t *testing.T) {
 		return checkErr == nil && rep.Banter == "Frase renovada tras bajar el TTL a una hora."
 	})
 
+	// Update uc.banter_prompt in platform.setting and advance 5m -> new prompt digest invalidates
+	// banter cache immediately (even though the 1h banter entry is only 5m old!) and passes the new
+	// system prompt to GenerateWithPrompt.
+	customPrompt := "Write one playful Chilean Spanish line using mi chanchito and kingcito."
+	if err := cfgStore.Set(t.Context(), uccalendar.SettingBanterPrompt, customPrompt); err != nil {
+		t.Fatalf("Set banter_prompt: %v", err)
+	}
+
+	banter.SetResponse("Hoy juega la franja, mi chanchito kingcito esta bloqueado.", nil)
+	clock.Advance(5 * time.Minute)
+
+	waitForCondition(t, "banter cache invalidated on prompt change", func() bool {
+		rep, checkErr := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
+		return checkErr == nil && rep.Banter == "Hoy juega la franja, mi chanchito kingcito esta bloqueado."
+	})
+
+	sysPrompts := banter.SystemPrompts()
+	if len(sysPrompts) == 0 || sysPrompts[len(sysPrompts)-1] != customPrompt {
+		t.Errorf("latest system prompt = %v, want %q", sysPrompts, customPrompt)
+	}
+
 	// Activate 0s kill-switch and advance 5m -> immediately returns "" and makes zero new LLM calls.
 	if err := cfgStore.Set(t.Context(), uccalendar.SettingSlangCacheTTL, "0s"); err != nil {
 		t.Fatalf("Set slang_cache_ttl=0s: %v", err)
@@ -381,6 +402,7 @@ func TestInvalidSettingsAggregationAndDiscardedBanter(t *testing.T) {
 		uccalendar.SettingMatchdayAlertTime: "9:00",
 		uccalendar.SettingSlangCacheTTL:     "10s",
 		uccalendar.SettingAPIBaseURL:        "ftp://user@bad host/api?x=1",
+		uccalendar.SettingBanterPrompt:      "bad\x00prompt",
 	})
 
 	banter := newFakeBanter("   @\x00<\n   ")
@@ -391,7 +413,7 @@ func TestInvalidSettingsAggregationAndDiscardedBanter(t *testing.T) {
 		Settings:   badSettings,
 		Clock:      clock,
 		Alerts:     alerts,
-		Banter:     banter,
+		Banter:     legacyOnlyBanterGenerator{inner: banter},
 		HTTPClient: espnSrv.server.Client(),
 		Logger:     slog.New(slog.DiscardHandler),
 	})
@@ -412,6 +434,7 @@ func TestInvalidSettingsAggregationAndDiscardedBanter(t *testing.T) {
 		uccalendar.SettingMatchdayAlertTime,
 		uccalendar.SettingSlangCacheTTL,
 		uccalendar.SettingAPIBaseURL,
+		uccalendar.SettingBanterPrompt,
 	} {
 		if !strings.Contains(syncErr.Error(), key) {
 			t.Errorf("aggregated settings error %q missing key %q", syncErr.Error(), key)

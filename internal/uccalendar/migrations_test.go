@@ -184,12 +184,13 @@ func TestMigration0001InitUpAndDown(t *testing.T) {
 		t.Fatalf("store.Migrations: %v", err)
 	}
 
+	down0003 := readDownSQL(t, files, "0003_guild_locale.sql")
 	down0002 := readDownSQL(t, files, "0002_guild_config.sql")
 	down0001 := readDownSQL(t, files, "0001_init.sql")
 
 	_, err = pool.Exec(
 		t.Context(),
-		down0002+"; "+down0001+"; DELETE FROM uccalendar.goose_db_version WHERE version_id >= 1;",
+		down0003+"; "+down0002+"; "+down0001+"; DELETE FROM uccalendar.goose_db_version WHERE version_id >= 1;",
 	)
 	if err != nil {
 		t.Fatalf("exec Down migrations: %v", err)
@@ -266,8 +267,12 @@ func TestMigration0002GuildConfigUpAndDown(t *testing.T) {
 		t.Fatalf("store.Migrations: %v", err)
 	}
 
+	down0003 := readDownSQL(t, files, "0003_guild_locale.sql")
 	down0002 := readDownSQL(t, files, "0002_guild_config.sql")
-	_, err = pool.Exec(t.Context(), down0002+"; DELETE FROM uccalendar.goose_db_version WHERE version_id = 2;")
+	_, err = pool.Exec(
+		t.Context(),
+		down0003+"; "+down0002+"; DELETE FROM uccalendar.goose_db_version WHERE version_id >= 2;",
+	)
 	if err != nil {
 		t.Fatalf("exec 0002 Down: %v", err)
 	}
@@ -312,5 +317,76 @@ func TestMigration0002GuildConfigUpAndDown(t *testing.T) {
 	}
 	if hasDefault {
 		t.Error("sent_alert.guild_id still has a column DEFAULT after 0002 Up, want DEFAULT dropped")
+	}
+}
+
+func TestMigration0003GuildLocaleUpAndDown(t *testing.T) {
+	source, err := uccalendar.MigrationSource()
+	if err != nil {
+		t.Fatalf("MigrationSource: %v", err)
+	}
+
+	isolated, err := pgtest.New(t.Context(), pgtest.Options{Sources: []db.Source{source}})
+	if err != nil {
+		t.Fatalf("pgtest.New: %v", err)
+	}
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), closeDeadline)
+		defer cancel()
+
+		closeErr := isolated.Close(closeCtx)
+		if closeErr != nil {
+			t.Errorf("isolated.Close: %v", closeErr)
+		}
+	})
+
+	pool := isolated.Pool()
+
+	// Seed one row with friend + locale and one locale-only row before rolling 0003 Down.
+	_, err = pool.Exec(t.Context(), `
+		INSERT INTO uccalendar.guild_config (guild_id, friend_user_id, channel_id, locale, updated_at) VALUES
+		('200000000000000001', '100000000000000001', '', 'en-US', '2026-10-31T17:00:00Z'),
+		('200000000000000002', '', '', 'en-US', '2026-10-31T17:05:00Z');
+	`)
+	if err != nil {
+		t.Fatalf("seed 0003 rows: %v", err)
+	}
+
+	files, err := store.Migrations()
+	if err != nil {
+		t.Fatalf("store.Migrations: %v", err)
+	}
+
+	down0003 := readDownSQL(t, files, "0003_guild_locale.sql")
+	_, err = pool.Exec(t.Context(), down0003+"; DELETE FROM uccalendar.goose_db_version WHERE version_id = 3;")
+	if err != nil {
+		t.Fatalf("exec 0003 Down: %v", err)
+	}
+
+	var remainingRows int
+	err = pool.QueryRow(t.Context(), "SELECT count(*) FROM uccalendar.guild_config").Scan(&remainingRows)
+	if err != nil {
+		t.Fatalf("count guild_config after 0003 Down: %v", err)
+	}
+	if remainingRows != 1 {
+		t.Errorf("guild_config rows after 0003 Down = %d, want 1 (locale-only row pruned)", remainingRows)
+	}
+
+	// Re-apply 0003 Up on top of the surviving 0002 row.
+	err = db.Migrate(t.Context(), pool, source)
+	if err != nil {
+		t.Fatalf("re-apply 0003 Up: %v", err)
+	}
+
+	var restoredLocale string
+	err = pool.QueryRow(
+		t.Context(),
+		"SELECT locale FROM uccalendar.guild_config WHERE guild_id = '200000000000000001'",
+	).Scan(&restoredLocale)
+	if err != nil {
+		t.Fatalf("read restored guild_config row: %v", err)
+	}
+	if restoredLocale != "" {
+		t.Errorf("restored locale after 0003 Up = %q, want empty default", restoredLocale)
 	}
 }

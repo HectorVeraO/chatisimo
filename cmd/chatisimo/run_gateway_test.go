@@ -516,7 +516,7 @@ func TestRunServesUCCalendarSlashCommand(t *testing.T) {
 		t.Fatalf("the bot never became ready: %v", err)
 	}
 
-	caller := fake.AddUser(fakediscord.User{ID: callerID, Name: "Caller", Locale: "es-419"})
+	caller := fake.AddUser(fakediscord.User{ID: callerID, Name: "Caller", Locale: "en-US"})
 	friend := fake.AddUser(fakediscord.User{ID: friendID, Name: "Cruzado"})
 	guild := fake.AddGuild(fakediscord.Guild{Name: "Test Guild"}, caller, friend)
 
@@ -530,8 +530,10 @@ func TestRunServesUCCalendarSlashCommand(t *testing.T) {
 	}
 
 	unconfiguredMsg := awaitInteractionMessage(t, fake, caller, unconfiguredRes)
-	if !strings.Contains(unconfiguredMsg.Content, "el hincha cruzado") || strings.Contains(unconfiguredMsg.Content, "<@") {
-		t.Errorf("unconfigured /uc reply = %q, want generic fallback without mention", unconfiguredMsg.Content)
+	if !strings.Contains(unconfiguredMsg.Content, "\u26aa\U0001f535") ||
+		!strings.Contains(unconfiguredMsg.Content, "el hincha cruzado") ||
+		strings.Contains(unconfiguredMsg.Content, "<@") {
+		t.Errorf("unconfigured /uc reply = %q, want es-CL UC branding fallback without mention", unconfiguredMsg.Content)
 	}
 
 	if err := fake.SetMemberPermissions(guild, caller, "32"); err != nil {
@@ -541,7 +543,7 @@ func TestRunServesUCCalendarSlashCommand(t *testing.T) {
 	cfgRes, err := fake.Slash(readyCtx, caller, fakediscord.Slash{
 		Guild:   &guild,
 		Path:    "/uc-config/set",
-		Options: map[string]any{"friend": friend},
+		Options: map[string]any{"friend": friend, "locale": "en-US"},
 	})
 	if err != nil {
 		t.Fatalf("/uc-config/set: %v", err)
@@ -565,8 +567,10 @@ func TestRunServesUCCalendarSlashCommand(t *testing.T) {
 	if msg.EphemeralFor != "" {
 		t.Errorf("/uc reply EphemeralFor = %q, want public channel message", msg.EphemeralFor)
 	}
-	if !strings.Contains(msg.Content, "Deportes Iquique") || !strings.Contains(msg.Content, "<@"+friendID+">") {
-		t.Errorf("/uc reply = %q, want Deportes Iquique and silent <@%s> mention", msg.Content, friendID)
+	if !strings.Contains(msg.Content, "\u26aa\U0001f535 \U0001f534 **Blocked") ||
+		!strings.Contains(msg.Content, "Deportes Iquique") ||
+		!strings.Contains(msg.Content, "<@"+friendID+">") {
+		t.Errorf("/uc reply = %q, want English UC branded report with Deportes Iquique and silent <@%s> mention", msg.Content, friendID)
 	}
 
 	r.cancel()

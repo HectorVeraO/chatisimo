@@ -555,3 +555,157 @@ func FuzzValidateUCSlangCacheTTL(f *testing.F) {
 		}
 	})
 }
+
+func TestValidateUCBanterPromptAndTemplates(t *testing.T) {
+	const leakMarker = "SyntheticMarkerToken"
+
+	if err := validateUCBanterPrompt(defaultUCBanterPrompt, config.EnvLocal); err != nil {
+		t.Fatalf("defaultUCBanterPrompt rejected: %v", err)
+	}
+
+	templateChecks := []struct {
+		name     string
+		validate func(string, config.Environment) error
+		defaults []string
+		valid    string
+	}{
+		{
+			name:     "report",
+			validate: validateUCReportTemplate,
+			defaults: []string{defaultUCReportTemplateESCL, defaultUCReportTemplateENUS},
+			valid:    "⚪🔵 {{.Period}}\n- {{.Friend}}\n> {{.Banter}}",
+		},
+		{
+			name:     "friday_alert",
+			validate: validateUCFridayAlertTemplate,
+			defaults: []string{defaultUCFridayAlertTemplateESCL, defaultUCFridayAlertTemplateENUS},
+			valid:    "⚪🔵 {{.SaturdayDate}}-{{.SundayDate}}\n- {{.Friend}}\n> {{.Banter}}",
+		},
+		{
+			name:     "matchday_alert",
+			validate: validateUCMatchdayAlertTemplate,
+			defaults: []string{defaultUCMatchdayAlertTemplateESCL, defaultUCMatchdayAlertTemplateENUS},
+			valid:    "⚪🔵 {{range .Matches}}{{.Opponent}}{{end}}\n{{if .Banter}}> {{.Banter}}{{end}}",
+		},
+	}
+
+	badInputs := []string{
+		"",
+		"   \n\n  ",
+		"{{." + leakMarker + "}}",
+		"{{if .HasFriend}}" + leakMarker,
+		"{{if false}}" + leakMarker + "{{end}}",
+		leakMarker + "\x00bad",
+		leakMarker + "\xff\xfe",
+		strings.Repeat("x", maxLLMPromptBytes+1),
+	}
+
+	for _, check := range templateChecks {
+		t.Run(check.name, func(t *testing.T) {
+			for _, def := range check.defaults {
+				if err := check.validate(def, config.EnvProduction); err != nil {
+					t.Errorf("default template rejected: %v", err)
+				}
+			}
+
+			if err := check.validate(check.valid, config.EnvLocal); err != nil {
+				t.Errorf("valid custom template rejected: %v", err)
+			}
+
+			for _, bad := range badInputs {
+				err := check.validate(bad, config.EnvLocal)
+				if err == nil {
+					t.Errorf("bad template %q accepted", bad)
+					continue
+				}
+
+				if strings.Contains(err.Error(), leakMarker) {
+					t.Errorf("error %q leaked marker %q", err.Error(), leakMarker)
+				}
+			}
+		})
+	}
+}
+
+func FuzzValidateUCBanterPrompt(f *testing.F) {
+	seeds := append([]string{
+		"",
+		"   \n  ",
+		defaultUCBanterPrompt,
+		"Tono chileno\nUsa king, kin y mi rey.",
+		strings.Repeat("a", maxLLMPromptBytes),
+		strings.Repeat("a", maxLLMPromptBytes+1),
+		"prompt\rwith cr",
+		"prompt\twith tab",
+		"prompt\x00with nul",
+		"prompt\xff\xfebad utf8",
+	}, settingAbuseSeeds()...)
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	fixedErr := validateUCBanterPrompt("\x00\xff", config.EnvLocal).Error() +
+		" " + validateUCBanterPrompt("", config.EnvLocal).Error()
+
+	f.Fuzz(func(t *testing.T, value string) {
+		err := validateUCBanterPrompt(value, config.EnvLocal)
+		if err != nil {
+			msg := err.Error()
+			if len(value) >= 6 && !strings.Contains(fixedErr, value) && strings.Contains(msg, value) {
+				t.Fatalf("error %q echoed input %q", msg, value)
+			}
+
+			return
+		}
+
+		if len(value) < 1 || len(value) > maxLLMPromptBytes || strings.TrimSpace(value) == "" || !utf8.ValidString(value) {
+			t.Fatalf("accepted invalid banter prompt len=%d", len(value))
+		}
+	})
+}
+
+func FuzzValidateUCTemplates(f *testing.F) {
+	seeds := append([]string{
+		"",
+		"   \n  ",
+		defaultUCReportTemplateESCL,
+		defaultUCFridayAlertTemplateESCL,
+		defaultUCMatchdayAlertTemplateESCL,
+		"⚪🔵 {{.Banter}}",
+		"{{.UnknownSecretField}}",
+		"{{if .HasBanter}}unclosed",
+		"{{if false}}blank{{end}}",
+		"tmpl\x00nul",
+		"tmpl\xff\xfe",
+	}, settingAbuseSeeds()...)
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	fixedCorpus := strings.Join([]string{
+		"uccmd: template is empty",
+		"uccmd: template exceeds maximum size",
+		"uccmd: template is not valid UTF-8",
+		"uccmd: template contains disallowed control characters",
+		"uccmd: invalid template syntax",
+		"uccmd: template references unknown field or invalid action",
+		"uccmd: template renders empty message",
+		"uccmd: template output exceeds maximum size",
+	}, " ")
+
+	f.Fuzz(func(t *testing.T, value string) {
+		for _, fn := range []func(string, config.Environment) error{
+			validateUCReportTemplate,
+			validateUCFridayAlertTemplate,
+			validateUCMatchdayAlertTemplate,
+		} {
+			err := fn(value, config.EnvLocal)
+			if err != nil {
+				msg := err.Error()
+				if len(value) >= 6 && !strings.Contains(fixedCorpus, value) && strings.Contains(msg, value) {
+					t.Fatalf("error %q echoed input %q", msg, value)
+				}
+			}
+		}
+	})
+}

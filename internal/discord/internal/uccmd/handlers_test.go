@@ -103,7 +103,8 @@ func TestParseConfigUpdateAndCheckOptionsRejectMalformedAndUnauthorizedResolvedP
 			"name":"set","type":1,
 			"options":[
 				{"name":"friend","type":6,"value":"` + memberID + `"},
-				{"name":"channel","type":7,"value":"` + newsChan + `"}
+				{"name":"channel","type":7,"value":"` + newsChan + `"},
+				{"name":"locale","type":3,"value":"en-US"}
 			]
 		}]
 	}`
@@ -117,6 +118,9 @@ func TestParseConfigUpdateAndCheckOptionsRejectMalformedAndUnauthorizedResolvedP
 	}
 	if update.ChannelID == nil || *update.ChannelID != newsChan {
 		t.Errorf("ChannelID = %v, want %q", update.ChannelID, newsChan)
+	}
+	if update.Locale == nil || *update.Locale != uccalendar.LocaleENUS {
+		t.Errorf("Locale = %v, want %q", update.Locale, uccalendar.LocaleENUS)
 	}
 
 	invalidConfigCases := []struct {
@@ -182,6 +186,30 @@ func TestParseConfigUpdateAndCheckOptionsRejectMalformedAndUnauthorizedResolvedP
 			}`,
 			wantErr: uccmd.ErrInvalidChannel,
 		},
+		{
+			name: "rejects unsupported locale value",
+			payload: `{
+				"id":"1","name":"uc-config","type":1,
+				"options":[{"name":"set","type":1,"options":[{"name":"locale","type":3,"value":"pt-BR"}]}]
+			}`,
+			wantErr: uccalendar.ErrInvalidInput,
+		},
+		{
+			name: "rejects non-string JSON value on locale option without panicking",
+			payload: `{
+				"id":"1","name":"uc-config","type":1,
+				"options":[{"name":"set","type":1,"options":[{"name":"locale","type":3,"value":123}]}]
+			}`,
+			wantErr: uccalendar.ErrInvalidInput,
+		},
+		{
+			name: "rejects wrong option type on locale option",
+			payload: `{
+				"id":"1","name":"uc-config","type":1,
+				"options":[{"name":"set","type":1,"options":[{"name":"locale","type":6,"value":"en-US"}]}]
+			}`,
+			wantErr: uccalendar.ErrInvalidInput,
+		},
 	}
 
 	for _, tc := range invalidConfigCases {
@@ -245,6 +273,11 @@ func FuzzParseSlashOptions(f *testing.F) {
 			if update.ChannelID != nil {
 				if err := uccalendar.ValidateSnowflake(*update.ChannelID); err != nil {
 					t.Fatalf("ParseConfigUpdateOptions accepted invalid channel snowflake: %v", err)
+				}
+			}
+			if update.Locale != nil {
+				if _, err := uccalendar.ParseGuildLocale(*update.Locale); err != nil {
+					t.Fatalf("ParseConfigUpdateOptions accepted invalid locale: %v", err)
 				}
 			}
 		}

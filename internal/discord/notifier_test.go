@@ -716,22 +716,39 @@ func TestSendUCAlertDeliversFridayAndMatchdayAlertsWithSilentMentionsAndCleanLog
 		t.Fatalf("SendUCAlert(matchday): %v", err)
 	}
 
+	matchdayENAlert := uccalendar.Alert{
+		Kind:         uccalendar.AlertMatchdayMorning,
+		FriendUserID: userA,
+		Locale:       uccalendar.LocaleENUS,
+		Banter:       "Today our king vanishes for UC",
+		Matches:      []uccalendar.Match{match},
+	}
+	err = w.notifier.SendUCAlert(t.Context(), w.guild.ChannelID, matchdayENAlert)
+	if err != nil {
+		t.Fatalf("SendUCAlert(matchday en-US): %v", err)
+	}
+
 	visible := w.fake.Visible(w.users[userB], w.guild.ChannelID)
-	if len(visible) != 2 {
-		t.Fatalf("guild channel has %d visible messages, want 2", len(visible))
+	if len(visible) != 3 {
+		t.Fatalf("guild channel has %d visible messages, want 3", len(visible))
 	}
-	if !strings.Contains(visible[0].Content, "Reporte de disponibilidad de <@"+userA+"> para el finde (07/11-08/11)") {
-		t.Errorf("friday message = %q, want weekend availability header with silent mention", visible[0].Content)
+	if !strings.Contains(visible[0].Content, "\u26aa\U0001f535 **Reporte cruzado de finde \u00b7 07/11-08/11**") ||
+		!strings.Contains(visible[0].Content, "- **Hincha:** <@"+userA+">") {
+		t.Errorf("friday message = %q, want weekend report header and silent friend mention", visible[0].Content)
 	}
-	if !strings.Contains(visible[0].Content, "s\u00e1bado 07/11 bloqueado de 16:00 a 21:30 hrs") {
+	if !strings.Contains(visible[0].Content, "- \U0001f534 **s\u00e1bado 07/11** (16:00 a 21:30 hrs)") {
 		t.Errorf("friday message = %q, want blocked Saturday window", visible[0].Content)
 	}
-	if !strings.Contains(visible[0].Content, "domingo 08/11 libre") {
+	if !strings.Contains(visible[0].Content, "- \U0001f7e2 **domingo 08/11** libre para armar panorama") {
 		t.Errorf("friday message = %q, want free Sunday line", visible[0].Content)
 	}
-	if !strings.Contains(visible[1].Content, "Aviso de utilidad p\u00fablica:") ||
-		!strings.Contains(visible[1].Content, "<@"+userA+"> desaparece del mapa entre las **16:00 y las 21:30 hrs**.") {
-		t.Errorf("matchday message = %q, want matchday warning with silent mention", visible[1].Content)
+	if !strings.Contains(visible[1].Content, "\u26aa\U0001f535 **Hoy juega la franja**") ||
+		!strings.Contains(visible[1].Content, "- **Bloqueo:** <@"+userA+"> no disponible de **16:00 a 21:30 hrs**") {
+		t.Errorf("matchday es-CL message = %q, want matchday warning with silent mention", visible[1].Content)
+	}
+	if !strings.Contains(visible[2].Content, "\u26aa\U0001f535 **UC matchday alert**") ||
+		!strings.Contains(visible[2].Content, "- **Unavailable:** <@"+userA+"> blocked from **16:00 to 21:30**") {
+		t.Errorf("matchday en-US message = %q, want English matchday warning with silent mention", visible[2].Content)
 	}
 
 	assertNoPings(t, w.fake)

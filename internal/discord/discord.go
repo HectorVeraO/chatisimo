@@ -37,13 +37,21 @@ const (
 	opRegisterCommands = "register commands"
 )
 
-// Settings are the values read from the database at startup.
+// Settings are the values read from the database at startup, plus optional runtime template
+// reload dependencies.
 type Settings struct {
 	// Token is the bot token (setting discord.token).
 	Token config.Secret
 	// APIBaseURL is the REST base URL, such as https://discord.com/api/v10 (setting
 	// discord.api_base_url).
 	APIBaseURL string
+	// Store is an optional runtime settings reader used to live-reload UC message templates.
+	// When nil, embedded default templates are used.
+	Store SettingReader
+	// Clock is an optional time source for UC template cache expiry; defaults to time.Now.
+	Clock func() time.Time
+	// TemplateTTL overrides the 5-minute UC template cache lifetime when positive.
+	TemplateTTL time.Duration
 }
 
 // GiftExchange is the part of the giftexchange module the adapter calls. *giftexchange.Service
@@ -114,6 +122,7 @@ func New(n *Notifier, gx GiftExchange, uc UCCalendar, logger *slog.Logger) (*Ada
 	if err != nil {
 		return nil, fmt.Errorf("discord adapter: %w", err)
 	}
+	ucHandlers.SetTemplates(n.ucTemplates)
 
 	observe := func(req *router.Request) {
 		n.recordInteractionLocales(req.UserID(), req.GuildID(), req.Locale(), req.GuildLocale())

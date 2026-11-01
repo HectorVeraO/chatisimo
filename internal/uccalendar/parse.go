@@ -3,7 +3,10 @@ package uccalendar
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -200,6 +203,76 @@ func ValidateSnowflake(raw string) error {
 	}
 
 	return nil
+}
+
+// ParseGuildLocale validates raw as a supported per-guild UC message locale ("es-CL" or "en-US").
+func ParseGuildLocale(raw string) (string, error) {
+	if raw == "" {
+		return "", &InputError{Field: "locale", Code: InputCodeEmpty}
+	}
+
+	switch raw {
+	case LocaleESCL, LocaleENUS:
+		return raw, nil
+	default:
+		return "", &InputError{Field: "locale", Code: InputCodeInvalidLocale}
+	}
+}
+
+// ValidateBanterPrompt validates raw as a non-empty UTF-8 banter system prompt of at most
+// MaxBanterPromptBytes bytes (after CRLF normalization) with no control characters other than '\n'
+// and no bidirectional override runes, returning the trimmed prompt.
+func ValidateBanterPrompt(raw string) (string, error) {
+	if raw == "" {
+		return "", &InputError{Field: "banter_prompt", Code: InputCodeEmpty}
+	}
+
+	if len(raw) > MaxBanterPromptBytes*2 {
+		return "", &InputError{Field: "banter_prompt", Code: InputCodeInvalidPrompt}
+	}
+
+	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
+
+	var (
+		hasEmpty   bool
+		hasInvalid bool
+	)
+
+	if len(normalized) > MaxBanterPromptBytes {
+		hasInvalid = true
+	}
+
+	if !utf8.ValidString(normalized) {
+		hasInvalid = true
+	} else {
+		for _, r := range normalized {
+			isBadControl := unicode.IsControl(r) && r != '\n'
+			if isBadControl || isBidiRune(r) {
+				hasInvalid = true
+				break
+			}
+		}
+	}
+
+	trimmed := strings.TrimSpace(normalized)
+	if trimmed == "" {
+		hasEmpty = true
+	}
+
+	var problems []error
+	if hasEmpty {
+		problems = append(problems, &InputError{Field: "banter_prompt", Code: InputCodeEmpty})
+	}
+
+	if hasInvalid {
+		problems = append(problems, &InputError{Field: "banter_prompt", Code: InputCodeInvalidPrompt})
+	}
+
+	if len(problems) > 0 {
+		return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+	}
+
+	return trimmed, nil
 }
 
 func parseASCIIUint(s string) (int, bool) {

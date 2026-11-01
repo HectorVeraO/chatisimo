@@ -17,6 +17,7 @@ const (
 	dateOptionName        = "date"
 	friendOptionName      = "friend"
 	channelOptionName     = "channel"
+	localeOptionName      = "locale"
 	clearTargetOptionName = "target"
 	maxDateOptionRunes    = 10
 )
@@ -137,6 +138,17 @@ func clearTargetChoice(value uccalendar.ClearTarget, labelID MsgID) discord.Appl
 	return choice
 }
 
+func localeChoice(value string, labelID MsgID) discord.ApplicationCommandOptionChoiceString {
+	name, nameLoc := localizedText(labelID)
+	choice := discord.ApplicationCommandOptionChoiceString{
+		Name:              name,
+		NameLocalizations: nameLoc,
+		Value:             value,
+	}
+
+	return choice
+}
+
 func configSetSubCommand() discord.ApplicationCommandOptionSubCommand {
 	_, setLoc := localizedText(textSubConfigSetName)
 	setDesc, setDescLoc := localizedText(textSubConfigSetDesc)
@@ -144,6 +156,8 @@ func configSetSubCommand() discord.ApplicationCommandOptionSubCommand {
 	friendDesc, friendDescLoc := localizedText(textOptFriendDesc)
 	_, channelLoc := localizedText(textOptChannelName)
 	channelDesc, channelDescLoc := localizedText(textOptChannelDesc)
+	_, localeLoc := localizedText(textOptLocaleName)
+	localeDesc, localeDescLoc := localizedText(textOptLocaleDesc)
 
 	sub := discord.ApplicationCommandOptionSubCommand{
 		Name:                     subConfigSetName,
@@ -165,6 +179,16 @@ func configSetSubCommand() discord.ApplicationCommandOptionSubCommand {
 				ChannelTypes: []discord.ChannelType{
 					discord.ChannelTypeGuildText,
 					discord.ChannelTypeGuildNews,
+				},
+			},
+			discord.ApplicationCommandOptionString{
+				Name:                     localeOptionName,
+				NameLocalizations:        localeLoc,
+				Description:              localeDesc,
+				DescriptionLocalizations: localeDescLoc,
+				Choices: []discord.ApplicationCommandOptionChoiceString{
+					localeChoice(uccalendar.LocaleESCL, textChoiceLocaleESCL),
+					localeChoice(uccalendar.LocaleENUS, textChoiceLocaleENUS),
 				},
 			},
 		},
@@ -208,6 +232,7 @@ func configClearSubCommand() discord.ApplicationCommandOptionSubCommand {
 					clearTargetChoice(uccalendar.ClearTargetAll, textChoiceClearAll),
 					clearTargetChoice(uccalendar.ClearTargetFriend, textChoiceClearFriend),
 					clearTargetChoice(uccalendar.ClearTargetChannel, textChoiceClearChannel),
+					clearTargetChoice(uccalendar.ClearTargetLocale, textChoiceClearLocale),
 				},
 			},
 		},

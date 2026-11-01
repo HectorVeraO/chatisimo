@@ -33,17 +33,20 @@ type GuildConfig struct {
 	GuildID      string
 	FriendUserID string
 	ChannelID    string
+	Locale       string
 	UpdatedAt    time.Time
 }
 
 // GuildConfigPatch specifies a partial or full update to a guild's UC calendar configuration.
-// Setting FriendUserID or ChannelID to "" when SetFriendUserID or SetChannelID is true clears
-// that field; when both resulting fields are empty, the row is removed.
+// Setting FriendUserID, ChannelID, or Locale to "" when the corresponding Set* flag is true clears
+// that field; when all resulting fields are empty, the row is removed.
 type GuildConfigPatch struct {
 	SetFriendUserID bool
 	FriendUserID    string
 	SetChannelID    bool
 	ChannelID       string
+	SetLocale       bool
+	Locale          string
 }
 
 // Store persists per-guild UC calendar configuration and proactive alert deduplication claims in
@@ -88,11 +91,11 @@ func (s *Store) GetGuildConfig(ctx context.Context, guildID string) (GuildConfig
 
 	err := s.pool.QueryRow(
 		ctx,
-		`SELECT friend_user_id, channel_id, updated_at
+		`SELECT friend_user_id, channel_id, locale, updated_at
 		 FROM uccalendar.guild_config
 		 WHERE guild_id = $1`,
 		guildID,
-	).Scan(&cfg.FriendUserID, &cfg.ChannelID, &cfg.UpdatedAt)
+	).Scan(&cfg.FriendUserID, &cfg.ChannelID, &cfg.Locale, &cfg.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return GuildConfig{GuildID: guildID}, nil
@@ -105,8 +108,8 @@ func (s *Store) GetGuildConfig(ctx context.Context, guildID string) (GuildConfig
 }
 
 // ApplyGuildConfigPatch atomically updates or clears the selected configuration fields for
-// guildID and returns the resulting GuildConfig. If both FriendUserID and ChannelID end up empty,
-// the row is removed from uccalendar.guild_config.
+// guildID and returns the resulting GuildConfig. If FriendUserID, ChannelID, and Locale all end
+// up empty, the row is removed from uccalendar.guild_config.
 func (s *Store) ApplyGuildConfigPatch(
 	ctx context.Context,
 	guildID string,
@@ -126,7 +129,7 @@ func (s *Store) ApplyGuildConfigPatch(
 		problems = append(problems, errors.New("uccalendar store: empty guild id"))
 	}
 
-	if !patch.SetFriendUserID && !patch.SetChannelID {
+	if !patch.SetFriendUserID && !patch.SetChannelID && !patch.SetLocale {
 		problems = append(problems, errors.New("uccalendar store: empty guild config patch"))
 	}
 
@@ -136,14 +139,15 @@ func (s *Store) ApplyGuildConfigPatch(
 
 	ts := updatedAt.UTC()
 	hasNonEmptyValue := (patch.SetFriendUserID && patch.FriendUserID != "") ||
-		(patch.SetChannelID && patch.ChannelID != "")
+		(patch.SetChannelID && patch.ChannelID != "") ||
+		(patch.SetLocale && patch.Locale != "")
 
 	if hasNonEmptyValue {
 		return s.upsertGuildConfig(ctx, guildID, patch, ts)
 	}
 
-	clearsBoth := patch.SetFriendUserID && patch.SetChannelID
-	if clearsBoth {
+	clearsAll := patch.SetFriendUserID && patch.SetChannelID && patch.SetLocale
+	if clearsAll {
 		_, err := s.pool.Exec(
 			ctx,
 			`DELETE FROM uccalendar.guild_config WHERE guild_id = $1`,
@@ -175,29 +179,40 @@ func (s *Store) upsertGuildConfig(
 		insertChannel = patch.ChannelID
 	}
 
+	insertLocale := ""
+	if patch.SetLocale {
+		insertLocale = patch.Locale
+	}
+
 	cfg := GuildConfig{GuildID: guildID}
 	err := s.pool.QueryRow(
 		ctx,
-		`INSERT INTO uccalendar.guild_config (guild_id, friend_user_id, channel_id, updated_at)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO uccalendar.guild_config (guild_id, friend_user_id, channel_id, locale, updated_at)
+		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (guild_id) DO UPDATE SET
 		     friend_user_id = CASE
-		         WHEN $5 THEN EXCLUDED.friend_user_id
+		         WHEN $6 THEN EXCLUDED.friend_user_id
 		         ELSE uccalendar.guild_config.friend_user_id
 		     END,
 		     channel_id = CASE
-		         WHEN $6 THEN EXCLUDED.channel_id
+		         WHEN $7 THEN EXCLUDED.channel_id
 		         ELSE uccalendar.guild_config.channel_id
 		     END,
+		     locale = CASE
+		         WHEN $8 THEN EXCLUDED.locale
+		         ELSE uccalendar.guild_config.locale
+		     END,
 		     updated_at = EXCLUDED.updated_at
-		 RETURNING friend_user_id, channel_id, updated_at`,
+		 RETURNING friend_user_id, channel_id, locale, updated_at`,
 		guildID,
 		insertFriend,
 		insertChannel,
+		insertLocale,
 		updatedAt,
 		patch.SetFriendUserID,
 		patch.SetChannelID,
-	).Scan(&cfg.FriendUserID, &cfg.ChannelID, &cfg.UpdatedAt)
+		patch.SetLocale,
+	).Scan(&cfg.FriendUserID, &cfg.ChannelID, &cfg.Locale, &cfg.UpdatedAt)
 	if err != nil {
 		return GuildConfig{}, fmt.Errorf("upsert guild config: %w", err)
 	}
@@ -217,14 +232,16 @@ func (s *Store) clearSingleGuildConfigField(
 		`UPDATE uccalendar.guild_config
 		 SET friend_user_id = CASE WHEN $2 THEN '' ELSE friend_user_id END,
 		     channel_id     = CASE WHEN $3 THEN '' ELSE channel_id END,
-		     updated_at     = $4
+		     locale         = CASE WHEN $4 THEN '' ELSE locale END,
+		     updated_at     = $5
 		 WHERE guild_id = $1
-		 RETURNING friend_user_id, channel_id, updated_at`,
+		 RETURNING friend_user_id, channel_id, locale, updated_at`,
 		guildID,
 		patch.SetFriendUserID,
 		patch.SetChannelID,
+		patch.SetLocale,
 		updatedAt,
-	).Scan(&cfg.FriendUserID, &cfg.ChannelID, &cfg.UpdatedAt)
+	).Scan(&cfg.FriendUserID, &cfg.ChannelID, &cfg.Locale, &cfg.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return GuildConfig{GuildID: guildID}, nil
@@ -233,12 +250,12 @@ func (s *Store) clearSingleGuildConfigField(
 		return GuildConfig{}, fmt.Errorf("clear guild config field: %w", err)
 	}
 
-	isNowEmpty := cfg.FriendUserID == "" && cfg.ChannelID == ""
+	isNowEmpty := cfg.FriendUserID == "" && cfg.ChannelID == "" && cfg.Locale == ""
 	if isNowEmpty {
 		_, delErr := s.pool.Exec(
 			ctx,
 			`DELETE FROM uccalendar.guild_config
-			 WHERE guild_id = $1 AND friend_user_id = '' AND channel_id = ''`,
+			 WHERE guild_id = $1 AND friend_user_id = '' AND channel_id = '' AND locale = ''`,
 			guildID,
 		)
 		if delErr != nil {
@@ -269,7 +286,7 @@ func (s *Store) ListAlertGuildConfigs(ctx context.Context) ([]GuildConfig, error
 
 	rows, err := s.pool.Query(
 		ctx,
-		`SELECT guild_id, friend_user_id, channel_id, updated_at
+		`SELECT guild_id, friend_user_id, channel_id, locale, updated_at
 		 FROM uccalendar.guild_config
 		 WHERE channel_id <> ''
 		 ORDER BY guild_id`,
@@ -282,7 +299,7 @@ func (s *Store) ListAlertGuildConfigs(ctx context.Context) ([]GuildConfig, error
 	var configs []GuildConfig
 	for rows.Next() {
 		var cfg GuildConfig
-		scanErr := rows.Scan(&cfg.GuildID, &cfg.FriendUserID, &cfg.ChannelID, &cfg.UpdatedAt)
+		scanErr := rows.Scan(&cfg.GuildID, &cfg.FriendUserID, &cfg.ChannelID, &cfg.Locale, &cfg.UpdatedAt)
 		if scanErr != nil {
 			return nil, fmt.Errorf("scan alert guild config: %w", scanErr)
 		}

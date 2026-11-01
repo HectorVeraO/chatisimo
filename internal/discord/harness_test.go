@@ -110,12 +110,14 @@ func (b *syncBuffer) String() string {
 
 // world is a fake Discord with three users in one guild, and a Notifier pointed at it.
 type world struct {
-	fake     *fakediscord.Server
-	notifier *appdiscord.Notifier
-	logs     *syncBuffer
-	logger   *slog.Logger
-	users    map[string]fakediscord.User
-	guild    fakediscord.Guild
+	fake            *fakediscord.Server
+	notifier        *appdiscord.Notifier
+	worldUCSettings *fakeUCSettings
+	worldClock      *fakeClock
+	logs            *syncBuffer
+	logger          *slog.Logger
+	users           map[string]fakediscord.User
+	guild           fakediscord.Guild
 	// notifierClosed is set by a test that closed the notifier through the adapter.
 	notifierClosed bool
 }
@@ -149,17 +151,31 @@ func newWorld(t testing.TB) *world {
 	}
 	guild := fake.AddGuild(fakediscord.Guild{ID: guildID, Name: guildName}, members...)
 
+	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Microsecond)}
+	ucSettings := newFakeUCSettings(fake.UCBase())
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	notifier, err := appdiscord.NewNotifier(appdiscord.Settings{
-		Token:      config.NewSecret(fake.Token()),
-		APIBaseURL: fake.RESTBase(),
+		Token:       config.NewSecret(fake.Token()),
+		APIBaseURL:  fake.RESTBase(),
+		Store:       ucSettings,
+		Clock:       clock.Now,
+		TemplateTTL: time.Millisecond,
 	}, logger)
 	if err != nil {
 		t.Fatalf("NewNotifier: %v", err)
 	}
 
-	w := &world{fake: fake, notifier: notifier, logs: logs, logger: logger, users: users, guild: guild}
+	w := &world{
+		fake:            fake,
+		notifier:        notifier,
+		worldUCSettings: ucSettings,
+		worldClock:      clock,
+		logs:            logs,
+		logger:          logger,
+		users:           users,
+		guild:           guild,
+	}
 	t.Cleanup(func() {
 		if !w.notifierClosed {
 			notifier.Close(context.Background())
@@ -277,7 +293,7 @@ type person struct {
 func newService(t *testing.T, w *world) *service {
 	t.Helper()
 
-	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Microsecond)}
+	clock := w.worldClock
 	random := &lockedRandom{rng: rand.New(rand.NewPCG(1, 2))} //nolint:gosec // seeded test randomness
 	rephraser := &fakeRephraser{}
 
@@ -306,7 +322,7 @@ func newService(t *testing.T, w *world) *service {
 		t.Fatalf("giftexchange.New: %v", err)
 	}
 
-	ucSettings := newFakeUCSettings(w.fake.UCBase())
+	ucSettings := w.worldUCSettings
 	uc, err := uccalendar.New(uccalendar.Deps{
 		Pool:        shared.Pool(),
 		Settings:    ucSettings,

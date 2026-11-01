@@ -29,6 +29,8 @@ const (
 	InputCodeDurationOutOfRange InputCode = "duration_out_of_range"
 	InputCodeInvalidSnowflake   InputCode = "invalid_snowflake"
 	InputCodeInvalidURL         InputCode = "invalid_url"
+	InputCodeInvalidLocale      InputCode = "invalid_locale"
+	InputCodeInvalidPrompt      InputCode = "invalid_prompt"
 )
 
 // InputError reports one invalid field or parameter. It matches ErrInvalidInput via errors.Is.

@@ -2,6 +2,8 @@ package uccalendar
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -34,6 +36,8 @@ type banterTask struct {
 func (s *Service) resolveBanter(
 	now time.Time,
 	ttl time.Duration,
+	prompt string,
+	locale string,
 	archetype string,
 	fingerprint string,
 	scenario string,
@@ -42,7 +46,8 @@ func (s *Service) resolveBanter(
 		return ""
 	}
 
-	cacheKey := archetype + "|" + fingerprint
+	cacheKey := banterCacheKey(archetype, locale, prompt, fingerprint)
+	localizedScenario := localizeScenario(locale, scenario)
 
 	s.mu.Lock()
 	entry, found := s.banterCache[cacheKey]
@@ -71,7 +76,7 @@ func (s *Service) resolveBanter(
 		s.nextTaskID++
 		s.banterTasks[taskID] = banterTask{cancel: cancel, done: done}
 
-		go s.runBanterRefresh(refreshCtx, cancel, done, taskID, cacheKey, archetype, scenario)
+		go s.runBanterRefresh(refreshCtx, cancel, done, taskID, cacheKey, archetype, prompt, localizedScenario)
 	}
 	s.mu.Unlock()
 
@@ -82,6 +87,8 @@ func (s *Service) resolveBanterForAlert(
 	ctx context.Context,
 	now time.Time,
 	ttl time.Duration,
+	prompt string,
+	locale string,
 	archetype string,
 	fingerprint string,
 	scenario string,
@@ -90,7 +97,8 @@ func (s *Service) resolveBanterForAlert(
 		return ""
 	}
 
-	cacheKey := archetype + "|" + fingerprint
+	cacheKey := banterCacheKey(archetype, locale, prompt, fingerprint)
+	localizedScenario := localizeScenario(locale, scenario)
 
 	s.mu.Lock()
 	entry, found := s.banterCache[cacheKey]
@@ -121,7 +129,7 @@ func (s *Service) resolveBanterForAlert(
 		callCtx, cancel := context.WithTimeout(ctx, DefaultHTTPTimeout)
 		defer cancel()
 
-		return s.generateAndStoreBanter(callCtx, cacheKey, archetype, scenario)
+		return s.generateAndStoreBanter(callCtx, cacheKey, archetype, prompt, localizedScenario)
 	})
 	if err != nil {
 		return staleText
@@ -142,6 +150,7 @@ func (s *Service) runBanterRefresh(
 	taskID uint64,
 	cacheKey string,
 	archetype string,
+	prompt string,
 	scenario string,
 ) {
 	defer close(done)
@@ -156,7 +165,7 @@ func (s *Service) runBanterRefresh(
 
 	// Background banter refresh is best-effort; generation failures are logged inside the closure.
 	_, _, _ = s.sf.Do(cacheKey, func() (any, error) {
-		return s.generateAndStoreBanter(refreshCtx, cacheKey, archetype, scenario)
+		return s.generateAndStoreBanter(refreshCtx, cacheKey, archetype, prompt, scenario)
 	})
 }
 
@@ -164,9 +173,18 @@ func (s *Service) generateAndStoreBanter(
 	callCtx context.Context,
 	cacheKey string,
 	archetype string,
+	prompt string,
 	scenario string,
 ) (string, error) {
-	raw, err := s.banter.Generate(callCtx, scenario)
+	var (
+		raw string
+		err error
+	)
+	if promptGen, ok := s.banter.(PromptBanterGenerator); ok {
+		raw, err = promptGen.GenerateWithPrompt(callCtx, prompt, scenario)
+	} else {
+		raw, err = s.banter.Generate(callCtx, scenario)
+	}
 	if err != nil {
 		if callCtx.Err() == nil {
 			s.logger.WarnContext(
@@ -418,4 +436,27 @@ func matchFingerprint(m Match) string {
 
 	fp := m.ID + ":" + string(m.Condition) + ":" + m.Kickoff.UTC().Format(time.RFC3339)
 	return fp
+}
+
+func banterCacheKey(archetype, locale, prompt, fingerprint string) string {
+	sum := sha256.Sum256([]byte(prompt))
+	promptDigest := hex.EncodeToString(sum[:8])
+	key := archetype + "|" + locale + "|" + promptDigest + "|" + fingerprint
+
+	return key
+}
+
+func localizeScenario(locale, scenario string) string {
+	effective := effectiveGuildLocale(locale)
+	localized := "Language: " + effective + ". " + scenario
+
+	return localized
+}
+
+func effectiveGuildLocale(stored string) string {
+	if stored == LocaleENUS {
+		return LocaleENUS
+	}
+
+	return DefaultGuildLocale
 }

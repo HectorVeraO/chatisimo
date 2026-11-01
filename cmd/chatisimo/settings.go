@@ -8,31 +8,46 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/HectorVeraO/chatisimo/internal/discord"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/llm"
 	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
 
 const (
-	settingDiscordToken        = "discord.token"
-	settingDiscordAPIBaseURL   = "discord.api_base_url"
-	settingLLMKey              = "llm.api_key"
-	settingLLMModel            = "llm.model"
-	settingLLMBaseURL          = "llm.base_url"
-	settingLLMPrompt           = "llm.prompt"
-	settingUCAPIBaseURL        = uccalendar.SettingAPIBaseURL
-	settingUCFridayAlertTime   = uccalendar.SettingFridayAlertTime
-	settingUCMatchdayAlertTime = uccalendar.SettingMatchdayAlertTime
-	settingUCSlangCacheTTL     = uccalendar.SettingSlangCacheTTL
+	settingDiscordToken                = "discord.token"
+	settingDiscordAPIBaseURL           = "discord.api_base_url"
+	settingLLMKey                      = "llm.api_key"
+	settingLLMModel                    = "llm.model"
+	settingLLMBaseURL                  = "llm.base_url"
+	settingLLMPrompt                   = "llm.prompt"
+	settingUCAPIBaseURL                = uccalendar.SettingAPIBaseURL
+	settingUCBanterPrompt              = uccalendar.SettingBanterPrompt
+	settingUCFridayAlertTime           = uccalendar.SettingFridayAlertTime
+	settingUCMatchdayAlertTime         = uccalendar.SettingMatchdayAlertTime
+	settingUCSlangCacheTTL             = uccalendar.SettingSlangCacheTTL
+	settingUCReportTemplateESCL        = discord.SettingUCReportTemplateESCL
+	settingUCReportTemplateENUS        = discord.SettingUCReportTemplateENUS
+	settingUCFridayAlertTemplateESCL   = discord.SettingUCFridayAlertTemplateESCL
+	settingUCFridayAlertTemplateENUS   = discord.SettingUCFridayAlertTemplateENUS
+	settingUCMatchdayAlertTemplateESCL = discord.SettingUCMatchdayAlertTemplateESCL
+	settingUCMatchdayAlertTemplateENUS = discord.SettingUCMatchdayAlertTemplateENUS
 
-	defaultDiscordAPIBaseURL   = "https://discord.com/api/v10"
-	defaultLLMModel            = llm.DefaultModel
-	defaultLLMBaseURL          = llm.DefaultBaseURL
-	defaultLLMPrompt           = llm.DefaultPrompt
-	defaultUCAPIBaseURL        = uccalendar.DefaultAPIBaseURL
-	defaultUCFridayAlertTime   = uccalendar.DefaultFridayAlertTime
-	defaultUCMatchdayAlertTime = uccalendar.DefaultMatchdayAlertTime
-	defaultUCSlangCacheTTL     = "24h"
+	defaultDiscordAPIBaseURL           = "https://discord.com/api/v10"
+	defaultLLMModel                    = llm.DefaultModel
+	defaultLLMBaseURL                  = llm.DefaultBaseURL
+	defaultLLMPrompt                   = llm.DefaultPrompt
+	defaultUCAPIBaseURL                = uccalendar.DefaultAPIBaseURL
+	defaultUCBanterPrompt              = uccalendar.DefaultBanterPrompt
+	defaultUCFridayAlertTime           = uccalendar.DefaultFridayAlertTime
+	defaultUCMatchdayAlertTime         = uccalendar.DefaultMatchdayAlertTime
+	defaultUCSlangCacheTTL             = "24h"
+	defaultUCReportTemplateESCL        = discord.DefaultUCReportTemplateESCL
+	defaultUCReportTemplateENUS        = discord.DefaultUCReportTemplateENUS
+	defaultUCFridayAlertTemplateESCL   = discord.DefaultUCFridayAlertTemplateESCL
+	defaultUCFridayAlertTemplateENUS   = discord.DefaultUCFridayAlertTemplateENUS
+	defaultUCMatchdayAlertTemplateESCL = discord.DefaultUCMatchdayAlertTemplateESCL
+	defaultUCMatchdayAlertTemplateENUS = discord.DefaultUCMatchdayAlertTemplateENUS
 
 	maxDiscordTokenBytes = 256
 	maxLLMModelBytes     = 128
@@ -87,6 +102,13 @@ func settingKeys() []config.Key {
 			Doc:      "ESPN soccer API base URL",
 		},
 		{
+			Name:      settingUCBanterPrompt,
+			Multiline: true,
+			Default:   defaultUCBanterPrompt,
+			Validate:  validateUCBanterPrompt,
+			Doc:       "Vertex AI UC Chilean banter system prompt",
+		},
+		{
 			Name:     settingUCFridayAlertTime,
 			Default:  defaultUCFridayAlertTime,
 			Validate: validateUCAlertClock,
@@ -103,6 +125,48 @@ func settingKeys() []config.Key {
 			Default:  defaultUCSlangCacheTTL,
 			Validate: validateUCSlangCacheTTL,
 			Doc:      "UC Chilean banter cache TTL (0s disables LLM)",
+		},
+		{
+			Name:      settingUCFridayAlertTemplateENUS,
+			Multiline: true,
+			Default:   defaultUCFridayAlertTemplateENUS,
+			Validate:  validateUCFridayAlertTemplate,
+			Doc:       "UC Friday weekend summary Discord message template (en-US)",
+		},
+		{
+			Name:      settingUCFridayAlertTemplateESCL,
+			Multiline: true,
+			Default:   defaultUCFridayAlertTemplateESCL,
+			Validate:  validateUCFridayAlertTemplate,
+			Doc:       "UC Friday weekend summary Discord message template (es-CL)",
+		},
+		{
+			Name:      settingUCMatchdayAlertTemplateENUS,
+			Multiline: true,
+			Default:   defaultUCMatchdayAlertTemplateENUS,
+			Validate:  validateUCMatchdayAlertTemplate,
+			Doc:       "UC matchday morning alert Discord message template (en-US)",
+		},
+		{
+			Name:      settingUCMatchdayAlertTemplateESCL,
+			Multiline: true,
+			Default:   defaultUCMatchdayAlertTemplateESCL,
+			Validate:  validateUCMatchdayAlertTemplate,
+			Doc:       "UC matchday morning alert Discord message template (es-CL)",
+		},
+		{
+			Name:      settingUCReportTemplateENUS,
+			Multiline: true,
+			Default:   defaultUCReportTemplateENUS,
+			Validate:  validateUCReportTemplate,
+			Doc:       "UC schedule report Discord message template (en-US)",
+		},
+		{
+			Name:      settingUCReportTemplateESCL,
+			Multiline: true,
+			Default:   defaultUCReportTemplateESCL,
+			Validate:  validateUCReportTemplate,
+			Doc:       "UC schedule report Discord message template (es-CL)",
 		},
 	}
 
@@ -198,6 +262,30 @@ func validateUCSlangCacheTTL(value string, _ config.Environment) error {
 	}
 
 	return nil
+}
+
+// validateUCBanterPrompt accepts 1-16384 bytes of valid UTF-8 text with non-empty trimmed content
+// and no control characters other than '\n'. Its errors never carry the value.
+func validateUCBanterPrompt(value string, env config.Environment) error {
+	return validateLLMPrompt(value, env)
+}
+
+// validateUCReportTemplate validates a uc.template.report.* text/template definition without
+// echoing raw input in returned errors.
+func validateUCReportTemplate(value string, _ config.Environment) error {
+	return discord.ValidateUCReportTemplate(value) //nolint:wrapcheck // preserves value-free validation message
+}
+
+// validateUCFridayAlertTemplate validates a uc.template.friday_alert.* text/template definition
+// without echoing raw input in returned errors.
+func validateUCFridayAlertTemplate(value string, _ config.Environment) error {
+	return discord.ValidateUCFridayAlertTemplate(value) //nolint:wrapcheck // preserves value-free validation message
+}
+
+// validateUCMatchdayAlertTemplate validates a uc.template.matchday_alert.* text/template
+// definition without echoing raw input in returned errors.
+func validateUCMatchdayAlertTemplate(value string, _ config.Environment) error {
+	return discord.ValidateUCMatchdayAlertTemplate(value) //nolint:wrapcheck // preserves value-free validation message
 }
 
 // validateLLMModel accepts a 1-128 byte printable ASCII model identifier without URL path or

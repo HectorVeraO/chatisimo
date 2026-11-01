@@ -73,27 +73,34 @@ func TestGuildConfigAuthorizationValidationAndCrossGuildIsolation(t *testing.T) 
 
 	badFriend := "bad-friend-value"
 	badChannel := "0"
+	badLocale := "es-AR-voseo"
 	_, aggErr := svc.UpdateGuildConfig(t.Context(), managerA, uccalendar.GuildConfigUpdate{
 		FriendUserID: &badFriend,
 		ChannelID:    &badChannel,
+		Locale:       &badLocale,
 	})
 	if !errors.Is(aggErr, uccalendar.ErrInvalidInput) {
-		t.Fatalf("UpdateGuildConfig with two invalid fields = %v, want ErrInvalidInput", aggErr)
+		t.Fatalf("UpdateGuildConfig with three invalid fields = %v, want ErrInvalidInput", aggErr)
 	}
-	if !strings.Contains(aggErr.Error(), "friend_user_id") || !strings.Contains(aggErr.Error(), "channel_id") {
-		t.Errorf("aggregated UpdateGuildConfig error %q missing friend_user_id or channel_id", aggErr.Error())
+	for _, field := range []string{"friend_user_id", "channel_id", "locale"} {
+		if !strings.Contains(aggErr.Error(), field) {
+			t.Errorf("aggregated UpdateGuildConfig error %q missing %q", aggErr.Error(), field)
+		}
 	}
-	if strings.Contains(aggErr.Error(), badFriend) {
-		t.Errorf("UpdateGuildConfig error %q echoed rejected input %q", aggErr.Error(), badFriend)
+	for _, leaked := range []string{badFriend, badLocale} {
+		if strings.Contains(aggErr.Error(), leaked) {
+			t.Errorf("UpdateGuildConfig error %q echoed rejected input %q", aggErr.Error(), leaked)
+		}
 	}
 
 	if _, err := svc.ClearGuildConfig(t.Context(), managerA, uccalendar.ClearTarget("everything")); !errors.Is(err, uccalendar.ErrInvalidInput) {
 		t.Errorf("ClearGuildConfig unknown target = %v, want ErrInvalidInput", err)
 	}
 
-	// 3. Configure Guild A (friendA + channelA) and Guild B (friendB only).
+	// 3. Configure Guild A (friendA + channelA + en-US) and Guild B (friendB only, default es-CL).
 	friendA := fakeFriendID
 	chanA := fakeChannelID
+	localeA := uccalendar.LocaleENUS
 	friendB := otherFriendID
 
 	cfgA, err := svc.UpdateGuildConfig(t.Context(), managerA, uccalendar.GuildConfigUpdate{
@@ -102,18 +109,19 @@ func TestGuildConfigAuthorizationValidationAndCrossGuildIsolation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("set friend on Guild A: %v", err)
 	}
-	if cfgA.GuildID != fakeGuildID || cfgA.FriendUserID != friendA || cfgA.ChannelID != "" {
-		t.Fatalf("cfgA after friend set = %+v, want friend=%s channel=''", cfgA, friendA)
+	if cfgA.GuildID != fakeGuildID || cfgA.FriendUserID != friendA || cfgA.ChannelID != "" || cfgA.Locale != "" {
+		t.Fatalf("cfgA after friend set = %+v, want friend=%s channel='' locale=''", cfgA, friendA)
 	}
 
 	cfgA, err = svc.UpdateGuildConfig(t.Context(), managerA, uccalendar.GuildConfigUpdate{
 		ChannelID: &chanA,
+		Locale:    &localeA,
 	})
 	if err != nil {
-		t.Fatalf("set channel on Guild A: %v", err)
+		t.Fatalf("set channel and locale on Guild A: %v", err)
 	}
-	if cfgA.FriendUserID != friendA || cfgA.ChannelID != chanA {
-		t.Fatalf("cfgA after channel set = %+v, want friend=%s channel=%s", cfgA, friendA, chanA)
+	if cfgA.FriendUserID != friendA || cfgA.ChannelID != chanA || cfgA.Locale != uccalendar.LocaleENUS {
+		t.Fatalf("cfgA after channel+locale set = %+v, want friend=%s channel=%s locale=en-US", cfgA, friendA, chanA)
 	}
 
 	_, err = svc.UpdateGuildConfig(t.Context(), managerB, uccalendar.GuildConfigUpdate{
@@ -132,45 +140,45 @@ func TestGuildConfigAuthorizationValidationAndCrossGuildIsolation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("GetGuildConfig Guild A: %v", err)
 	}
-	if readA.FriendUserID != friendA || readA.ChannelID != chanA {
+	if readA.FriendUserID != friendA || readA.ChannelID != chanA || readA.Locale != uccalendar.LocaleENUS {
 		t.Fatalf("Guild A config = %+v, want intact after unauthorized Clear attempt", readA)
 	}
 
 	// 4. Cross-guild isolation on Check:
-	// - Guild A resolves friendA
-	// - Guild B resolves friendB
-	// - Unconfigured Guild C resolves ""
-	// - Direct message (GuildID: "") resolves ""
+	// - Guild A resolves friendA and Locale "en-US"
+	// - Guild B resolves friendB and default Locale "es-CL"
+	// - Unconfigured Guild C resolves "" and default Locale "es-CL"
+	// - Direct message (GuildID: "") resolves "" and default Locale "es-CL"
 	repA, err := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
 	if err != nil {
 		t.Fatalf("Check Guild A: %v", err)
 	}
-	if repA.FriendUserID != friendA {
-		t.Errorf("Guild A Report.FriendUserID = %q, want %q", repA.FriendUserID, friendA)
+	if repA.FriendUserID != friendA || repA.Locale != uccalendar.LocaleENUS {
+		t.Errorf("Guild A Report = (friend=%q, locale=%q), want (%q, %q)", repA.FriendUserID, repA.Locale, friendA, uccalendar.LocaleENUS)
 	}
 
 	repB, err := svc.Check(t.Context(), uccalendar.Query{GuildID: otherGuildID})
 	if err != nil {
 		t.Fatalf("Check Guild B: %v", err)
 	}
-	if repB.FriendUserID != friendB {
-		t.Errorf("Guild B Report.FriendUserID = %q, want %q", repB.FriendUserID, friendB)
+	if repB.FriendUserID != friendB || repB.Locale != uccalendar.LocaleESCL {
+		t.Errorf("Guild B Report = (friend=%q, locale=%q), want (%q, %q)", repB.FriendUserID, repB.Locale, friendB, uccalendar.LocaleESCL)
 	}
 
 	repUnconfigured, err := svc.Check(t.Context(), uccalendar.Query{GuildID: thirdGuildID})
 	if err != nil {
 		t.Fatalf("Check unconfigured Guild C: %v", err)
 	}
-	if repUnconfigured.FriendUserID != "" {
-		t.Errorf("unconfigured Guild C Report.FriendUserID = %q, want empty", repUnconfigured.FriendUserID)
+	if repUnconfigured.FriendUserID != "" || repUnconfigured.Locale != uccalendar.LocaleESCL {
+		t.Errorf("unconfigured Guild C Report = (friend=%q, locale=%q), want ('', es-CL)", repUnconfigured.FriendUserID, repUnconfigured.Locale)
 	}
 
 	repDM, err := svc.Check(t.Context(), uccalendar.Query{})
 	if err != nil {
 		t.Fatalf("Check DM: %v", err)
 	}
-	if repDM.FriendUserID != "" {
-		t.Errorf("DM Report.FriendUserID = %q, want empty", repDM.FriendUserID)
+	if repDM.FriendUserID != "" || repDM.Locale != uccalendar.LocaleESCL {
+		t.Errorf("DM Report = (friend=%q, locale=%q), want ('', es-CL)", repDM.FriendUserID, repDM.Locale)
 	}
 
 	// 5. Partial and full clears on Guild A leave Guild B completely untouched.
@@ -178,30 +186,49 @@ func TestGuildConfigAuthorizationValidationAndCrossGuildIsolation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ClearTargetFriend Guild A: %v", err)
 	}
-	if afterClearFriend.FriendUserID != "" || afterClearFriend.ChannelID != chanA {
-		t.Errorf("after ClearTargetFriend = %+v, want friend='' channel=%s", afterClearFriend, chanA)
+	if afterClearFriend.FriendUserID != "" || afterClearFriend.ChannelID != chanA || afterClearFriend.Locale != uccalendar.LocaleENUS {
+		t.Errorf("after ClearTargetFriend = %+v, want friend='' channel=%s locale=en-US", afterClearFriend, chanA)
 	}
 
-	// Restore friendA, clear channelA, then clear default ("") -> ClearTargetAll.
-	_, err = svc.UpdateGuildConfig(t.Context(), managerA, uccalendar.GuildConfigUpdate{FriendUserID: &friendA})
+	afterClearLocale, err := svc.ClearGuildConfig(t.Context(), managerA, uccalendar.ClearTargetLocale)
 	if err != nil {
-		t.Fatalf("restore friendA: %v", err)
+		t.Fatalf("ClearTargetLocale Guild A: %v", err)
+	}
+	if afterClearLocale.Locale != "" || afterClearLocale.ChannelID != chanA {
+		t.Errorf("after ClearTargetLocale = %+v, want locale='' channel=%s", afterClearLocale, chanA)
+	}
+
+	repAAfterLocaleClear, err := svc.Check(t.Context(), uccalendar.Query{GuildID: fakeGuildID})
+	if err != nil {
+		t.Fatalf("Check Guild A after ClearTargetLocale: %v", err)
+	}
+	if repAAfterLocaleClear.Locale != uccalendar.LocaleESCL {
+		t.Errorf("Guild A Report.Locale after ClearTargetLocale = %q, want %q", repAAfterLocaleClear.Locale, uccalendar.LocaleESCL)
+	}
+
+	// Restore friendA and localeA, clear channelA, then clear default ("") -> ClearTargetAll.
+	_, err = svc.UpdateGuildConfig(t.Context(), managerA, uccalendar.GuildConfigUpdate{
+		FriendUserID: &friendA,
+		Locale:       &localeA,
+	})
+	if err != nil {
+		t.Fatalf("restore friendA and localeA: %v", err)
 	}
 
 	afterClearChan, err := svc.ClearGuildConfig(t.Context(), managerA, uccalendar.ClearTargetChannel)
 	if err != nil {
 		t.Fatalf("ClearTargetChannel Guild A: %v", err)
 	}
-	if afterClearChan.FriendUserID != friendA || afterClearChan.ChannelID != "" {
-		t.Errorf("after ClearTargetChannel = %+v, want friend=%s channel=''", afterClearChan, friendA)
+	if afterClearChan.FriendUserID != friendA || afterClearChan.ChannelID != "" || afterClearChan.Locale != uccalendar.LocaleENUS {
+		t.Errorf("after ClearTargetChannel = %+v, want friend=%s channel='' locale=en-US", afterClearChan, friendA)
 	}
 
 	afterClearAll, err := svc.ClearGuildConfig(t.Context(), managerA, "")
 	if err != nil {
 		t.Fatalf("ClearGuildConfig default target Guild A: %v", err)
 	}
-	if afterClearAll.FriendUserID != "" || afterClearAll.ChannelID != "" {
-		t.Errorf("after ClearGuildConfig('') = %+v, want both empty", afterClearAll)
+	if afterClearAll.FriendUserID != "" || afterClearAll.ChannelID != "" || afterClearAll.Locale != "" {
+		t.Errorf("after ClearGuildConfig('') = %+v, want all empty", afterClearAll)
 	}
 
 	readB, err := svc.GetGuildConfig(t.Context(), managerB)
