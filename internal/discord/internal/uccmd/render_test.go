@@ -109,19 +109,20 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				FriendUserID: testFriendID,
 			},
 			wantSubs: []string{
-				"\u26aa\U0001f535 \U0001f534 **Bloqueado \u00b7 este finde (07/11-08/11)**",
-				"\u26bd **Universidad Cat\u00f3lica vs Colo-Colo**",
+				"\u26aa\U0001f535 **Calendario UC \u00b7 este finde (07/11-08/11)**\n\n\u26bd **Universidad Cat\u00f3lica vs Colo-Colo**",
 				"- Local \U0001f3df\ufe0f Claro Arena \u00b7 Liga de Primera",
 				"- **Inicio:** s\u00e1bado 07/11 a las " + fmt.Sprintf("<t:%d:t>", home.Kickoff.Unix()),
 				fmt.Sprintf("(<t:%d:R>)", home.Kickoff.Unix()),
-				"- **Bloqueo:** 16:00 a 21:30 hrs para <@" + testFriendID + ">",
-				"> Olv\u00eddense de mi rey en esa ventana, kings: va rumbo a la cancha a ver a la Cato.",
-				"-# Pr\u00f3ximo partido: Universidad Cat\u00f3lica vs Cobreloa",
+				"- \U0001f6ab **Bloqueado:** 16:00 a 21:30 hrs para <@" + testFriendID + ">",
+				"\n\n> Olv\u00eddense de mi rey en esa ventana, mis kings: va rumbo a la cancha a ver a la Cato.\n\n-# Pr\u00f3ximo partido: Universidad Cat\u00f3lica vs Cobreloa",
 				"domingo 15/11 \u00b7 horario pendiente ANFP",
 			},
 			omitSubs: []string{
 				"(<@" + testFriendID + ">)",
 				"((",
+				"\U0001f534",
+				"\U0001f7e1",
+				"\U0001f7e2",
 			},
 		},
 		{
@@ -135,15 +136,15 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				NextMatch: &tbd,
 			},
 			wantSubs: []string{
-				"\u26aa\U0001f535 \U0001f534 **Blocked \u00b7 today**",
-				"\u26bd **Palestino vs Universidad Catolica**",
+				"\u26aa\U0001f535 **UC Schedule \u00b7 today**\n\n\u26bd **Palestino vs Universidad Catolica**",
 				"- Away \U0001f4fa \u00b7 Copa Chile",
 				"- **Kickoff:** Sunday 08/11",
-				"- **Unavailable:** 20:00 to 23:00 for the UC fan",
-				"> Count our king out during that window: glued to the screen for UC.",
+				"- \U0001f6ab **Blocked:** 20:00 to 23:00 for the UC fan",
+				"\n\n> Count our king out during that window: glued to the screen for UC.",
 			},
 			omitSubs: []string{
 				"Next match:",
+				"\U0001f534",
 			},
 		},
 		{
@@ -157,13 +158,13 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				NextMatch:   &home,
 			},
 			wantSubs: []string{
-				"\u26aa\U0001f535 \U0001f7e1 **Pendiente ANFP \u00b7 domingo 15/11**",
-				"\u26bd **Universidad Cat\u00f3lica vs Cobreloa**",
-				"- **Fecha:** domingo 15/11 \u00b7 horario pendiente ANFP para el hincha cruzado",
-				"> La ANFP todav\u00eda no suelta la hora exacta, kings; armar junta con mi chanchito es deporte extremo.",
+				"\u26aa\U0001f535 **Calendario UC \u00b7 domingo 15/11**\n\n\u26bd **Universidad Cat\u00f3lica vs Cobreloa**",
+				"- \u23f3 **Pendiente ANFP:** domingo 15/11 \u00b7 horario por confirmar para el hincha cruzado",
+				"\n\n> La ANFP todav\u00eda no suelta la hora exacta, mis kings; armar junta con mi chanchito es deporte extremo.",
 			},
 			omitSubs: []string{
 				"Pr\u00f3ximo partido:",
+				"\U0001f7e1",
 			},
 		},
 		{
@@ -178,14 +179,13 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				Banter:       "Free to fire up the grill",
 			},
 			wantSubs: []string{
-				"\u26aa\U0001f535 \U0001f7e2 **All clear \u00b7 tomorrow**",
-				"- **Availability:** <@" + testFriendID + "> has no UC match",
-				"> Free to fire up the grill",
-				"-# Next match: Universidad Catolica vs Colo-Colo",
+				"\u26aa\U0001f535 **UC Schedule \u00b7 tomorrow**\n\n- \u2705 **All clear:** <@" + testFriendID + "> available (no UC match)",
+				"\n\n> Free to fire up the grill\n\n-# Next match: Universidad Catolica vs Colo-Colo",
 				"unavailable 16:00 to 21:30",
 			},
 			omitSubs: []string{
 				"Free to fire up the grill (<@" + testFriendID + ">)",
+				"\U0001f7e2",
 			},
 		},
 		{
@@ -199,7 +199,8 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				Status:     uccalendar.StatusFree,
 			},
 			wantSubs: []string{
-				"\u26aa\U0001f535 \U0001f7e2 **All clear \u00b7 next weekend (14/11-15/11)**",
+				"\u26aa\U0001f535 **UC Schedule \u00b7 next weekend (14/11-15/11)**",
+				"- \u2705 **All clear:** the UC fan available (no UC match)",
 			},
 			omitSubs: []string{
 				"((",
@@ -216,12 +217,12 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				Banter:       "Todo despejado por ahora, mi rey",
 			},
 			wantSubs: []string{
-				"\u26aa\U0001f535 \U0001f7e2 **V\u00eda libre \u00b7 este mes**",
-				"- **Disponibilidad:** el hincha cruzado sin partido de la UC",
-				"> Todo despejado por ahora, mi rey",
+				"\u26aa\U0001f535 **Calendario UC \u00b7 este mes**\n\n- \u2705 **V\u00eda libre:** el hincha cruzado disponible (sin partido de la UC)",
+				"\n\n> Todo despejado por ahora, mi rey",
 			},
 			omitSubs: []string{
 				"@everyone",
+				"\U0001f7e2",
 			},
 		},
 	}
@@ -308,12 +309,11 @@ func TestRenderAlertInFormatsFridayAndMatchdayWithNoMentions(t *testing.T) {
 	}
 	assertNoMentionsOnCreate(t, friMsg.AllowedMentions)
 	for _, want := range []string{
-		"\u26aa\U0001f535 **Reporte cruzado de finde \u00b7 07/11-08/11**",
-		"- **Hincha:** <@" + testFriendID + ">",
-		"- \U0001f534 **s\u00e1bado 07/11** (16:00 a 21:30 hrs)",
-		"- \U0001f7e1 **domingo 08/11** (pendiente ANFP)",
-		"- \U0001f7e2 **domingo 08/11** libre para armar panorama",
-		`> \@everyone ojo con el s` + "\u00e1" + `bado`,
+		"\u26aa\U0001f535 **Reporte cruzado de finde \u00b7 07/11-08/11**\n\n- **Hincha:** <@" + testFriendID + ">",
+		"- \U0001f6ab **s\u00e1bado 07/11** (16:00 a 21:30 hrs)",
+		"- \u23f3 **domingo 08/11** (pendiente ANFP)",
+		"- \u2705 **domingo 08/11** libre para armar panorama",
+		"\n\n" + `> \@everyone ojo con el s` + "\u00e1" + `bado`,
 	} {
 		if !strings.Contains(friMsg.Content, want) {
 			t.Errorf("friday alert missing %q in:\n%s", want, friMsg.Content)
@@ -323,7 +323,7 @@ func TestRenderAlertInFormatsFridayAndMatchdayWithNoMentions(t *testing.T) {
 	matchdayAlert := uccalendar.Alert{
 		Kind:         uccalendar.AlertMatchdayMorning,
 		FriendUserID: testFriendID,
-		Banter:       "Hoy juega la Cato, kings",
+		Banter:       "Hoy juega la Cato, mis kings",
 		Matches:      []uccalendar.Match{home},
 	}
 	matchMsg, err := uccmd.RenderAlertIn(uccmd.LocaleESCL, matchdayAlert, tz)
@@ -332,12 +332,11 @@ func TestRenderAlertInFormatsFridayAndMatchdayWithNoMentions(t *testing.T) {
 	}
 	assertNoMentionsOnCreate(t, matchMsg.AllowedMentions)
 	for _, want := range []string{
-		"\u26aa\U0001f535 **Hoy juega la franja**",
-		"\u26bd **Universidad Cat\u00f3lica vs Colo-Colo**",
+		"\u26aa\U0001f535 **Hoy juega la franja**\n\n\u26bd **Universidad Cat\u00f3lica vs Colo-Colo**",
 		fmt.Sprintf("<t:%d:t>", home.Kickoff.Unix()),
 		fmt.Sprintf("<t:%d:R>", home.Kickoff.Unix()),
-		"- **Bloqueo:** <@" + testFriendID + "> no disponible de **16:00 a 21:30 hrs**",
-		"\n> Hoy juega la Cato, kings",
+		"- \U0001f6ab **Bloqueado:** <@" + testFriendID + "> no disponible de **16:00 a 21:30 hrs**",
+		"\n\n> Hoy juega la Cato, mis kings",
 	} {
 		if !strings.Contains(matchMsg.Content, want) {
 			t.Errorf("matchday alert missing %q in:\n%s", want, matchMsg.Content)
@@ -462,8 +461,8 @@ func TestRenderReportAndAlertCoverAllWeekdaysEmptyVenuesAndNilLocation(t *testin
 		t.Fatalf("RenderAlertIn(nil tz): %v", err)
 	}
 	for _, want := range []string{
-		"- \U0001f7e2 **Saturday 07/11** free for plans",
-		"> Keep those UC windows in mind before locking in weekend plans.",
+		"- \u2705 **Saturday 07/11** free for plans",
+		"\n\n> Keep those UC windows in mind before locking in weekend plans.",
 	} {
 		if !strings.Contains(friMsg.Content, want) {
 			t.Errorf("friday fallback alert missing %q in:\n%s", want, friMsg.Content)

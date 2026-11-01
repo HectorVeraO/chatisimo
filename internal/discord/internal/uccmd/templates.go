@@ -34,26 +34,26 @@ const (
 // DefaultReportTemplateESCL is the default Chilean Spanish text/template for /uc and /chatisimo uc
 // schedule reports.
 const DefaultReportTemplateESCL = "" +
-	"{{- if .Blocked}}\u26aa\U0001f535 \U0001f534 **Bloqueado \u00b7 {{.Period}}**\n" +
-	"{{- else if .PendingANFP}}\u26aa\U0001f535 \U0001f7e1 **Pendiente ANFP \u00b7 {{.Period}}**\n" +
-	"{{- else}}\u26aa\U0001f535 \U0001f7e2 **V\u00eda libre \u00b7 {{.Period}}**{{- end}}\n" +
-	"{{- range .Matches}}\n" +
+	"\u26aa\U0001f535 **Calendario UC \u00b7 {{.Period}}**\n" +
+	"{{- range .Matches}}\n\n" +
 	"\u26bd **{{.Matchup}}**\n" +
 	"- {{.Venue}}{{if .Tournament}} \u00b7 {{.Tournament}}{{end}}\n" +
 	"{{- if .TBD}}\n" +
-	"- **Fecha:** {{.Weekday}} {{.Date}} \u00b7 horario pendiente ANFP para {{$.Friend}}\n" +
+	"- \u23f3 **Pendiente ANFP:** {{.Weekday}} {{.Date}} \u00b7 horario por confirmar para {{$.Friend}}\n" +
 	"{{- else}}\n" +
 	"- **Inicio:** {{.Weekday}} {{.Date}} a las {{.KickoffTime}} ({{.KickoffRelative}})\n" +
-	"- **Bloqueo:** {{.BlockStart}} a {{.BlockEnd}} hrs para {{$.Friend}}\n" +
+	"- \U0001f6ab **Bloqueado:** {{.BlockStart}} a {{.BlockEnd}} hrs para {{$.Friend}}\n" +
 	"{{- end}}\n" +
 	"{{- end}}\n" +
-	"{{- if .Overflowed}}\n" +
+	"{{- if .Overflowed}}\n\n" +
 	"...\n" +
-	"{{- else if not .Matches}}\n" +
-	"- **Disponibilidad:** {{.Friend}} sin partido de la UC\n" +
+	"{{- else if not .Matches}}\n\n" +
+	"- \u2705 **V\u00eda libre:** {{.Friend}} disponible (sin partido de la UC)\n" +
 	"{{- end}}\n" +
+	"{{- if .Banter}}\n\n" +
 	"> {{.Banter}}\n" +
-	"{{- with .NextMatch}}\n" +
+	"{{- end}}\n" +
+	"{{- with .NextMatch}}\n\n" +
 	"-# Pr\u00f3ximo partido: {{.Matchup}} ({{.Venue}}) \u00b7 {{.Weekday}} {{.Date}}" +
 	"{{if .TBD}} \u00b7 horario pendiente ANFP" +
 	"{{else}} a las {{.KickoffTime}} ({{.KickoffRelative}}) \u00b7 bloqueo {{.BlockStart}} a {{.BlockEnd}} hrs{{end}}\n" +
@@ -62,26 +62,26 @@ const DefaultReportTemplateESCL = "" +
 // DefaultReportTemplateENUS is the default English (United States) text/template for /uc and
 // /chatisimo uc schedule reports.
 const DefaultReportTemplateENUS = "" +
-	"{{- if .Blocked}}\u26aa\U0001f535 \U0001f534 **Blocked \u00b7 {{.Period}}**\n" +
-	"{{- else if .PendingANFP}}\u26aa\U0001f535 \U0001f7e1 **Pending ANFP \u00b7 {{.Period}}**\n" +
-	"{{- else}}\u26aa\U0001f535 \U0001f7e2 **All clear \u00b7 {{.Period}}**{{- end}}\n" +
-	"{{- range .Matches}}\n" +
+	"\u26aa\U0001f535 **UC Schedule \u00b7 {{.Period}}**\n" +
+	"{{- range .Matches}}\n\n" +
 	"\u26bd **{{.Matchup}}**\n" +
 	"- {{.Venue}}{{if .Tournament}} \u00b7 {{.Tournament}}{{end}}\n" +
 	"{{- if .TBD}}\n" +
-	"- **Date:** {{.Weekday}} {{.Date}} \u00b7 kickoff hour pending ANFP for {{$.Friend}}\n" +
+	"- \u23f3 **Pending ANFP:** {{.Weekday}} {{.Date}} \u00b7 kickoff hour TBD for {{$.Friend}}\n" +
 	"{{- else}}\n" +
 	"- **Kickoff:** {{.Weekday}} {{.Date}} at {{.KickoffTime}} ({{.KickoffRelative}})\n" +
-	"- **Unavailable:** {{.BlockStart}} to {{.BlockEnd}} for {{$.Friend}}\n" +
+	"- \U0001f6ab **Blocked:** {{.BlockStart}} to {{.BlockEnd}} for {{$.Friend}}\n" +
 	"{{- end}}\n" +
 	"{{- end}}\n" +
-	"{{- if .Overflowed}}\n" +
+	"{{- if .Overflowed}}\n\n" +
 	"...\n" +
-	"{{- else if not .Matches}}\n" +
-	"- **Availability:** {{.Friend}} has no UC match\n" +
+	"{{- else if not .Matches}}\n\n" +
+	"- \u2705 **All clear:** {{.Friend}} available (no UC match)\n" +
 	"{{- end}}\n" +
+	"{{- if .Banter}}\n\n" +
 	"> {{.Banter}}\n" +
-	"{{- with .NextMatch}}\n" +
+	"{{- end}}\n" +
+	"{{- with .NextMatch}}\n\n" +
 	"-# Next match: {{.Matchup}} ({{.Venue}}) \u00b7 {{.Weekday}} {{.Date}}" +
 	"{{if .TBD}} \u00b7 kickoff hour pending ANFP" +
 	"{{else}} at {{.KickoffTime}} ({{.KickoffRelative}}) \u00b7 unavailable {{.BlockStart}} to {{.BlockEnd}}{{end}}\n" +
@@ -90,54 +90,58 @@ const DefaultReportTemplateENUS = "" +
 // DefaultFridayAlertTemplateESCL is the default Chilean Spanish text/template for proactive Friday
 // weekend UC summaries.
 const DefaultFridayAlertTemplateESCL = "" +
-	"\u26aa\U0001f535 **Reporte cruzado de finde \u00b7 {{.SaturdayDate}}-{{.SundayDate}}**\n" +
+	"\u26aa\U0001f535 **Reporte cruzado de finde \u00b7 {{.SaturdayDate}}-{{.SundayDate}}**\n\n" +
 	"- **Hincha:** {{.Friend}}\n" +
 	"{{- range .Matches}}\n" +
 	"{{- if .TBD}}\n" +
-	"- \U0001f7e1 **{{.Weekday}} {{.Date}}** (pendiente ANFP) \u00b7 {{.Matchup}} ({{.Venue}})\n" +
+	"- \u23f3 **{{.Weekday}} {{.Date}}** (pendiente ANFP) \u00b7 {{.Matchup}} ({{.Venue}})\n" +
 	"{{- else}}\n" +
-	"- \U0001f534 **{{.Weekday}} {{.Date}}** ({{.BlockStart}} a {{.BlockEnd}} hrs) \u00b7 {{.Matchup}} \u00b7 {{.KickoffTime}} ({{.Venue}})\n" +
+	"- \U0001f6ab **{{.Weekday}} {{.Date}}** ({{.BlockStart}} a {{.BlockEnd}} hrs) \u00b7 {{.Matchup}} \u00b7 {{.KickoffTime}} ({{.Venue}})\n" +
 	"{{- end}}\n" +
 	"{{- end}}\n" +
 	"{{- if .SaturdayFree}}\n" +
-	"- \U0001f7e2 **{{.SaturdayWeekday}} {{.SaturdayDate}}** libre para armar panorama\n" +
+	"- \u2705 **{{.SaturdayWeekday}} {{.SaturdayDate}}** libre para armar panorama\n" +
 	"{{- end}}\n" +
 	"{{- if .SundayFree}}\n" +
-	"- \U0001f7e2 **{{.SundayWeekday}} {{.SundayDate}}** libre para armar panorama\n" +
+	"- \u2705 **{{.SundayWeekday}} {{.SundayDate}}** libre para armar panorama\n" +
 	"{{- end}}\n" +
-	"> {{.Banter}}"
+	"{{- if .Banter}}\n\n" +
+	"> {{.Banter}}\n" +
+	"{{- end}}"
 
 // DefaultFridayAlertTemplateENUS is the default English (United States) text/template for
 // proactive Friday weekend UC summaries.
 const DefaultFridayAlertTemplateENUS = "" +
-	"\u26aa\U0001f535 **UC weekend report \u00b7 {{.SaturdayDate}}-{{.SundayDate}}**\n" +
+	"\u26aa\U0001f535 **UC weekend report \u00b7 {{.SaturdayDate}}-{{.SundayDate}}**\n\n" +
 	"- **Fan:** {{.Friend}}\n" +
 	"{{- range .Matches}}\n" +
 	"{{- if .TBD}}\n" +
-	"- \U0001f7e1 **{{.Weekday}} {{.Date}}** (pending ANFP) \u00b7 {{.Matchup}} ({{.Venue}})\n" +
+	"- \u23f3 **{{.Weekday}} {{.Date}}** (pending ANFP) \u00b7 {{.Matchup}} ({{.Venue}})\n" +
 	"{{- else}}\n" +
-	"- \U0001f534 **{{.Weekday}} {{.Date}}** ({{.BlockStart}} to {{.BlockEnd}}) \u00b7 {{.Matchup}} \u00b7 {{.KickoffTime}} ({{.Venue}})\n" +
+	"- \U0001f6ab **{{.Weekday}} {{.Date}}** ({{.BlockStart}} to {{.BlockEnd}}) \u00b7 {{.Matchup}} \u00b7 {{.KickoffTime}} ({{.Venue}})\n" +
 	"{{- end}}\n" +
 	"{{- end}}\n" +
 	"{{- if .SaturdayFree}}\n" +
-	"- \U0001f7e2 **{{.SaturdayWeekday}} {{.SaturdayDate}}** free for plans\n" +
+	"- \u2705 **{{.SaturdayWeekday}} {{.SaturdayDate}}** free for plans\n" +
 	"{{- end}}\n" +
 	"{{- if .SundayFree}}\n" +
-	"- \U0001f7e2 **{{.SundayWeekday}} {{.SundayDate}}** free for plans\n" +
+	"- \u2705 **{{.SundayWeekday}} {{.SundayDate}}** free for plans\n" +
 	"{{- end}}\n" +
-	"> {{.Banter}}"
+	"{{- if .Banter}}\n\n" +
+	"> {{.Banter}}\n" +
+	"{{- end}}"
 
 // DefaultMatchdayAlertTemplateESCL is the default Chilean Spanish text/template for proactive
 // matchday morning UC reminders.
 const DefaultMatchdayAlertTemplateESCL = "" +
 	"\u26aa\U0001f535 **Hoy juega la franja**\n" +
-	"{{- range .Matches}}\n" +
+	"{{- range .Matches}}\n\n" +
 	"\u26bd **{{.Matchup}}**\n" +
 	"- {{.Venue}}{{if .Tournament}} \u00b7 {{.Tournament}}{{end}}\n" +
 	"- **Inicio:** hoy a las {{.KickoffTime}} ({{.KickoffRelative}})\n" +
-	"- **Bloqueo:** {{$.Friend}} no disponible de **{{.BlockStart}} a {{.BlockEnd}} hrs**\n" +
+	"- \U0001f6ab **Bloqueado:** {{$.Friend}} no disponible de **{{.BlockStart}} a {{.BlockEnd}} hrs**\n" +
 	"{{- end}}\n" +
-	"{{- if .Banter}}\n" +
+	"{{- if .Banter}}\n\n" +
 	"> {{.Banter}}\n" +
 	"{{- end}}"
 
@@ -145,13 +149,13 @@ const DefaultMatchdayAlertTemplateESCL = "" +
 // proactive matchday morning UC reminders.
 const DefaultMatchdayAlertTemplateENUS = "" +
 	"\u26aa\U0001f535 **UC matchday alert**\n" +
-	"{{- range .Matches}}\n" +
+	"{{- range .Matches}}\n\n" +
 	"\u26bd **{{.Matchup}}**\n" +
 	"- {{.Venue}}{{if .Tournament}} \u00b7 {{.Tournament}}{{end}}\n" +
 	"- **Kickoff:** today at {{.KickoffTime}} ({{.KickoffRelative}})\n" +
-	"- **Unavailable:** {{$.Friend}} blocked from **{{.BlockStart}} to {{.BlockEnd}}**\n" +
+	"- \U0001f6ab **Blocked:** {{$.Friend}} unavailable from **{{.BlockStart}} to {{.BlockEnd}}**\n" +
 	"{{- end}}\n" +
-	"{{- if .Banter}}\n" +
+	"{{- if .Banter}}\n\n" +
 	"> {{.Banter}}\n" +
 	"{{- end}}"
 

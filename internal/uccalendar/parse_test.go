@@ -413,8 +413,17 @@ func TestValidateBanterPrompt(t *testing.T) {
 		t.Errorf("ValidateBanterPrompt normalized = %q, want trimmed LF multiline", got)
 	}
 
-	if _, err := uccalendar.ValidateBanterPrompt(uccalendar.DefaultBanterPrompt); err != nil {
+	validatedDefault, err := uccalendar.ValidateBanterPrompt(uccalendar.DefaultBanterPrompt)
+	if err != nil {
 		t.Fatalf("ValidateBanterPrompt(DefaultBanterPrompt): %v", err)
+	}
+	if validatedDefault != uccalendar.DefaultBanterPrompt {
+		t.Errorf("ValidateBanterPrompt(DefaultBanterPrompt) changed prompt value")
+	}
+	for _, wantVocative := range []string{"\"mis kings\"", "\"mis chanchitos\"", "\"mis chachiwawis\"", "\"mis reyes\""} {
+		if !strings.Contains(validatedDefault, wantVocative) {
+			t.Errorf("DefaultBanterPrompt missing plural group vocative %s", wantVocative)
+		}
 	}
 
 	invalid := []string{

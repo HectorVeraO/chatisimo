@@ -732,22 +732,21 @@ func TestSendUCAlertDeliversFridayAndMatchdayAlertsWithSilentMentionsAndCleanLog
 	if len(visible) != 3 {
 		t.Fatalf("guild channel has %d visible messages, want 3", len(visible))
 	}
-	if !strings.Contains(visible[0].Content, "\u26aa\U0001f535 **Reporte cruzado de finde \u00b7 07/11-08/11**") ||
-		!strings.Contains(visible[0].Content, "- **Hincha:** <@"+userA+">") {
+	if !strings.Contains(visible[0].Content, "\u26aa\U0001f535 **Reporte cruzado de finde \u00b7 07/11-08/11**\n\n- **Hincha:** <@"+userA+">") {
 		t.Errorf("friday message = %q, want weekend report header and silent friend mention", visible[0].Content)
 	}
-	if !strings.Contains(visible[0].Content, "- \U0001f534 **s\u00e1bado 07/11** (16:00 a 21:30 hrs)") {
+	if !strings.Contains(visible[0].Content, "- \U0001f6ab **s\u00e1bado 07/11** (16:00 a 21:30 hrs)") {
 		t.Errorf("friday message = %q, want blocked Saturday window", visible[0].Content)
 	}
-	if !strings.Contains(visible[0].Content, "- \U0001f7e2 **domingo 08/11** libre para armar panorama") {
+	if !strings.Contains(visible[0].Content, "- \u2705 **domingo 08/11** libre para armar panorama") {
 		t.Errorf("friday message = %q, want free Sunday line", visible[0].Content)
 	}
-	if !strings.Contains(visible[1].Content, "\u26aa\U0001f535 **Hoy juega la franja**") ||
-		!strings.Contains(visible[1].Content, "- **Bloqueo:** <@"+userA+"> no disponible de **16:00 a 21:30 hrs**") {
+	if !strings.Contains(visible[1].Content, "\u26aa\U0001f535 **Hoy juega la franja**\n\n\u26bd") ||
+		!strings.Contains(visible[1].Content, "- \U0001f6ab **Bloqueado:** <@"+userA+"> no disponible de **16:00 a 21:30 hrs**") {
 		t.Errorf("matchday es-CL message = %q, want matchday warning with silent mention", visible[1].Content)
 	}
-	if !strings.Contains(visible[2].Content, "\u26aa\U0001f535 **UC matchday alert**") ||
-		!strings.Contains(visible[2].Content, "- **Unavailable:** <@"+userA+"> blocked from **16:00 to 21:30**") {
+	if !strings.Contains(visible[2].Content, "\u26aa\U0001f535 **UC matchday alert**\n\n\u26bd") ||
+		!strings.Contains(visible[2].Content, "- \U0001f6ab **Blocked:** <@"+userA+"> unavailable from **16:00 to 21:30**") {
 		t.Errorf("matchday en-US message = %q, want English matchday warning with silent mention", visible[2].Content)
 	}
 

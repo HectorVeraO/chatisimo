@@ -567,7 +567,8 @@ func TestRunServesUCCalendarSlashCommand(t *testing.T) {
 	if msg.EphemeralFor != "" {
 		t.Errorf("/uc reply EphemeralFor = %q, want public channel message", msg.EphemeralFor)
 	}
-	if !strings.Contains(msg.Content, "\u26aa\U0001f535 \U0001f534 **Blocked") ||
+	if !strings.Contains(msg.Content, "\u26aa\U0001f535 **UC Schedule") ||
+		!strings.Contains(msg.Content, "- \U0001f6ab **Blocked:**") ||
 		!strings.Contains(msg.Content, "Deportes Iquique") ||
 		!strings.Contains(msg.Content, "<@"+friendID+">") {
 		t.Errorf("/uc reply = %q, want English UC branded report with Deportes Iquique and silent <@%s> mention", msg.Content, friendID)

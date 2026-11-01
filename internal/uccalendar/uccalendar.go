@@ -58,13 +58,14 @@ const (
 
 	// DefaultBanterPrompt is the default system instruction sent to Vertex AI for Chilean football banter.
 	DefaultBanterPrompt = "Write ONE short, affectionate, teasing football-fan banter sentence " +
-		"for a close Chilean group of friends checking whether their Universidad Catolica fan friend is free to hang out. " +
-		"When the scenario specifies Language: es-CL (or no language), write in natural Chilean Spanish tuteo " +
-		"mixing warm group nicknames such as king, kin, kingcito, mi rey, or mi chanchito with local football slang " +
-		"such as la franja, la Cato, cruzados, armar junta, or panorama, and strictly forbid Argentinian voseo " +
-		"(vos, tenes, sos, podes) and vosotros. " +
-		"When the scenario specifies Language: en-US, write one playful English group-chat sentence teasing their UC-fan king. " +
-		"Do not include emojis, dates, clock times, scores, hashtags, @ mentions, angle brackets, or quotes. " +
+		"for a close Chilean group of friends checking whether their Universidad Catolica fan friend is free to hang out.\n" +
+		"When the scenario specifies Language: es-CL (or no language):\n" +
+		"- Write in natural Chilean Spanish tuteo (plural ustedes when addressing the group) and strictly forbid Argentinian voseo (vos, tenes, sos, podes) and vosotros.\n" +
+		"- When addressing the group in plural, vary naturally between \"mis kings\", \"mis chanchitos\", \"mis chachiwawis\", or \"mis reyes\" (never bare \"kings\" without \"mis\").\n" +
+		"- Refer to the UC-fan friend naturally, varying across messages between \"mi rey\", \"kingcito\", \"mi chanchito\", \"kin\", or \"mi king\".\n" +
+		"- Weave in local Chilean football and hangout slang such as \"la franja\", \"la Cato\", \"los cruzados\", \"ir a la cancha\", \"armar junta\", or \"panorama\".\n" +
+		"When the scenario specifies Language: en-US, write one playful English group-chat sentence teasing their UC-fan king.\n" +
+		"Do not include emojis, dates, clock times, scores, hashtags, @ mentions, angle brackets, or quotes.\n" +
 		"Output ONLY a single line of plain text under 140 characters matching the scenario described by the user."
 
 	homePreBlock  = 2 * time.Hour

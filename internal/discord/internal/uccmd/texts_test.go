@@ -295,6 +295,8 @@ func TestESCLCatalogTranslatesProseAndAvoidsVoseo(t *testing.T) {
 			`copi\x{00e1}|revis\x{00e1}|ac\x{00e1})\b`,
 	)
 
+	kingsPattern := regexp.MustCompile(`(?i)\bkings\b`)
+
 	for name, id := range allTextIDs() {
 		esText := es[id]
 		if !formatOnly[id] && esText == en[id] {
@@ -302,6 +304,13 @@ func TestESCLCatalogTranslatesProseAndAvoidsVoseo(t *testing.T) {
 		}
 		if match := voseoPattern.FindString(esText); match != "" {
 			t.Errorf("catalogESCL key %s contains voseo or banned regional form %q in %q", name, match, esText)
+		}
+		for _, loc := range kingsPattern.FindAllStringIndex(esText, -1) {
+			start := loc[0]
+			hasMisPrefix := start >= 4 && strings.EqualFold(esText[start-4:start], "mis ")
+			if !hasMisPrefix {
+				t.Errorf("catalogESCL key %s contains bare \"kings\" without \"mis\" in %q", name, esText)
+			}
 		}
 	}
 }
