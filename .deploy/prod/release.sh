@@ -50,7 +50,20 @@ unset DOCKER_CONFIG
 "${dir}/compose.sh" up -d --remove-orphans --wait chatisimo-postgres
 # The files in /config/chatisimo/prod are the source of truth for runtime secrets and operator
 # overrides: every release writes each present file to the settings table through stdin.
-for key in discord.token llm.api_key llm.prompt uc.friday_alert_time uc.matchday_alert_time uc.slang_cache_ttl; do
+for key in \
+  discord.token \
+  llm.api_key \
+  llm.prompt \
+  uc.banter_prompt \
+  uc.friday_alert_time \
+  uc.matchday_alert_time \
+  uc.slang_cache_ttl \
+  uc.template.friday_alert.en_us \
+  uc.template.friday_alert.es_cl \
+  uc.template.matchday_alert.en_us \
+  uc.template.matchday_alert.es_cl \
+  uc.template.report.en_us \
+  uc.template.report.es_cl; do
   secret_file="${config}/${key}"
   if [ -f "${secret_file}" ]; then
     "${dir}/compose.sh" run --rm -T chatisimo-bot config set "${key}" < "${secret_file}" > /dev/null

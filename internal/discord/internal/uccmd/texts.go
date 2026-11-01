@@ -63,7 +63,9 @@ func toMsgIDMap(raw []byte, label string) map[MsgID]string {
 // Locale identifies a BCP 47 language catalog of the Discord adapter.
 type Locale = i18n.Locale
 
-// Supported locales of the Discord adapter. LocaleENUS is the default and fallback.
+// Supported locales of the Discord adapter. LocaleENUS is the default and fallback for Discord UI
+// strings; UC schedule reports and proactive alerts default to LocaleESCL unless a guild configures
+// LocaleENUS.
 const (
 	LocaleENUS Locale = i18n.LocaleENUS
 	LocaleESCL Locale = i18n.LocaleESCL
@@ -142,6 +144,8 @@ const (
 	textOptFriendDesc      MsgID = "textOptFriendDesc"
 	textOptChannelName     MsgID = "textOptChannelName"
 	textOptChannelDesc     MsgID = "textOptChannelDesc"
+	textOptLocaleName      MsgID = "textOptLocaleName"
+	textOptLocaleDesc      MsgID = "textOptLocaleDesc"
 	textOptClearTargetName MsgID = "textOptClearTargetName"
 	textOptClearTargetDesc MsgID = "textOptClearTargetDesc"
 	textChoiceToday        MsgID = "textChoiceToday"
@@ -149,12 +153,15 @@ const (
 	textChoiceThisWeekend  MsgID = "textChoiceThisWeekend"
 	textChoiceNextWeekend  MsgID = "textChoiceNextWeekend"
 	textChoiceThisMonth    MsgID = "textChoiceThisMonth"
+	textChoiceLocaleESCL   MsgID = "textChoiceLocaleESCL"
+	textChoiceLocaleENUS   MsgID = "textChoiceLocaleENUS"
 	textChoiceClearAll     MsgID = "textChoiceClearAll"
 	textChoiceClearFriend  MsgID = "textChoiceClearFriend"
 	textChoiceClearChannel MsgID = "textChoiceClearChannel"
+	textChoiceClearLocale  MsgID = "textChoiceClearLocale"
 )
 
-// Weekday, period, report, alert, configuration, and error keys.
+// Weekday, period, template field, fallback banter, configuration, and error keys.
 const (
 	textWeekdaySun               MsgID = "textWeekdaySun"
 	textWeekdayMon               MsgID = "textWeekdayMon"
@@ -176,25 +183,13 @@ const (
 	textVenueAway                MsgID = "textVenueAway"
 	textMatchupHome              MsgID = "textMatchupHome"
 	textMatchupAway              MsgID = "textMatchupAway"
-	textHeaderBlocked            MsgID = "textHeaderBlocked"
-	textHeaderPending            MsgID = "textHeaderPending"
-	textHeaderFree               MsgID = "textHeaderFree"
-	textMatchConfirmedLine       MsgID = "textMatchConfirmedLine"
-	textMatchTBDLine             MsgID = "textMatchTBDLine"
 	textBanterBlockedHome        MsgID = "textBanterBlockedHome"
 	textBanterBlockedAway        MsgID = "textBanterBlockedAway"
 	textBanterPending            MsgID = "textBanterPending"
 	textBanterFree               MsgID = "textBanterFree"
-	textBanterWithFriend         MsgID = "textBanterWithFriend"
-	textNextMatchConfirmed       MsgID = "textNextMatchConfirmed"
-	textNextMatchTBD             MsgID = "textNextMatchTBD"
-	textAlertFridayHeader        MsgID = "textAlertFridayHeader"
-	textAlertFridayConfirmedLine MsgID = "textAlertFridayConfirmedLine"
-	textAlertFridayTBDLine       MsgID = "textAlertFridayTBDLine"
-	textAlertWeekendFreeDay      MsgID = "textAlertWeekendFreeDay"
 	textAlertFridayFallback      MsgID = "textAlertFridayFallback"
-	textAlertMatchdayLine        MsgID = "textAlertMatchdayLine"
 	textConfigUnset              MsgID = "textConfigUnset"
+	textConfigLocaleDefault      MsgID = "textConfigLocaleDefault"
 	textConfigShow               MsgID = "textConfigShow"
 	textConfigSaved              MsgID = "textConfigSaved"
 	textConfigCleared            MsgID = "textConfigCleared"
@@ -204,6 +199,7 @@ const (
 	textConfigFriendBot          MsgID = "textConfigFriendBot"
 	textConfigInvalidFriend      MsgID = "textConfigInvalidFriend"
 	textConfigInvalidChannel     MsgID = "textConfigInvalidChannel"
+	textConfigInvalidLocale      MsgID = "textConfigInvalidLocale"
 	textConfigInvalidClearTarget MsgID = "textConfigInvalidClearTarget"
 	textScheduleUnavailable      MsgID = "textScheduleUnavailable"
 	textMutuallyExclusiveOptions MsgID = "textMutuallyExclusiveOptions"

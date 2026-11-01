@@ -219,10 +219,21 @@ func TestConfigListFormat(t *testing.T) {
 
 	before := invoke(t, env, strings.NewReader(""), "config", "list")
 
+	esc := func(s string) string {
+		return strings.ReplaceAll(s, "\n", `\n`)
+	}
+
 	ucTail := "uc.api_base_url\tplain\t" + defaultUCAPIBaseURL + " (default)\tESPN soccer API base URL\n" +
+		"uc.banter_prompt\tplain\t" + esc(defaultUCBanterPrompt) + " (default)\tVertex AI UC Chilean banter system prompt\n" +
 		"uc.friday_alert_time\tplain\t" + defaultUCFridayAlertTime + " (default)\tFriday UC weekend summary time (HH:MM Santiago)\n" +
 		"uc.matchday_alert_time\tplain\t" + defaultUCMatchdayAlertTime + " (default)\tMatchday UC morning alert time (HH:MM Santiago)\n" +
-		"uc.slang_cache_ttl\tplain\t" + defaultUCSlangCacheTTL + " (default)\tUC Chilean banter cache TTL (0s disables LLM)\n"
+		"uc.slang_cache_ttl\tplain\t" + defaultUCSlangCacheTTL + " (default)\tUC Chilean banter cache TTL (0s disables LLM)\n" +
+		"uc.template.friday_alert.en_us\tplain\t" + esc(defaultUCFridayAlertTemplateENUS) + " (default)\tUC Friday weekend summary Discord message template (en-US)\n" +
+		"uc.template.friday_alert.es_cl\tplain\t" + esc(defaultUCFridayAlertTemplateESCL) + " (default)\tUC Friday weekend summary Discord message template (es-CL)\n" +
+		"uc.template.matchday_alert.en_us\tplain\t" + esc(defaultUCMatchdayAlertTemplateENUS) + " (default)\tUC matchday morning alert Discord message template (en-US)\n" +
+		"uc.template.matchday_alert.es_cl\tplain\t" + esc(defaultUCMatchdayAlertTemplateESCL) + " (default)\tUC matchday morning alert Discord message template (es-CL)\n" +
+		"uc.template.report.en_us\tplain\t" + esc(defaultUCReportTemplateENUS) + " (default)\tUC schedule report Discord message template (en-US)\n" +
+		"uc.template.report.es_cl\tplain\t" + esc(defaultUCReportTemplateESCL) + " (default)\tUC schedule report Discord message template (es-CL)\n"
 
 	wantBefore := "discord.api_base_url\tplain\t" + defaultDiscordAPIBaseURL + " (default)\tDiscord REST base URL\n" +
 		"discord.token\tsecret\t(unset)\tDiscord bot token\n" +
@@ -275,10 +286,17 @@ func TestConfigUCSettings(t *testing.T) {
 		key   string
 		value string
 	}{
+		{key: "uc.banter_prompt", value: "Tono chileno\nUsa king, kin y mi rey sin voseo."},
 		{key: "uc.friday_alert_time", value: "18:30"},
 		{key: "uc.matchday_alert_time", value: "08:45"},
 		{key: "uc.slang_cache_ttl", value: "0s"},
 		{key: "uc.slang_cache_ttl", value: "6h"},
+		{key: "uc.template.report.es_cl", value: "⚪🔵 {{.Period}}\n> {{.Banter}}"},
+		{key: "uc.template.report.en_us", value: "⚪🔵 {{.Period}}\n> {{.Banter}}"},
+		{key: "uc.template.friday_alert.es_cl", value: "⚪🔵 {{.SaturdayDate}}-{{.SundayDate}} · {{.Friend}}\n> {{.Banter}}"},
+		{key: "uc.template.friday_alert.en_us", value: "⚪🔵 {{.SaturdayDate}}-{{.SundayDate}} · {{.Friend}}\n> {{.Banter}}"},
+		{key: "uc.template.matchday_alert.es_cl", value: "⚪🔵 {{range .Matches}}{{.Opponent}}{{end}}\n{{if .Banter}}> {{.Banter}}{{end}}"},
+		{key: "uc.template.matchday_alert.en_us", value: "⚪🔵 {{range .Matches}}{{.Opponent}}{{end}}\n{{if .Banter}}> {{.Banter}}{{end}}"},
 	}
 	for _, pair := range validPairs {
 		setRes := invoke(t, local, strings.NewReader(pair.value+"\n"), "config", "set", pair.key)
@@ -292,11 +310,16 @@ func TestConfigUCSettings(t *testing.T) {
 		key   string
 		value string
 	}{
+		{key: "uc.banter_prompt", value: "   \n  "},
+		{key: "uc.banter_prompt", value: "prompt-secret-marker\x00bad"},
 		{key: "uc.friday_alert_time", value: "24:00"},
 		{key: "uc.matchday_alert_time", value: "9:00"},
 		{key: "uc.slang_cache_ttl", value: "30s"},
 		{key: "uc.slang_cache_ttl", value: "200h"},
 		{key: "uc.slang_cache_ttl", value: "1500ms"},
+		{key: "uc.template.report.es_cl", value: "{{.UnknownSecretMarker}}"},
+		{key: "uc.template.friday_alert.en_us", value: "{{if .HasFriend}}unclosed-secret-marker"},
+		{key: "uc.template.matchday_alert.es_cl", value: "{{if false}}only-when-true-marker{{end}}"},
 	}
 	for _, pair := range invalidPairs {
 		got := invoke(t, local, strings.NewReader(pair.value+"\n"), "config", "set", pair.key)
@@ -305,6 +328,9 @@ func TestConfigUCSettings(t *testing.T) {
 		}
 		if len(pair.value) >= 4 && strings.Contains(got.all(), pair.value) {
 			t.Errorf("error output echoed rejected value for %s: %q", pair.key, got.all())
+		}
+		if strings.Contains(strings.ToLower(got.all()), "marker") {
+			t.Errorf("error output leaked marker fragment for %s: %q", pair.key, got.all())
 		}
 	}
 

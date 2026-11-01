@@ -192,12 +192,13 @@ func (s *Service) GetGuildConfig(ctx context.Context, scope GuildScope) (GuildCo
 		GuildID:      stored.GuildID,
 		FriendUserID: stored.FriendUserID,
 		ChannelID:    stored.ChannelID,
+		Locale:       stored.Locale,
 	}
 
 	return cfg, nil
 }
 
-// UpdateGuildConfig sets one or both UC calendar configuration fields for scope.GuildID when
+// UpdateGuildConfig sets one or more UC calendar configuration fields for scope.GuildID when
 // scope.CanManageGuild is true, leaving nil fields on update unchanged.
 func (s *Service) UpdateGuildConfig(
 	ctx context.Context,
@@ -231,12 +232,14 @@ func (s *Service) UpdateGuildConfig(
 		"uc guild config updated",
 		slog.Bool("has_friend", stored.FriendUserID != ""),
 		slog.Bool("has_channel", stored.ChannelID != ""),
+		slog.Bool("has_locale", stored.Locale != ""),
 	)
 
 	cfg := GuildConfig{
 		GuildID:      stored.GuildID,
 		FriendUserID: stored.FriendUserID,
 		ChannelID:    stored.ChannelID,
+		Locale:       stored.Locale,
 	}
 
 	return cfg, nil
@@ -281,6 +284,7 @@ func (s *Service) ClearGuildConfig(
 		GuildID:      stored.GuildID,
 		FriendUserID: stored.FriendUserID,
 		ChannelID:    stored.ChannelID,
+		Locale:       stored.Locale,
 	}
 
 	return cfg, nil
@@ -304,7 +308,7 @@ func validateGuildScope(ctx context.Context, scope GuildScope) error {
 }
 
 func validateGuildConfigUpdate(update GuildConfigUpdate) (store.GuildConfigPatch, error) {
-	if update.FriendUserID == nil && update.ChannelID == nil {
+	if update.FriendUserID == nil && update.ChannelID == nil && update.Locale == nil {
 		return store.GuildConfigPatch{}, &InputError{Field: "update", Code: InputCodeEmpty}
 	}
 
@@ -329,6 +333,16 @@ func validateGuildConfigUpdate(update GuildConfigUpdate) (store.GuildConfigPatch
 		}
 	}
 
+	if update.Locale != nil {
+		parsedLocale, err := ParseGuildLocale(*update.Locale)
+		if err != nil {
+			problems = append(problems, err)
+		} else {
+			patch.SetLocale = true
+			patch.Locale = parsedLocale
+		}
+	}
+
 	if len(problems) > 0 {
 		return store.GuildConfigPatch{}, errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 	}
@@ -347,6 +361,7 @@ func resolveClearPatch(target ClearTarget) (ClearTarget, store.GuildConfigPatch,
 		patch := store.GuildConfigPatch{
 			SetFriendUserID: true,
 			SetChannelID:    true,
+			SetLocale:       true,
 		}
 
 		return normalized, patch, nil
@@ -359,6 +374,12 @@ func resolveClearPatch(target ClearTarget) (ClearTarget, store.GuildConfigPatch,
 	case ClearTargetChannel:
 		patch := store.GuildConfigPatch{
 			SetChannelID: true,
+		}
+
+		return normalized, patch, nil
+	case ClearTargetLocale:
+		patch := store.GuildConfigPatch{
+			SetLocale: true,
 		}
 
 		return normalized, patch, nil
@@ -463,6 +484,7 @@ func (s *Service) Check(ctx context.Context, q Query) (Report, error) {
 	}
 
 	friendUserID := ""
+	locale := DefaultGuildLocale
 	if q.GuildID != "" {
 		guildCfg, guildErr := s.store.GetGuildConfig(ctx, q.GuildID)
 		if guildErr != nil {
@@ -470,6 +492,7 @@ func (s *Service) Check(ctx context.Context, q Query) (Report, error) {
 		}
 
 		friendUserID = guildCfg.FriendUserID
+		locale = effectiveGuildLocale(guildCfg.Locale)
 	}
 
 	isDefaultQuery := q.Window == WindowDefault && q.Date == ""
@@ -479,7 +502,7 @@ func (s *Service) Check(ctx context.Context, q Query) (Report, error) {
 	nextMatch := findNextMatch(schedule, now, today, resolved.rangeStart, resolved.rangeEnd, isDefaultQuery, s.loc)
 
 	archetype, fp, scenario := reportBanterParams(status, matches, nextMatch)
-	banter := s.resolveBanter(now, cfg.slangCacheTTL, archetype, fp, scenario)
+	banter := s.resolveBanter(now, cfg.slangCacheTTL, cfg.banterPrompt, locale, archetype, fp, scenario)
 
 	report := Report{
 		Mode:         resolved.mode,
@@ -491,6 +514,7 @@ func (s *Service) Check(ctx context.Context, q Query) (Report, error) {
 		Matches:      cloneMatches(matches),
 		NextMatch:    nextMatch,
 		FriendUserID: friendUserID,
+		Locale:       locale,
 		Banter:       banter,
 	}
 
@@ -591,11 +615,8 @@ func (s *Service) checkFridayAlerts(
 	archetype, fp, scenario := fridayBanterParams(friday, weekendMatches)
 	alertKey := "friday:" + friday.String()
 
-	var (
-		banter     string
-		haveBanter bool
-		problems   []error
-	)
+	banterByLocale := make(map[string]string, 2)
+	var problems []error
 
 	for _, guildCfg := range guildConfigs {
 		claimed, err := s.store.ClaimAlert(ctx, guildCfg.GuildID, alertKey, now.UTC())
@@ -608,15 +629,18 @@ func (s *Service) checkFridayAlerts(
 			continue
 		}
 
-		if !haveBanter {
-			banter = s.resolveBanterForAlert(ctx, now, cfg.slangCacheTTL, archetype, fp, scenario)
-			haveBanter = true
+		locale := effectiveGuildLocale(guildCfg.Locale)
+		banter, hasLocaleBanter := banterByLocale[locale]
+		if !hasLocaleBanter {
+			banter = s.resolveBanterForAlert(ctx, now, cfg.slangCacheTTL, cfg.banterPrompt, locale, archetype, fp, scenario)
+			banterByLocale[locale] = banter
 		}
 
 		alert := Alert{
 			Kind:           AlertFridayWeekend,
 			GuildID:        guildCfg.GuildID,
 			FriendUserID:   guildCfg.FriendUserID,
+			Locale:         locale,
 			Banter:         banter,
 			WeekendStart:   friday,
 			WeekendEnd:     sunday,
@@ -671,11 +695,7 @@ func (s *Service) checkMatchdayAlerts(
 
 		archetype, fp, scenario := matchdayBanterParams(match)
 		alertKey := "matchday:" + match.ID + ":" + today.String()
-
-		var (
-			banter     string
-			haveBanter bool
-		)
+		banterByLocale := make(map[string]string, 2)
 
 		for _, guildCfg := range guildConfigs {
 			claimed, err := s.store.ClaimAlert(ctx, guildCfg.GuildID, alertKey, now.UTC())
@@ -688,15 +708,18 @@ func (s *Service) checkMatchdayAlerts(
 				continue
 			}
 
-			if !haveBanter {
-				banter = s.resolveBanterForAlert(ctx, now, cfg.slangCacheTTL, archetype, fp, scenario)
-				haveBanter = true
+			locale := effectiveGuildLocale(guildCfg.Locale)
+			banter, hasLocaleBanter := banterByLocale[locale]
+			if !hasLocaleBanter {
+				banter = s.resolveBanterForAlert(ctx, now, cfg.slangCacheTTL, cfg.banterPrompt, locale, archetype, fp, scenario)
+				banterByLocale[locale] = banter
 			}
 
 			alert := Alert{
 				Kind:         AlertMatchdayMorning,
 				GuildID:      guildCfg.GuildID,
 				FriendUserID: guildCfg.FriendUserID,
+				Locale:       locale,
 				Banter:       banter,
 				Matches:      []Match{match},
 			}

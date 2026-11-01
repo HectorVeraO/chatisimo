@@ -34,10 +34,11 @@ const (
 // uccalendar alerts to configured Discord channels. It implements giftexchange.Notifier and
 // uccalendar.AlertSender and is safe for concurrent use.
 type Notifier struct {
-	rest     rest.Rest
-	caches   cache.Caches
-	logger   *slog.Logger
-	location *time.Location
+	rest        rest.Rest
+	caches      cache.Caches
+	logger      *slog.Logger
+	location    *time.Location
+	ucTemplates *uccmd.TemplateCache
 	// token is kept for the Gateway client that Adapter.Open builds over this notifier.
 	token config.Secret
 
@@ -83,6 +84,7 @@ func NewNotifier(s Settings, logger *slog.Logger) (*Notifier, error) {
 		caches:       cache.New(cache.WithCaches(cache.FlagGuilds)),
 		logger:       logger,
 		location:     location,
+		ucTemplates:  uccmd.NewTemplateCache(s.Store, s.Clock, s.TemplateTTL),
 		token:        s.Token,
 		userLocales:  make(map[snowflake.ID]string),
 		guildLocales: make(map[snowflake.ID]string),
@@ -134,9 +136,9 @@ func (n *Notifier) Notify(ctx context.Context, msg giftexchange.Notification) er
 	return nil
 }
 
-// SendUCAlert delivers a proactive Universidad Catolica schedule alert in Chilean Spanish to
-// channelID with silent mentions. Errors carry only the alert kind and reduced Discord status/code
-// or operation, never snowflakes or message text.
+// SendUCAlert delivers a proactive Universidad Catolica schedule alert in alert.Locale (defaulting
+// to Chilean Spanish when empty) to channelID with silent mentions. Errors carry only the alert
+// kind and reduced Discord status/code or operation, never snowflakes or message text.
 func (n *Notifier) SendUCAlert(ctx context.Context, channelID string, alert uccalendar.Alert) error {
 	if n == nil {
 		return errors.New("send uc alert: notifier is nil")
@@ -152,7 +154,8 @@ func (n *Notifier) SendUCAlert(ctx context.Context, channelID string, alert ucca
 		problems = append(problems, errors.New("send uc alert: invalid channel snowflake"))
 	}
 
-	message, renderErr := uccmd.RenderAlertIn(uccmd.LocaleESCL, alert, n.location)
+	alertLoc := uccmd.MessageLocale(alert.Locale)
+	message, renderErr := uccmd.RenderAlertWith(ctx, n.ucTemplates, alertLoc, alert, n.location)
 	if renderErr != nil {
 		problems = append(problems, fmt.Errorf("send uc alert: %w", renderErr))
 	}

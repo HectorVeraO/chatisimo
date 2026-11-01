@@ -10,9 +10,9 @@ import (
 	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
 
-const ucInputErrorVocabulary = "uccalendar: invalid input: query window date clock slang_cache_ttl snowflake api_base_url " +
+const ucInputErrorVocabulary = "uccalendar: invalid input: query window date clock slang_cache_ttl snowflake api_base_url locale banter_prompt " +
 	"(required) (empty) (unknown) (mutually_exclusive) (invalid_date) (year_out_of_range) " +
-	"(invalid_clock) (invalid_duration) (duration_out_of_range) (invalid_snowflake) (invalid_url)"
+	"(invalid_clock) (invalid_duration) (duration_out_of_range) (invalid_snowflake) (invalid_url) (invalid_locale) (invalid_prompt)"
 
 func parserAbuseCorpus() []string {
 	return []string{
@@ -369,6 +369,136 @@ func TestValidateSnowflake(t *testing.T) {
 
 		assertNoErrorInputEcho(t, err, raw)
 	}
+}
+
+func TestParseGuildLocale(t *testing.T) {
+	t.Parallel()
+
+	for _, valid := range []string{uccalendar.LocaleESCL, uccalendar.LocaleENUS} {
+		got, err := uccalendar.ParseGuildLocale(valid)
+		if err != nil || got != valid {
+			t.Fatalf("ParseGuildLocale(%q) = (%q, %v), want (%q, nil)", valid, got, err, valid)
+		}
+	}
+
+	invalid := append([]string{
+		"",
+		"es",
+		"es_CL",
+		"es-AR",
+		"en-GB",
+		"en_US",
+		"ES-CL",
+		" es-CL",
+		"es-CL ",
+	}, parserAbuseCorpus()...)
+	for _, raw := range invalid {
+		_, err := uccalendar.ParseGuildLocale(raw)
+		if !errors.Is(err, uccalendar.ErrInvalidInput) {
+			t.Errorf("ParseGuildLocale(%q) = %v, want ErrInvalidInput", raw, err)
+		}
+
+		assertNoErrorInputEcho(t, err, raw)
+	}
+}
+
+func TestValidateBanterPrompt(t *testing.T) {
+	t.Parallel()
+
+	got, err := uccalendar.ValidateBanterPrompt("  Line one\r\nLine two for kingcito  ")
+	if err != nil {
+		t.Fatalf("ValidateBanterPrompt valid multiline: %v", err)
+	}
+	if got != "Line one\nLine two for kingcito" {
+		t.Errorf("ValidateBanterPrompt normalized = %q, want trimmed LF multiline", got)
+	}
+
+	if _, err := uccalendar.ValidateBanterPrompt(uccalendar.DefaultBanterPrompt); err != nil {
+		t.Fatalf("ValidateBanterPrompt(DefaultBanterPrompt): %v", err)
+	}
+
+	invalid := []string{
+		"",
+		"   \n\r\n   ",
+		"prompt with\x00nul",
+		"prompt with\ttab",
+		"prompt with \u202e bidi",
+		string([]byte{0xff, 0xfe, 'a', 'b'}),
+		strings.Repeat("k", uccalendar.MaxBanterPromptBytes+1),
+		strings.Repeat("k", uccalendar.MaxBanterPromptBytes*2+10),
+		"   \x07   ",
+	}
+	for _, raw := range invalid {
+		_, err := uccalendar.ValidateBanterPrompt(raw)
+		if !errors.Is(err, uccalendar.ErrInvalidInput) {
+			t.Errorf("ValidateBanterPrompt(%d bytes) = %v, want ErrInvalidInput", len(raw), err)
+		}
+
+		assertNoErrorInputEcho(t, err, raw)
+	}
+}
+
+func FuzzParseGuildLocale(f *testing.F) {
+	seeds := append([]string{
+		uccalendar.LocaleESCL,
+		uccalendar.LocaleENUS,
+		"",
+		"es",
+		"es_CL",
+		"en_US",
+		"es-AR",
+	}, parserAbuseCorpus()...)
+	for _, s := range seeds {
+		f.Add(s)
+	}
+
+	f.Fuzz(func(t *testing.T, raw string) {
+		got, err := uccalendar.ParseGuildLocale(raw)
+		if err != nil {
+			if !errors.Is(err, uccalendar.ErrInvalidInput) {
+				t.Fatalf("ParseGuildLocale error %v does not match ErrInvalidInput", err)
+			}
+
+			assertNoErrorInputEcho(t, err, raw)
+
+			return
+		}
+
+		if got != uccalendar.LocaleESCL && got != uccalendar.LocaleENUS {
+			t.Fatalf("ParseGuildLocale(%q) accepted unsupported locale %q", raw, got)
+		}
+	})
+}
+
+func FuzzValidateBanterPrompt(f *testing.F) {
+	seeds := append([]string{
+		uccalendar.DefaultBanterPrompt,
+		"Short prompt\r\nsecond line",
+		"",
+		"   \n  ",
+		"bad\x00prompt",
+		"bad\tprompt",
+	}, parserAbuseCorpus()...)
+	for _, s := range seeds {
+		f.Add(s)
+	}
+
+	f.Fuzz(func(t *testing.T, raw string) {
+		got, err := uccalendar.ValidateBanterPrompt(raw)
+		if err != nil {
+			if !errors.Is(err, uccalendar.ErrInvalidInput) {
+				t.Fatalf("ValidateBanterPrompt error %v does not match ErrInvalidInput", err)
+			}
+
+			assertNoErrorInputEcho(t, err, raw)
+
+			return
+		}
+
+		if got == "" || len(got) > uccalendar.MaxBanterPromptBytes || strings.ContainsRune(got, '\r') {
+			t.Fatalf("ValidateBanterPrompt accepted out-of-contract prompt len=%d", len(got))
+		}
+	})
 }
 
 func FuzzParseDate(f *testing.F) {

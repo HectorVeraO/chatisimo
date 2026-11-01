@@ -77,7 +77,7 @@ func TestMigrationsEmbedSQL(t *testing.T) {
 		t.Fatalf("Migrations: %v", err)
 	}
 
-	for _, name := range []string{"0001_init.sql", "0002_guild_config.sql"} {
+	for _, name := range []string{"0001_init.sql", "0002_guild_config.sql", "0003_guild_locale.sql"} {
 		entry, openErr := files.Open(name)
 		if openErr != nil {
 			t.Fatalf("open %s: %v", name, openErr)
@@ -103,12 +103,12 @@ func TestGuildConfigCRUDPartialClearAndAlertList(t *testing.T) {
 
 	t0 := time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)
 
-	// Unconfigured guild returns empty FriendUserID and ChannelID with GuildID populated.
+	// Unconfigured guild returns empty FriendUserID, ChannelID, and Locale with GuildID populated.
 	initial, err := s.GetGuildConfig(t.Context(), guildAlphaID)
 	if err != nil {
 		t.Fatalf("GetGuildConfig unconfigured: %v", err)
 	}
-	if initial.GuildID != guildAlphaID || initial.FriendUserID != "" || initial.ChannelID != "" {
+	if initial.GuildID != guildAlphaID || initial.FriendUserID != "" || initial.ChannelID != "" || initial.Locale != "" {
 		t.Fatalf("initial config = %+v, want empty fields for guild %s", initial, guildAlphaID)
 	}
 
@@ -154,15 +154,20 @@ func TestGuildConfigCRUDPartialClearAndAlertList(t *testing.T) {
 		t.Fatalf("withBoth = %+v, want friend=%s channel=%s", withBoth, friendAlphaID, chanAlphaID)
 	}
 
-	// Set channel only on Beta, and friend only on Gamma.
+	// Set channel + locale on Beta, and friend only on Gamma.
 	_, err = s.ApplyGuildConfigPatch(
 		t.Context(),
 		guildBetaID,
-		store.GuildConfigPatch{SetChannelID: true, ChannelID: chanBetaID},
+		store.GuildConfigPatch{
+			SetChannelID: true,
+			ChannelID:    chanBetaID,
+			SetLocale:    true,
+			Locale:       uccalendar.LocaleENUS,
+		},
 		t0.Add(2*time.Minute),
 	)
 	if err != nil {
-		t.Fatalf("set channel on Beta: %v", err)
+		t.Fatalf("set channel and locale on Beta: %v", err)
 	}
 
 	_, err = s.ApplyGuildConfigPatch(
@@ -183,14 +188,28 @@ func TestGuildConfigCRUDPartialClearAndAlertList(t *testing.T) {
 	if len(alertGuilds) != 2 {
 		t.Fatalf("ListAlertGuildConfigs len = %d, want 2: %+v", len(alertGuilds), alertGuilds)
 	}
-	if alertGuilds[0].GuildID != guildAlphaID || alertGuilds[0].FriendUserID != friendAlphaID || alertGuilds[0].ChannelID != chanAlphaID {
+	if alertGuilds[0].GuildID != guildAlphaID || alertGuilds[0].FriendUserID != friendAlphaID || alertGuilds[0].ChannelID != chanAlphaID || alertGuilds[0].Locale != "" {
 		t.Errorf("alertGuilds[0] = %+v, want Alpha", alertGuilds[0])
 	}
-	if alertGuilds[1].GuildID != guildBetaID || alertGuilds[1].FriendUserID != "" || alertGuilds[1].ChannelID != chanBetaID {
-		t.Errorf("alertGuilds[1] = %+v, want Beta", alertGuilds[1])
+	if alertGuilds[1].GuildID != guildBetaID || alertGuilds[1].FriendUserID != "" || alertGuilds[1].ChannelID != chanBetaID || alertGuilds[1].Locale != uccalendar.LocaleENUS {
+		t.Errorf("alertGuilds[1] = %+v, want Beta with en-US locale", alertGuilds[1])
 	}
 
-	// Clear friend only on Alpha -> preserves channel.
+	// Set locale on Alpha, then clear friend and channel -> locale keeps row alive until locale is cleared too.
+	withLocaleAlpha, err := s.ApplyGuildConfigPatch(
+		t.Context(),
+		guildAlphaID,
+		store.GuildConfigPatch{SetLocale: true, Locale: uccalendar.LocaleENUS},
+		t0.Add(3*time.Minute+30*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("set locale on Alpha: %v", err)
+	}
+	if withLocaleAlpha.Locale != uccalendar.LocaleENUS || withLocaleAlpha.FriendUserID != friendAlphaID {
+		t.Fatalf("withLocaleAlpha = %+v, want locale=en-US and friend preserved", withLocaleAlpha)
+	}
+
+	// Clear friend only on Alpha -> preserves channel and locale.
 	afterFriendClear, err := s.ApplyGuildConfigPatch(
 		t.Context(),
 		guildAlphaID,
@@ -200,11 +219,11 @@ func TestGuildConfigCRUDPartialClearAndAlertList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clear friend on Alpha: %v", err)
 	}
-	if afterFriendClear.FriendUserID != "" || afterFriendClear.ChannelID != chanAlphaID {
-		t.Fatalf("afterFriendClear = %+v, want friend='' channel=%s", afterFriendClear, chanAlphaID)
+	if afterFriendClear.FriendUserID != "" || afterFriendClear.ChannelID != chanAlphaID || afterFriendClear.Locale != uccalendar.LocaleENUS {
+		t.Fatalf("afterFriendClear = %+v, want friend='' channel=%s locale=en-US", afterFriendClear, chanAlphaID)
 	}
 
-	// Clear channel only on Alpha -> both fields now empty, so row is pruned from table.
+	// Clear channel only on Alpha -> locale is still set, so row remains.
 	afterChannelClear, err := s.ApplyGuildConfigPatch(
 		t.Context(),
 		guildAlphaID,
@@ -214,8 +233,22 @@ func TestGuildConfigCRUDPartialClearAndAlertList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clear channel on Alpha: %v", err)
 	}
-	if afterChannelClear.FriendUserID != "" || afterChannelClear.ChannelID != "" {
-		t.Fatalf("afterChannelClear = %+v, want empty", afterChannelClear)
+	if afterChannelClear.FriendUserID != "" || afterChannelClear.ChannelID != "" || afterChannelClear.Locale != uccalendar.LocaleENUS {
+		t.Fatalf("afterChannelClear = %+v, want locale=en-US only", afterChannelClear)
+	}
+
+	// Clear locale on Alpha -> all three fields now empty, so row is pruned from table.
+	afterLocaleClear, err := s.ApplyGuildConfigPatch(
+		t.Context(),
+		guildAlphaID,
+		store.GuildConfigPatch{SetLocale: true, Locale: ""},
+		t0.Add(5*time.Minute+30*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("clear locale on Alpha: %v", err)
+	}
+	if afterLocaleClear.FriendUserID != "" || afterLocaleClear.ChannelID != "" || afterLocaleClear.Locale != "" {
+		t.Fatalf("afterLocaleClear = %+v, want empty", afterLocaleClear)
 	}
 
 	var alphaRows int
@@ -231,11 +264,11 @@ func TestGuildConfigCRUDPartialClearAndAlertList(t *testing.T) {
 		t.Errorf("Alpha row count after emptying last field = %d, want 0", alphaRows)
 	}
 
-	// Clear both fields at once on Beta -> deletes Beta's row without touching Gamma.
+	// Clear all three fields at once on Beta -> deletes Beta's row without touching Gamma.
 	_, err = s.ApplyGuildConfigPatch(
 		t.Context(),
 		guildBetaID,
-		store.GuildConfigPatch{SetFriendUserID: true, SetChannelID: true},
+		store.GuildConfigPatch{SetFriendUserID: true, SetChannelID: true, SetLocale: true},
 		t0.Add(6*time.Minute),
 	)
 	if err != nil {
@@ -435,7 +468,7 @@ func TestStoreValidationGuardsAndSnowflakeRedaction(t *testing.T) {
 	if _, e := validStore.ApplyGuildConfigPatch(
 		canceledCtx,
 		guildAlphaID,
-		store.GuildConfigPatch{SetFriendUserID: true, SetChannelID: true},
+		store.GuildConfigPatch{SetFriendUserID: true, SetChannelID: true, SetLocale: true},
 		now,
 	); e == nil {
 		t.Fatal("ApplyGuildConfigPatch delete with canceled context succeeded")

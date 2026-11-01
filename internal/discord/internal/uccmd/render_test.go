@@ -109,15 +109,19 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				FriendUserID: testFriendID,
 			},
 			wantSubs: []string{
-				"\U0001f534 **Bloqueado (este finde (07/11-08/11)): Juega la franja**",
-				"**Universidad Cat\u00f3lica vs Colo-Colo** (Local \U0001f3df\ufe0f Claro Arena - Liga de Primera)",
-				"s\u00e1bado 07/11",
-				fmt.Sprintf("<t:%d:t>", home.Kickoff.Unix()),
-				fmt.Sprintf("<t:%d:R>", home.Kickoff.Unix()),
-				"de 16:00 a 21:30 hrs para <@" + testFriendID + ">",
-				"rumbo a la cancha a ver a la Cato",
-				"*(Ojo - pr\u00f3ximo partido: **Universidad Cat\u00f3lica vs Cobreloa**",
-				"domingo 15/11",
+				"\u26aa\U0001f535 \U0001f534 **Bloqueado \u00b7 este finde (07/11-08/11)**",
+				"\u26bd **Universidad Cat\u00f3lica vs Colo-Colo**",
+				"- Local \U0001f3df\ufe0f Claro Arena \u00b7 Liga de Primera",
+				"- **Inicio:** s\u00e1bado 07/11 a las " + fmt.Sprintf("<t:%d:t>", home.Kickoff.Unix()),
+				fmt.Sprintf("(<t:%d:R>)", home.Kickoff.Unix()),
+				"- **Bloqueo:** 16:00 a 21:30 hrs para <@" + testFriendID + ">",
+				"> Olv\u00eddense de mi rey en esa ventana, kings: va rumbo a la cancha a ver a la Cato.",
+				"-# Pr\u00f3ximo partido: Universidad Cat\u00f3lica vs Cobreloa",
+				"domingo 15/11 \u00b7 horario pendiente ANFP",
+			},
+			omitSubs: []string{
+				"(<@" + testFriendID + ">)",
+				"((",
 			},
 		},
 		{
@@ -131,14 +135,15 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				NextMatch: &tbd,
 			},
 			wantSubs: []string{
-				"\U0001f534 **Blocked (today): UC plays**",
-				"**Palestino vs Universidad Catolica** (Away \U0001f4fa - Copa Chile)",
-				"Sunday 08/11",
-				"20:00 to 23:00 for the UC fan",
-				"glued to the screen for UC",
+				"\u26aa\U0001f535 \U0001f534 **Blocked \u00b7 today**",
+				"\u26bd **Palestino vs Universidad Catolica**",
+				"- Away \U0001f4fa \u00b7 Copa Chile",
+				"- **Kickoff:** Sunday 08/11",
+				"- **Unavailable:** 20:00 to 23:00 for the UC fan",
+				"> Count our king out during that window: glued to the screen for UC.",
 			},
 			omitSubs: []string{
-				"Heads up - next match",
+				"Next match:",
 			},
 		},
 		{
@@ -152,17 +157,17 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				NextMatch:   &home,
 			},
 			wantSubs: []string{
-				"\U0001f7e1 **Pendiente ANFP (el domingo 15/11): Horario por confirmar**",
-				"\U0001f7e1 **Universidad Cat\u00f3lica vs Cobreloa**",
-				"el hincha cruzado",
-				"bajo su propio riesgo",
+				"\u26aa\U0001f535 \U0001f7e1 **Pendiente ANFP \u00b7 domingo 15/11**",
+				"\u26bd **Universidad Cat\u00f3lica vs Cobreloa**",
+				"- **Fecha:** domingo 15/11 \u00b7 horario pendiente ANFP para el hincha cruzado",
+				"> La ANFP todav\u00eda no suelta la hora exacta, kings; armar junta con mi chanchito es deporte extremo.",
 			},
 			omitSubs: []string{
-				"pr\u00f3ximo partido",
+				"Pr\u00f3ximo partido:",
 			},
 		},
 		{
-			name: "free tomorrow in English shows confirmed next match and custom banter with friend",
+			name: "free tomorrow in English shows single friend mention in availability bullet and no duplicate on banter",
 			loc:  uccmd.LocaleENUS,
 			report: uccalendar.Report{
 				Mode:         uccalendar.ModeWindow,
@@ -173,14 +178,18 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				Banter:       "Free to fire up the grill",
 			},
 			wantSubs: []string{
-				"\U0001f7e2 **All clear (tomorrow): Plans can go ahead**",
+				"\u26aa\U0001f535 \U0001f7e2 **All clear \u00b7 tomorrow**",
+				"- **Availability:** <@" + testFriendID + "> has no UC match",
+				"> Free to fire up the grill",
+				"-# Next match: Universidad Catolica vs Colo-Colo",
+				"unavailable 16:00 to 21:30",
+			},
+			omitSubs: []string{
 				"Free to fire up the grill (<@" + testFriendID + ">)",
-				"*(Heads up - next match: **Universidad Catolica vs Colo-Colo**",
-				"blocking **16:00 to 21:30**.)*",
 			},
 		},
 		{
-			name: "free next weekend and this month period labels",
+			name: "free next weekend period label without nested parentheses",
 			loc:  uccmd.LocaleENUS,
 			report: uccalendar.Report{
 				Mode:       uccalendar.ModeWindow,
@@ -190,7 +199,10 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				Status:     uccalendar.StatusFree,
 			},
 			wantSubs: []string{
-				"\U0001f7e2 **All clear (next weekend (14/11-15/11)): Plans can go ahead**",
+				"\u26aa\U0001f535 \U0001f7e2 **All clear \u00b7 next weekend (14/11-15/11)**",
+			},
+			omitSubs: []string{
+				"((",
 			},
 		},
 		{
@@ -201,11 +213,12 @@ func TestRenderReportInStatusesPeriodsAndLocales(t *testing.T) {
 				Window:       uccalendar.WindowThisMonth,
 				Status:       uccalendar.StatusFree,
 				FriendUserID: "@everyone",
-				Banter:       "Todo despejado por ahora",
+				Banter:       "Todo despejado por ahora, mi rey",
 			},
 			wantSubs: []string{
-				"\U0001f7e2 **V\u00eda libre (este mes): Se puede armar junta**",
-				"Todo despejado por ahora",
+				"\u26aa\U0001f535 \U0001f7e2 **V\u00eda libre \u00b7 este mes**",
+				"- **Disponibilidad:** el hincha cruzado sin partido de la UC",
+				"> Todo despejado por ahora, mi rey",
 			},
 			omitSubs: []string{
 				"@everyone",
@@ -261,7 +274,7 @@ func TestRenderReportInEscapesHostileStringsAndTruncatesTo1900Runes(t *testing.T
 		t.Errorf("overflow report missing line-boundary '...' marker: %q", got)
 	}
 	if !strings.Contains(got, "<@"+testFriendID+">") {
-		t.Errorf("overflow report dropped bottom friend mention <@%s>: %q", testFriendID, got)
+		t.Errorf("overflow report dropped friend mention <@%s>: %q", testFriendID, got)
 	}
 	for _, wantEscaped := range []string{`\@everyone \<\@999\>`, `\*\*Cup\*\*`, `\[x\]`, `\@here \<\@888\>`} {
 		if !strings.Contains(got, wantEscaped) {
@@ -278,7 +291,6 @@ func TestRenderAlertInFormatsFridayAndMatchdayWithNoMentions(t *testing.T) {
 	tbd := sampleTBDMatch()
 	tbd.Date = uccalendar.LocalDate{Year: 2026, Month: time.November, Day: 8}
 
-	friday := uccmd.LocaleESCL
 	friAlert := uccalendar.Alert{
 		Kind:           uccalendar.AlertFridayWeekend,
 		FriendUserID:   testFriendID,
@@ -290,17 +302,18 @@ func TestRenderAlertInFormatsFridayAndMatchdayWithNoMentions(t *testing.T) {
 		Matches:        []uccalendar.Match{home, tbd},
 	}
 
-	friMsg, err := uccmd.RenderAlertIn(friday, friAlert, tz)
+	friMsg, err := uccmd.RenderAlertIn(uccmd.LocaleESCL, friAlert, tz)
 	if err != nil {
 		t.Fatalf("RenderAlertIn(friday): %v", err)
 	}
 	assertNoMentionsOnCreate(t, friMsg.AllowedMentions)
 	for _, want := range []string{
-		"\U0001f4e2 **Reporte de disponibilidad de <@" + testFriendID + "> para el finde (07/11-08/11):**",
-		"\U0001f534 **s\u00e1bado 07/11 bloqueado de 16:00 a 21:30 hrs**",
-		"\U0001f7e1 **domingo 08/11 pendiente ANFP**",
-		"\U0001f7e2 **domingo 08/11 libre** para armar panorama.",
-		`\@everyone ojo con el s` + "\u00e1" + `bado`,
+		"\u26aa\U0001f535 **Reporte cruzado de finde \u00b7 07/11-08/11**",
+		"- **Hincha:** <@" + testFriendID + ">",
+		"- \U0001f534 **s\u00e1bado 07/11** (16:00 a 21:30 hrs)",
+		"- \U0001f7e1 **domingo 08/11** (pendiente ANFP)",
+		"- \U0001f7e2 **domingo 08/11** libre para armar panorama",
+		`> \@everyone ojo con el s` + "\u00e1" + `bado`,
 	} {
 		if !strings.Contains(friMsg.Content, want) {
 			t.Errorf("friday alert missing %q in:\n%s", want, friMsg.Content)
@@ -310,7 +323,7 @@ func TestRenderAlertInFormatsFridayAndMatchdayWithNoMentions(t *testing.T) {
 	matchdayAlert := uccalendar.Alert{
 		Kind:         uccalendar.AlertMatchdayMorning,
 		FriendUserID: testFriendID,
-		Banter:       "Hoy juega la Cato",
+		Banter:       "Hoy juega la Cato, kings",
 		Matches:      []uccalendar.Match{home},
 	}
 	matchMsg, err := uccmd.RenderAlertIn(uccmd.LocaleESCL, matchdayAlert, tz)
@@ -319,12 +332,12 @@ func TestRenderAlertInFormatsFridayAndMatchdayWithNoMentions(t *testing.T) {
 	}
 	assertNoMentionsOnCreate(t, matchMsg.AllowedMentions)
 	for _, want := range []string{
-		"\u26a0\ufe0f **Aviso de utilidad p\u00fablica:**",
+		"\u26aa\U0001f535 **Hoy juega la franja**",
+		"\u26bd **Universidad Cat\u00f3lica vs Colo-Colo**",
 		fmt.Sprintf("<t:%d:t>", home.Kickoff.Unix()),
 		fmt.Sprintf("<t:%d:R>", home.Kickoff.Unix()),
-		"**Universidad Cat\u00f3lica vs Colo-Colo**",
-		"<@" + testFriendID + "> desaparece del mapa entre las **16:00 y las 21:30 hrs**.",
-		"\nHoy juega la Cato",
+		"- **Bloqueo:** <@" + testFriendID + "> no disponible de **16:00 a 21:30 hrs**",
+		"\n> Hoy juega la Cato, kings",
 	} {
 		if !strings.Contains(matchMsg.Content, want) {
 			t.Errorf("matchday alert missing %q in:\n%s", want, matchMsg.Content)
@@ -431,7 +444,7 @@ func TestRenderReportAndAlertCoverAllWeekdaysEmptyVenuesAndNilLocation(t *testin
 		Status:  uccalendar.StatusBlocked,
 		Matches: []uccalendar.Match{homeNoVenue, awayNoVenue},
 	}, nil)
-	for _, want := range []string{"Home \U0001f3df\ufe0f - Copa Chile", "Away \U0001f4fa - Liga de Primera"} {
+	for _, want := range []string{"- Home \U0001f3df\ufe0f \u00b7 Copa Chile", "- Away \U0001f4fa \u00b7 Liga de Primera"} {
 		if !strings.Contains(reportOut, want) {
 			t.Errorf("empty-venue report missing %q in:\n%s", want, reportOut)
 		}
@@ -449,8 +462,8 @@ func TestRenderReportAndAlertCoverAllWeekdaysEmptyVenuesAndNilLocation(t *testin
 		t.Fatalf("RenderAlertIn(nil tz): %v", err)
 	}
 	for _, want := range []string{
-		"Saturday 07/11 free",
-		"Plan the weekend around those windows before committing.",
+		"- \U0001f7e2 **Saturday 07/11** free for plans",
+		"> Keep those UC windows in mind before locking in weekend plans.",
 	} {
 		if !strings.Contains(friMsg.Content, want) {
 			t.Errorf("friday fallback alert missing %q in:\n%s", want, friMsg.Content)
@@ -472,7 +485,7 @@ func TestRenderGuildConfigInFormatsShowSavedClearedAndUnsetInBothLocales(t *test
 		omitSubs []string
 	}{
 		{
-			name: "show with both unset in English",
+			name: "show with all unset in English displays es-CL default",
 			loc:  uccmd.LocaleENUS,
 			kind: uccmd.ConfigReplyShow,
 			cfg:  uccalendar.GuildConfig{},
@@ -480,24 +493,27 @@ func TestRenderGuildConfigInFormatsShowSavedClearedAndUnsetInBothLocales(t *test
 				"**UC calendar configuration for this server**",
 				"- **UC-fan friend:** not configured",
 				"- **Proactive alert channel:** not configured",
+				"- **Message language:** es-CL (default)",
 			},
 		},
 		{
-			name: "saved with friend and channel in Chilean Spanish",
+			name: "saved with friend channel and explicit en-US locale in Chilean Spanish",
 			loc:  uccmd.LocaleESCL,
 			kind: uccmd.ConfigReplySaved,
 			cfg: uccalendar.GuildConfig{
 				FriendUserID: testFriendID,
 				ChannelID:    testChannelID,
+				Locale:       uccalendar.LocaleENUS,
 			},
 			wantSubs: []string{
 				"**Configuraci\u00f3n del calendario UC actualizada**",
 				"- **Hincha cruzado:** <@" + testFriendID + ">",
 				"- **Canal de alertas:** <#" + testChannelID + ">",
+				"- **Idioma de mensajes:** en-US",
 			},
 		},
 		{
-			name: "cleared friend only in English keeps channel link",
+			name: "cleared friend only in English keeps channel link and default locale",
 			loc:  uccmd.LocaleENUS,
 			kind: uccmd.ConfigReplyCleared,
 			cfg: uccalendar.GuildConfig{
@@ -507,23 +523,27 @@ func TestRenderGuildConfigInFormatsShowSavedClearedAndUnsetInBothLocales(t *test
 				"**UC calendar configuration cleared**",
 				"- **UC-fan friend:** not configured",
 				"- **Proactive alert channel:** <#" + testChannelID + ">",
+				"- **Message language:** es-CL (default)",
 			},
 		},
 		{
-			name: "invalid non-snowflake IDs fall back to unset without injecting raw text",
+			name: "invalid non-snowflake IDs and locale fall back to unset/default without injecting raw text",
 			loc:  uccmd.LocaleESCL,
 			kind: uccmd.ConfigReplyShow,
 			cfg: uccalendar.GuildConfig{
 				FriendUserID: "@everyone",
 				ChannelID:    "<#bad>",
+				Locale:       "@here-bad-locale",
 			},
 			wantSubs: []string{
 				"- **Hincha cruzado:** sin configurar",
 				"- **Canal de alertas:** sin configurar",
+				"- **Idioma de mensajes:** es-CL (por defecto)",
 			},
 			omitSubs: []string{
 				"@everyone",
 				"<#bad>",
+				"@here-bad-locale",
 			},
 		},
 	}

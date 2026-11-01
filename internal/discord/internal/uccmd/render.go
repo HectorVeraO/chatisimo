@@ -1,8 +1,10 @@
 package uccmd
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"text/template"
 	"time"
 	"unicode/utf8"
 
@@ -17,6 +19,8 @@ const (
 	clockLayout   = "15:04"
 )
 
+var newlineReplacer = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+
 // ConfigReplyKind selects the header template rendered by RenderGuildConfigIn.
 type ConfigReplyKind int
 
@@ -29,11 +33,29 @@ const (
 	ConfigReplyCleared
 )
 
+// MessageLocale resolves a stored UC guild locale ("" when unset, "es-CL", or "en-US") to the
+// Discord adapter Locale used for UC schedule reports and proactive alerts, defaulting to Chilean
+// Spanish (LocaleESCL).
+func MessageLocale(raw string) Locale {
+	if strings.TrimSpace(raw) == "" {
+		return LocaleESCL
+	}
+
+	parsed, err := uccalendar.ParseGuildLocale(raw)
+	if err != nil {
+		return LocaleESCL
+	}
+
+	resolved := LocaleFromDiscord(parsed)
+	return resolved
+}
+
 // RenderGuildConfigIn formats a guild's UC calendar configuration in loc for /uc-config replies.
 func RenderGuildConfigIn(loc Locale, kind ConfigReplyKind, cfg uccalendar.GuildConfig) string {
 	c := CatalogFor(loc)
 	friendLabel := resolveConfigUser(c, cfg.FriendUserID)
 	channelLabel := resolveConfigChannel(c, cfg.ChannelID)
+	localeLabel := resolveConfigLocale(c, cfg.Locale)
 
 	msgID := textConfigShow
 	switch kind {
@@ -45,7 +67,7 @@ func RenderGuildConfigIn(loc Locale, kind ConfigReplyKind, cfg uccalendar.GuildC
 		msgID = textConfigShow
 	}
 
-	formatted := c.Format(msgID, friendLabel, channelLabel)
+	formatted := c.Format(msgID, friendLabel, channelLabel, localeLabel)
 	truncated := render.Truncate(formatted, maxReplyRunes, "...")
 	return truncated
 }
@@ -74,90 +96,172 @@ func resolveConfigChannel(c Catalog, channelID string) string {
 	return unset
 }
 
-// RenderReportIn formats a uccalendar.Report as localized Discord markdown in loc using tz for
-// local block clock times and calendar labels. All external and LLM strings are escaped, and the
-// final text is truncated to fit under Discord's message limit.
+func resolveConfigLocale(c Catalog, rawLocale string) string {
+	if rawLocale != "" {
+		parsed, err := uccalendar.ParseGuildLocale(rawLocale)
+		if err == nil {
+			return parsed
+		}
+	}
+
+	defaultLabel := c.Get(textConfigLocaleDefault)
+	return defaultLabel
+}
+
+// RenderReportIn formats a uccalendar.Report as localized Discord markdown in loc using the
+// embedded default report template and tz for local block clock times and calendar labels.
 func RenderReportIn(loc Locale, report uccalendar.Report, tz *time.Location) string {
+	return RenderReportWith(context.Background(), nil, loc, report, tz)
+}
+
+// RenderReportWith formats a uccalendar.Report as localized Discord markdown in loc using cache
+// (falling back to the embedded default template when cache is nil or unset) and tz for local
+// block clock times and calendar labels. All external and LLM strings are pre-escaped, and the
+// final text is truncated to fit under Discord's message limit.
+func RenderReportWith(
+	ctx context.Context,
+	cache *TemplateCache,
+	loc Locale,
+	report uccalendar.Report,
+	tz *time.Location,
+) string {
 	if tz == nil {
 		tz = time.UTC
 	}
 
 	c := CatalogFor(loc)
-	friend, hasFriendMention := resolveFriend(c, report.FriendUserID)
+	effectiveLoc := c.Locale()
+	view := buildReportView(c, report, tz)
 
-	header := reportHeader(c, report, tz)
+	templates := cache.resolve(ctx)
+	primaryTmpl := templates.reportFor(effectiveLoc)
+	fallbackTmpl := defaultTemplates().reportFor(effectiveLoc)
 
-	matchLines := make([]string, 0, len(report.Matches))
-	for _, match := range report.Matches {
-		matchLines = append(matchLines, renderReportMatch(c, match, friend, tz))
-	}
-
-	tailLines := make([]string, 0, 2)
-	tailLines = append(tailLines, renderReportBanter(c, report, friend, hasFriendMention))
-	if shouldShowNextMatch(report) {
-		tailLines = append(tailLines, renderNextMatch(c, *report.NextMatch, tz))
-	}
-
-	joined := joinReportWithinBudget(header, matchLines, tailLines)
-	truncated := render.Truncate(joined, maxReplyRunes, "...")
+	rendered := renderReportWithinBudget(primaryTmpl, fallbackTmpl, view)
+	truncated := render.Truncate(rendered, maxReplyRunes, "...")
 	return truncated
 }
 
-func joinReportWithinBudget(header string, matchLines, tailLines []string) string {
-	all := make([]string, 0, 1+len(matchLines)+len(tailLines))
-	all = append(all, header)
-	all = append(all, matchLines...)
-	all = append(all, tailLines...)
+func buildReportView(c Catalog, report uccalendar.Report, tz *time.Location) ReportView {
+	friend, hasFriend := resolveFriend(c, report.FriendUserID)
 
-	joined := strings.Join(all, "\n")
-	if utf8.RuneCountInString(joined) <= maxReplyRunes {
-		return joined
+	matches := make([]MatchView, 0, len(report.Matches))
+	for _, match := range report.Matches {
+		matches = append(matches, buildMatchView(c, match, tz))
 	}
 
-	for keep := len(matchLines) - 1; keep >= 0; keep-- {
-		candidate := make([]string, 0, 2+keep+len(tailLines))
-		candidate = append(candidate, header)
-		candidate = append(candidate, matchLines[:keep]...)
-		candidate = append(candidate, "...")
-		candidate = append(candidate, tailLines...)
+	var nextView *MatchView
+	if shouldShowNextMatch(report) {
+		builtNext := buildMatchView(c, *report.NextMatch, tz)
+		nextView = &builtNext
+	}
 
-		candidateJoined := strings.Join(candidate, "\n")
-		if utf8.RuneCountInString(candidateJoined) <= maxReplyRunes {
-			return candidateJoined
+	status := report.Status
+	isBlocked := status == uccalendar.StatusBlocked
+	isPending := status == uccalendar.StatusPendingANFP
+	isFree := !isBlocked && !isPending
+
+	view := ReportView{
+		Status:      string(status),
+		Blocked:     isBlocked,
+		PendingANFP: isPending,
+		Free:        isFree,
+		Period:      periodLabel(c, report, tz),
+		Friend:      friend,
+		HasFriend:   hasFriend,
+		Matches:     matches,
+		Banter:      resolveReportBanter(c, report),
+		NextMatch:   nextView,
+	}
+	return view
+}
+
+func renderReportWithinBudget(primary, fallback *template.Template, view ReportView) string {
+	rendered := executeWithFallback(primary, fallback, view)
+	if utf8.RuneCountInString(rendered) <= maxReplyRunes || len(view.Matches) == 0 {
+		return rendered
+	}
+
+	allMatches := view.Matches
+	for keep := len(allMatches) - 1; keep >= 0; keep-- {
+		candidateView := view
+		candidateView.Matches = allMatches[:keep]
+		candidateView.Overflowed = true
+		candidateView.OmittedMatches = len(allMatches) - keep
+
+		candidate := executeWithFallback(primary, fallback, candidateView)
+		if utf8.RuneCountInString(candidate) <= maxReplyRunes {
+			return candidate
 		}
 	}
 
-	return joined
+	return rendered
+}
+
+func executeWithFallback(primary, fallback *template.Template, data any) string {
+	out, err := executeTemplate(primary, data)
+	if err == nil && out != "" {
+		return out
+	}
+
+	fallbackOut, fallbackErr := executeTemplate(fallback, data)
+	if fallbackErr == nil {
+		return fallbackOut
+	}
+
+	return ""
 }
 
 // RenderAlertIn formats a proactive Friday weekend summary or matchday morning reminder in loc
-// using tz for local block clock times, with AllowedMentions set to NoMentions.
+// using the embedded default alert template and tz for local block clock times, with
+// AllowedMentions set to NoMentions.
 func RenderAlertIn(loc Locale, alert uccalendar.Alert, tz *time.Location) (discord.MessageCreate, error) {
+	return RenderAlertWith(context.Background(), nil, loc, alert, tz)
+}
+
+// RenderAlertWith formats a proactive Friday weekend summary or matchday morning reminder in loc
+// using cache (falling back to the embedded default template when cache is nil or unset) and tz
+// for local block clock times, with AllowedMentions set to NoMentions.
+func RenderAlertWith(
+	ctx context.Context,
+	cache *TemplateCache,
+	loc Locale,
+	alert uccalendar.Alert,
+	tz *time.Location,
+) (discord.MessageCreate, error) {
 	if tz == nil {
 		tz = time.UTC
 	}
 
 	c := CatalogFor(loc)
-	friend, _ := resolveFriend(c, alert.FriendUserID)
+	effectiveLoc := c.Locale()
+	templates := cache.resolve(ctx)
+	defaults := defaultTemplates()
 
-	var lines []string
+	var rendered string
 	switch alert.Kind {
 	case uccalendar.AlertFridayWeekend:
-		lines = renderFridayAlertLines(c, alert, friend, tz)
+		view := buildFridayAlertView(c, alert, tz)
+		rendered = executeWithFallback(
+			templates.fridayFor(effectiveLoc),
+			defaults.fridayFor(effectiveLoc),
+			view,
+		)
 	case uccalendar.AlertMatchdayMorning:
-		if len(alert.Matches) == 0 {
-			return discord.MessageCreate{}, errors.New("uccmd: matchday alert has no matches")
-		}
-		var err error
-		lines, err = renderMatchdayAlertLines(c, alert, friend, tz)
+		view, err := buildMatchdayAlertView(c, alert, tz)
 		if err != nil {
 			return discord.MessageCreate{}, err
 		}
+		rendered = executeWithFallback(
+			templates.matchdayFor(effectiveLoc),
+			defaults.matchdayFor(effectiveLoc),
+			view,
+		)
 	default:
 		return discord.MessageCreate{}, errors.New("uccmd: unknown alert kind")
 	}
 
-	content := render.Truncate(strings.Join(lines, "\n"), maxReplyRunes, "...")
+	content := render.Truncate(rendered, maxReplyRunes, "...")
 	noMentions := render.NoMentions()
 	msg := discord.MessageCreate{
 		Content:         content,
@@ -167,88 +271,110 @@ func RenderAlertIn(loc Locale, alert uccalendar.Alert, tz *time.Location) (disco
 	return msg, nil
 }
 
-func renderFridayAlertLines(c Catalog, alert uccalendar.Alert, friend string, tz *time.Location) []string {
+func buildFridayAlertView(c Catalog, alert uccalendar.Alert, tz *time.Location) FridayAlertView {
+	friend, hasFriend := resolveFriend(c, alert.FriendUserID)
 	saturday := alert.WeekendStart.AddDays(1)
 	sunday := alert.WeekendEnd
 
-	lines := make([]string, 0, len(alert.Matches)+4)
-	lines = append(lines, c.Format(textAlertFridayHeader, friend, saturday.DDMM(), sunday.DDMM()))
-
+	matches := make([]MatchView, 0, len(alert.Matches))
 	for _, match := range alert.Matches {
-		if match.TBD {
-			line := c.Format(
-				textAlertFridayTBDLine,
-				weekdayLabel(c, match.Date, tz),
-				match.Date.DDMM(),
-				matchupLabel(c, match),
-				venueLabel(c, match),
-			)
-			lines = append(lines, line)
-			continue
-		}
-
-		matchDate := matchLocalDate(match, tz)
-		line := c.Format(
-			textAlertFridayConfirmedLine,
-			weekdayLabel(c, matchDate, tz),
-			matchDate.DDMM(),
-			match.BlockStart.In(tz).Format(clockLayout),
-			match.BlockEnd.In(tz).Format(clockLayout),
-			matchupLabel(c, match),
-			render.TimestampShortTime(match.Kickoff),
-			venueLabel(c, match),
-		)
-		lines = append(lines, line)
+		matches = append(matches, buildMatchView(c, match, tz))
 	}
 
-	if alert.SaturdayStatus == uccalendar.StatusFree {
-		lines = append(lines, c.Format(textAlertWeekendFreeDay, c.Get(textWeekdaySat), saturday.DDMM()))
-	}
-	if alert.SundayStatus == uccalendar.StatusFree {
-		lines = append(lines, c.Format(textAlertWeekendFreeDay, c.Get(textWeekdaySun), sunday.DDMM()))
+	banter := cleanInlineText(alert.Banter)
+	if banter == "" {
+		banter = c.Get(textAlertFridayFallback)
 	}
 
-	banter := strings.TrimSpace(alert.Banter)
-	if banter != "" {
-		lines = append(lines, render.Text(banter))
-	} else {
-		lines = append(lines, c.Get(textAlertFridayFallback))
+	view := FridayAlertView{
+		Friend:          friend,
+		HasFriend:       hasFriend,
+		SaturdayWeekday: c.Get(textWeekdaySat),
+		SaturdayDate:    saturday.DDMM(),
+		SaturdayStatus:  string(alert.SaturdayStatus),
+		SaturdayFree:    alert.SaturdayStatus == uccalendar.StatusFree,
+		SundayWeekday:   c.Get(textWeekdaySun),
+		SundayDate:      sunday.DDMM(),
+		SundayStatus:    string(alert.SundayStatus),
+		SundayFree:      alert.SundayStatus == uccalendar.StatusFree,
+		Matches:         matches,
+		Banter:          banter,
 	}
-
-	return lines
+	return view
 }
 
-func renderMatchdayAlertLines(
+func buildMatchdayAlertView(
 	c Catalog,
 	alert uccalendar.Alert,
-	friend string,
 	tz *time.Location,
-) ([]string, error) {
-	lines := make([]string, 0, len(alert.Matches)+1)
+) (MatchdayAlertView, error) {
+	if len(alert.Matches) == 0 {
+		return MatchdayAlertView{}, errors.New("uccmd: matchday alert has no matches")
+	}
+
+	friend, hasFriend := resolveFriend(c, alert.FriendUserID)
+	matches := make([]MatchView, 0, len(alert.Matches))
 	for _, match := range alert.Matches {
 		if match.TBD {
-			return nil, errors.New("uccmd: matchday alert has unconfirmed match")
+			return MatchdayAlertView{}, errors.New("uccmd: matchday alert has unconfirmed match")
 		}
-
-		line := c.Format(
-			textAlertMatchdayLine,
-			render.TimestampShortTime(match.Kickoff),
-			render.TimestampRelative(match.Kickoff),
-			matchupLabel(c, match),
-			venueLabel(c, match),
-			friend,
-			match.BlockStart.In(tz).Format(clockLayout),
-			match.BlockEnd.In(tz).Format(clockLayout),
-		)
-		lines = append(lines, line)
+		matches = append(matches, buildMatchView(c, match, tz))
 	}
 
-	banter := strings.TrimSpace(alert.Banter)
-	if banter != "" {
-		lines = append(lines, render.Text(banter))
+	view := MatchdayAlertView{
+		Friend:    friend,
+		HasFriend: hasFriend,
+		Matches:   matches,
+		Banter:    cleanInlineText(alert.Banter),
+	}
+	return view, nil
+}
+
+func buildMatchView(c Catalog, m uccalendar.Match, tz *time.Location) MatchView {
+	opponent := cleanInlineText(m.Opponent)
+	tournament := cleanInlineText(m.Tournament)
+	isHome := m.Condition == uccalendar.VenueHome
+
+	if m.TBD {
+		tbdView := MatchView{
+			Matchup:    matchupLabel(c, m),
+			Opponent:   opponent,
+			Tournament: tournament,
+			Venue:      venueLabel(c, m),
+			Home:       isHome,
+			TBD:        true,
+			Weekday:    weekdayLabel(c, m.Date, tz),
+			Date:       m.Date.DDMM(),
+		}
+		return tbdView
 	}
 
-	return lines, nil
+	matchDate := matchLocalDate(m, tz)
+	confirmedView := MatchView{
+		Matchup:         matchupLabel(c, m),
+		Opponent:        opponent,
+		Tournament:      tournament,
+		Venue:           venueLabel(c, m),
+		Home:            isHome,
+		TBD:             false,
+		Weekday:         weekdayLabel(c, matchDate, tz),
+		Date:            matchDate.DDMM(),
+		KickoffTime:     render.TimestampShortTime(m.Kickoff),
+		KickoffRelative: render.TimestampRelative(m.Kickoff),
+		BlockStart:      m.BlockStart.In(tz).Format(clockLayout),
+		BlockEnd:        m.BlockEnd.In(tz).Format(clockLayout),
+	}
+	return confirmedView
+}
+
+func cleanInlineText(raw string) string {
+	singleLine := strings.TrimSpace(newlineReplacer.Replace(raw))
+	if singleLine == "" {
+		return ""
+	}
+
+	escaped := render.Text(singleLine)
+	return escaped
 }
 
 func resolveFriend(c Catalog, friendUserID string) (string, bool) {
@@ -261,21 +387,6 @@ func resolveFriend(c Catalog, friendUserID string) (string, bool) {
 
 	fallback := c.Get(textFriendFallback)
 	return fallback, false
-}
-
-func reportHeader(c Catalog, report uccalendar.Report, tz *time.Location) string {
-	period := periodLabel(c, report, tz)
-	switch report.Status {
-	case uccalendar.StatusBlocked:
-		header := c.Format(textHeaderBlocked, period)
-		return header
-	case uccalendar.StatusPendingANFP:
-		header := c.Format(textHeaderPending, period)
-		return header
-	default:
-		header := c.Format(textHeaderFree, period)
-		return header
-	}
 }
 
 func periodLabel(c Catalog, report uccalendar.Report, tz *time.Location) string {
@@ -327,50 +438,9 @@ func weekendSaturdaySunday(report uccalendar.Report, tz *time.Location) (uccalen
 	return sat, sun
 }
 
-func renderReportMatch(c Catalog, m uccalendar.Match, friend string, tz *time.Location) string {
-	matchup := matchupLabel(c, m)
-	venue := venueLabel(c, m)
-	tournament := render.Text(m.Tournament)
-
-	if m.TBD {
-		tbdLine := c.Format(
-			textMatchTBDLine,
-			matchup,
-			venue,
-			tournament,
-			weekdayLabel(c, m.Date, tz),
-			m.Date.DDMM(),
-			friend,
-		)
-		return tbdLine
-	}
-
-	matchDate := matchLocalDate(m, tz)
-	confirmedLine := c.Format(
-		textMatchConfirmedLine,
-		matchup,
-		venue,
-		tournament,
-		weekdayLabel(c, matchDate, tz),
-		matchDate.DDMM(),
-		render.TimestampShortTime(m.Kickoff),
-		render.TimestampRelative(m.Kickoff),
-		m.BlockStart.In(tz).Format(clockLayout),
-		m.BlockEnd.In(tz).Format(clockLayout),
-		friend,
-	)
-	return confirmedLine
-}
-
-func renderReportBanter(c Catalog, report uccalendar.Report, friend string, hasFriendMention bool) string {
-	banter := strings.TrimSpace(report.Banter)
-	if banter != "" {
-		escaped := render.Text(banter)
-		if hasFriendMention {
-			withFriend := c.Format(textBanterWithFriend, escaped, friend)
-			return withFriend
-		}
-
+func resolveReportBanter(c Catalog, report uccalendar.Report) string {
+	escaped := cleanInlineText(report.Banter)
+	if escaped != "" {
 		return escaped
 	}
 
@@ -378,18 +448,14 @@ func renderReportBanter(c Catalog, report uccalendar.Report, friend string, hasF
 	case uccalendar.StatusBlocked:
 		primary := firstConfirmedMatch(report.Matches)
 		if primary.Condition == uccalendar.VenueAway {
-			awayText := c.Format(textBanterBlockedAway, friend)
-			return awayText
+			return c.Get(textBanterBlockedAway)
 		}
 
-		homeText := c.Format(textBanterBlockedHome, friend)
-		return homeText
+		return c.Get(textBanterBlockedHome)
 	case uccalendar.StatusPendingANFP:
-		pendingText := c.Format(textBanterPending, friend)
-		return pendingText
+		return c.Get(textBanterPending)
 	default:
-		freeText := c.Format(textBanterFree, friend)
-		return freeText
+		return c.Get(textBanterFree)
 	}
 }
 
@@ -403,36 +469,6 @@ func shouldShowNextMatch(report uccalendar.Report) bool {
 		(report.Window == uccalendar.WindowThisWeekend || report.Window == uccalendar.WindowDefault)
 	shouldShow := isFree || isThisWeekend
 	return shouldShow
-}
-
-func renderNextMatch(c Catalog, next uccalendar.Match, tz *time.Location) string {
-	matchup := matchupLabel(c, next)
-	venue := venueLabel(c, next)
-
-	if next.TBD {
-		tbdLine := c.Format(
-			textNextMatchTBD,
-			matchup,
-			venue,
-			weekdayLabel(c, next.Date, tz),
-			next.Date.DDMM(),
-		)
-		return tbdLine
-	}
-
-	nextDate := matchLocalDate(next, tz)
-	confirmedLine := c.Format(
-		textNextMatchConfirmed,
-		matchup,
-		venue,
-		weekdayLabel(c, nextDate, tz),
-		nextDate.DDMM(),
-		render.TimestampShortTime(next.Kickoff),
-		render.TimestampRelative(next.Kickoff),
-		next.BlockStart.In(tz).Format(clockLayout),
-		next.BlockEnd.In(tz).Format(clockLayout),
-	)
-	return confirmedLine
 }
 
 func firstConfirmedMatch(matches []uccalendar.Match) uccalendar.Match {
@@ -449,7 +485,7 @@ func firstConfirmedMatch(matches []uccalendar.Match) uccalendar.Match {
 }
 
 func matchupLabel(c Catalog, m uccalendar.Match) string {
-	opponent := render.Text(m.Opponent)
+	opponent := cleanInlineText(m.Opponent)
 	if m.Condition == uccalendar.VenueHome {
 		home := c.Format(textMatchupHome, opponent)
 		return home
@@ -460,11 +496,11 @@ func matchupLabel(c Catalog, m uccalendar.Match) string {
 }
 
 func venueLabel(c Catalog, m uccalendar.Match) string {
-	venueName := strings.TrimSpace(m.Venue)
+	venueName := cleanInlineText(m.Venue)
 	isHome := m.Condition == uccalendar.VenueHome
 	if isHome {
 		if venueName != "" {
-			withName := c.Format(textVenueHomeWithName, render.Text(venueName))
+			withName := c.Format(textVenueHomeWithName, venueName)
 			return withName
 		}
 
@@ -472,7 +508,7 @@ func venueLabel(c Catalog, m uccalendar.Match) string {
 	}
 
 	if venueName != "" {
-		withName := c.Format(textVenueAwayWithName, render.Text(venueName))
+		withName := c.Format(textVenueAwayWithName, venueName)
 		return withName
 	}
 

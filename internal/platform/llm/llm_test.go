@@ -689,3 +689,72 @@ func TestGenerateInputAndContextValidation(t *testing.T) {
 		t.Fatal("Generate with blank text succeeded, want error")
 	}
 }
+
+func TestGenerateWithPromptOverridesAndValidates(t *testing.T) {
+	t.Parallel()
+
+	var nilClient *llm.Client
+	if _, err := nilClient.GenerateWithPrompt(context.Background(), "custom", "hello"); err == nil {
+		t.Fatal("nilClient.GenerateWithPrompt succeeded, want error")
+	}
+
+	var gotSystemPrompt string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			SystemInstruction struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"systemInstruction"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		if len(body.SystemInstruction.Parts) > 0 {
+			gotSystemPrompt = body.SystemInstruction.Parts[0].Text
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"Juega la franja, mi rey"}]}}]}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := llm.New(llm.Config{
+		APIKey:      testAPIKey,
+		BaseURL:     srv.URL + "/v1/publishers/google/models",
+		Prompt:      "Default client prompt.",
+		Temperature: 0.7,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	got, err := client.GenerateWithPrompt(context.Background(), "Custom runtime prompt\r\nline two.", "Scenario: blocked_home")
+	if err != nil {
+		t.Fatalf("GenerateWithPrompt custom: %v", err)
+	}
+	if got != "Juega la franja, mi rey" {
+		t.Errorf("GenerateWithPrompt = %q, want %q", got, "Juega la franja, mi rey")
+	}
+	if gotSystemPrompt != "Custom runtime prompt\nline two." {
+		t.Errorf("systemInstruction = %q, want normalized custom prompt", gotSystemPrompt)
+	}
+
+	_, err = client.GenerateWithPrompt(context.Background(), "   ", "Scenario: free")
+	if err != nil {
+		t.Fatalf("GenerateWithPrompt fallback: %v", err)
+	}
+	if gotSystemPrompt != "Default client prompt." {
+		t.Errorf("systemInstruction on blank override = %q, want default client prompt", gotSystemPrompt)
+	}
+
+	badPrompt := "secret-prompt\x00marker"
+	//nolint:staticcheck // testing aggregated nil context + bad prompt + blank text
+	_, err = client.GenerateWithPrompt(nil, badPrompt, " ")
+	if err == nil {
+		t.Fatal("GenerateWithPrompt with invalid inputs succeeded, want error")
+	}
+	if strings.Contains(err.Error(), "secret-prompt") {
+		t.Errorf("GenerateWithPrompt error %q leaked prompt value", err.Error())
+	}
+}

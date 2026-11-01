@@ -19,6 +19,8 @@ const (
 	SettingSlangCacheTTL = "uc.slang_cache_ttl"
 	// SettingAPIBaseURL is the ESPN soccer API base URL.
 	SettingAPIBaseURL = "uc.api_base_url"
+	// SettingBanterPrompt is the system instruction sent to Vertex AI for UC football banter.
+	SettingBanterPrompt = "uc.banter_prompt"
 
 	// DefaultAPIBaseURL is the production ESPN soccer site API base URL.
 	DefaultAPIBaseURL = "https://site.api.espn.com/apis/site/v2/sports/soccer"
@@ -41,15 +43,27 @@ const (
 	MinSlangCacheTTL = 1 * time.Minute
 	// MaxSlangCacheTTL is the longest banter cache lifetime accepted by ParseSlangCacheTTL.
 	MaxSlangCacheTTL = 168 * time.Hour
+	// MaxBanterPromptBytes is the maximum UTF-8 byte length accepted for SettingBanterPrompt.
+	MaxBanterPromptBytes = 16 << 10
+
+	// LocaleESCL is the Chilean Spanish UC message and banter locale.
+	LocaleESCL = "es-CL"
+	// LocaleENUS is the US English UC message and banter locale.
+	LocaleENUS = "en-US"
+	// DefaultGuildLocale is the default UC message and banter locale when a guild has not set one.
+	DefaultGuildLocale = LocaleESCL
 
 	// SantiagoTimezone is the canonical IANA timezone identifier for all UC schedule calculations.
 	SantiagoTimezone = "America/Santiago"
 
-	// DefaultBanterPrompt is the system instruction sent to Vertex AI for Chilean football banter.
-	DefaultBanterPrompt = "Write ONE short, witty Chilean Spanish football-fan banter sentence " +
-		"for a group of friends checking whether their Universidad Catolica fan friend is free to hang out. " +
-		"Use natural Chilean Spanish tuteo and light local football slang such as la franja, la Cato, cruzados, " +
-		"armar junta, or panorama. Strictly forbid Argentinian voseo (vos, tenes, sos) and vosotros. " +
+	// DefaultBanterPrompt is the default system instruction sent to Vertex AI for Chilean football banter.
+	DefaultBanterPrompt = "Write ONE short, affectionate, teasing football-fan banter sentence " +
+		"for a close Chilean group of friends checking whether their Universidad Catolica fan friend is free to hang out. " +
+		"When the scenario specifies Language: es-CL (or no language), write in natural Chilean Spanish tuteo " +
+		"mixing warm group nicknames such as king, kin, kingcito, mi rey, or mi chanchito with local football slang " +
+		"such as la franja, la Cato, cruzados, armar junta, or panorama, and strictly forbid Argentinian voseo " +
+		"(vos, tenes, sos, podes) and vosotros. " +
+		"When the scenario specifies Language: en-US, write one playful English group-chat sentence teasing their UC-fan king. " +
 		"Do not include emojis, dates, clock times, scores, hashtags, @ mentions, angle brackets, or quotes. " +
 		"Output ONLY a single line of plain text under 140 characters matching the scenario described by the user."
 
@@ -237,31 +251,36 @@ type GuildScope struct {
 	CanManageGuild bool
 }
 
-// GuildConfig holds one Discord guild's configured UC-fan friend and proactive alert channel.
-// Empty FriendUserID or ChannelID indicates that field is not configured for the guild.
+// GuildConfig holds one Discord guild's configured UC-fan friend, proactive alert channel, and
+// message locale override. Empty fields indicate that setting is not configured for the guild
+// (Locale defaults to DefaultGuildLocale when empty).
 type GuildConfig struct {
 	GuildID      string
 	FriendUserID string
 	ChannelID    string
+	Locale       string
 }
 
 // GuildConfigUpdate specifies fields to set on a guild's UC configuration. Nil fields are left
-// unchanged; at least one field must be non-nil and hold a valid Discord snowflake.
+// unchanged; at least one field must be non-nil and valid.
 type GuildConfigUpdate struct {
 	FriendUserID *string
 	ChannelID    *string
+	Locale       *string
 }
 
 // ClearTarget selects which guild configuration fields Service.ClearGuildConfig resets.
 type ClearTarget string
 
 const (
-	// ClearTargetAll clears both the guild's target friend and proactive alert channel.
+	// ClearTargetAll clears the guild's target friend, proactive alert channel, and locale override.
 	ClearTargetAll ClearTarget = "all"
-	// ClearTargetFriend clears only the guild's target friend, keeping its alert channel.
+	// ClearTargetFriend clears only the guild's target friend.
 	ClearTargetFriend ClearTarget = "friend"
-	// ClearTargetChannel clears only the guild's proactive alert channel, keeping its target friend.
+	// ClearTargetChannel clears only the guild's proactive alert channel.
 	ClearTargetChannel ClearTarget = "channel"
+	// ClearTargetLocale clears only the guild's message locale override, reverting to DefaultGuildLocale.
+	ClearTargetLocale ClearTarget = "locale"
 )
 
 // Match represents one Universidad Catolica fixture and its computed availability block in
@@ -290,6 +309,7 @@ type Report struct {
 	Matches      []Match
 	NextMatch    *Match
 	FriendUserID string
+	Locale       string
 	Banter       string
 }
 
@@ -308,6 +328,7 @@ type Alert struct {
 	Kind           AlertKind
 	GuildID        string
 	FriendUserID   string
+	Locale         string
 	Banter         string
 	WeekendStart   LocalDate
 	WeekendEnd     LocalDate
@@ -331,7 +352,14 @@ type AlertSender interface {
 	SendUCAlert(ctx context.Context, channelID string, alert Alert) error
 }
 
-// BanterGenerator generates one short Chilean Spanish football banter line for a scenario prompt.
+// BanterGenerator generates one short football banter line for a scenario prompt.
 type BanterGenerator interface {
 	Generate(ctx context.Context, prompt string) (string, error)
+}
+
+// PromptBanterGenerator is an optional extension of BanterGenerator that accepts a per-call
+// system prompt override from SettingBanterPrompt.
+type PromptBanterGenerator interface {
+	BanterGenerator
+	GenerateWithPrompt(ctx context.Context, prompt, scenario string) (string, error)
 }

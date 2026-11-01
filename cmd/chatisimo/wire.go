@@ -266,7 +266,7 @@ func (s *server) openStorage(ctx context.Context, env config.Env) (runtimeSettin
 
 	out := runtimeSettings{
 		store:   store,
-		discord: discord.Settings{Token: token, APIBaseURL: baseURL},
+		discord: discord.Settings{Token: token, APIBaseURL: baseURL, Store: store},
 		llm: llm.Config{
 			APIKey:  llmKey.Reveal(),
 			Model:   llmModel,
@@ -283,9 +283,16 @@ func (s *server) openStorage(ctx context.Context, env config.Env) (runtimeSettin
 func checkUCSettings(ctx context.Context, store *config.Store) error {
 	for _, name := range []string{
 		settingUCAPIBaseURL,
+		settingUCBanterPrompt,
 		settingUCFridayAlertTime,
 		settingUCMatchdayAlertTime,
 		settingUCSlangCacheTTL,
+		settingUCFridayAlertTemplateENUS,
+		settingUCFridayAlertTemplateESCL,
+		settingUCMatchdayAlertTemplateENUS,
+		settingUCMatchdayAlertTemplateESCL,
+		settingUCReportTemplateENUS,
+		settingUCReportTemplateESCL,
 	} {
 		_, err := store.Get(ctx, name)
 		if err != nil {

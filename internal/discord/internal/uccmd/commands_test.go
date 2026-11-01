@@ -197,8 +197,8 @@ func TestConfigCommandIsGuildOnlyManageGuildAndValidatesSubcommands(t *testing.T
 	}
 	checkOptionNames(t, "/uc-config.set", setSub.Name, setSub.NameLocalizations, "configurar")
 	checkLocalizedText(t, "/uc-config.set.description", setSub.Description, setSub.DescriptionLocalizations, 1, 100)
-	if len(setSub.Options) != 2 {
-		t.Fatalf("/uc-config set options = %d, want 2 (friend, channel)", len(setSub.Options))
+	if len(setSub.Options) != 3 {
+		t.Fatalf("/uc-config set options = %d, want 3 (friend, channel, locale)", len(setSub.Options))
 	}
 	friendOpt := setSub.Options[0]
 	if friendOpt.Name != "friend" || friendOpt.Type != typeUser || friendOpt.Required {
@@ -216,6 +216,23 @@ func TestConfigCommandIsGuildOnlyManageGuildAndValidatesSubcommands(t *testing.T
 	}
 	checkOptionNames(t, "/uc-config.set.channel", channelOpt.Name, channelOpt.NameLocalizations, "canal")
 	checkLocalizedText(t, "/uc-config.set.channel.description", channelOpt.Description, channelOpt.DescriptionLocalizations, 1, 100)
+
+	localeOpt := setSub.Options[2]
+	if localeOpt.Name != "locale" || localeOpt.Type != typeString || localeOpt.Required {
+		t.Fatalf("locale option = %+v, want optional string option", localeOpt)
+	}
+	checkOptionNames(t, "/uc-config.set.locale", localeOpt.Name, localeOpt.NameLocalizations, "idioma")
+	checkLocalizedText(t, "/uc-config.set.locale.description", localeOpt.Description, localeOpt.DescriptionLocalizations, 1, 100)
+	wantLocales := []string{uccalendar.LocaleESCL, uccalendar.LocaleENUS}
+	if len(localeOpt.Choices) != len(wantLocales) {
+		t.Fatalf("locale choices = %d, want %d", len(localeOpt.Choices), len(wantLocales))
+	}
+	for i, ch := range localeOpt.Choices {
+		if ch.Value != wantLocales[i] {
+			t.Errorf("locale choice[%d] = %q, want %q", i, ch.Value, wantLocales[i])
+		}
+		checkLocalizedText(t, "/uc-config.set.locale."+ch.Value, ch.Name, ch.NameLocalizations, 1, 100)
+	}
 
 	showSub := cfg.Options[1]
 	if showSub.Name != "show" || showSub.Type != typeSubCommand || len(showSub.Options) != 0 {
@@ -241,6 +258,7 @@ func TestConfigCommandIsGuildOnlyManageGuildAndValidatesSubcommands(t *testing.T
 		string(uccalendar.ClearTargetAll),
 		string(uccalendar.ClearTargetFriend),
 		string(uccalendar.ClearTargetChannel),
+		string(uccalendar.ClearTargetLocale),
 	}
 	if len(targetOpt.Choices) != len(wantTargets) {
 		t.Fatalf("target choices = %d, want %d", len(targetOpt.Choices), len(wantTargets))

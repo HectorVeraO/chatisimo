@@ -41,8 +41,9 @@ type Service interface {
 
 // Handlers owns the Discord slash command handlers for the Universidad Catolica schedule feature.
 type Handlers struct {
-	service  Service
-	location *time.Location
+	service   Service
+	location  *time.Location
+	templates *TemplateCache
 }
 
 // New validates its arguments, reporting every problem together, and returns the UC command
@@ -66,6 +67,16 @@ func New(svc Service, location *time.Location) (*Handlers, error) {
 	return h, nil
 }
 
+// SetTemplates attaches an optional live-reloading TemplateCache for /uc and /chatisimo uc report
+// rendering. When nil, the embedded default templates are used.
+func (h *Handlers) SetTemplates(cache *TemplateCache) {
+	if h == nil {
+		return
+	}
+
+	h.templates = cache
+}
+
 // Register mounts the /uc, /chatisimo/uc, and /uc-config/* slash command handlers on r.
 func (h *Handlers) Register(r *router.Router) {
 	if r == nil {
@@ -80,7 +91,7 @@ func (h *Handlers) Register(r *router.Router) {
 }
 
 func (h *Handlers) checkCommand(data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
-	req, loc := requestAndLocale(e.Ctx)
+	req, _ := requestAndLocale(e.Ctx)
 
 	var guildID string
 	if req.InGuild() {
@@ -97,7 +108,8 @@ func (h *Handlers) checkCommand(data discord.SlashCommandInteractionData, e *han
 		return fmt.Errorf("check uc schedule: %w", err)
 	}
 
-	text := RenderReportIn(loc, report, h.location)
+	reportLoc := MessageLocale(report.Locale)
+	text := RenderReportWith(e.Ctx, h.templates, reportLoc, report, h.location)
 	replyErr := req.Public(e.Ctx, discord.MessageCreate{Content: text})
 	if replyErr != nil {
 		return replyErr //nolint:wrapcheck // the router reduces REST errors to status and code
@@ -235,8 +247,8 @@ func ParseCheckOptions(guildID string, data discord.SlashCommandInteractionData)
 	return query, nil
 }
 
-// ParseConfigUpdateOptions extracts and validates the friend and channel slash-command options for
-// /uc-config set against the interaction's resolved guild members and channels.
+// ParseConfigUpdateOptions extracts and validates the friend, channel, and locale slash-command
+// options for /uc-config set against the interaction's resolved guild members and channels.
 func ParseConfigUpdateOptions(data discord.SlashCommandInteractionData) (uccalendar.GuildConfigUpdate, error) {
 	friendID, err := extractFriendOption(data)
 	if err != nil {
@@ -248,9 +260,15 @@ func ParseConfigUpdateOptions(data discord.SlashCommandInteractionData) (uccalen
 		return uccalendar.GuildConfigUpdate{}, err
 	}
 
+	locale, err := extractLocaleOption(data)
+	if err != nil {
+		return uccalendar.GuildConfigUpdate{}, err
+	}
+
 	update := uccalendar.GuildConfigUpdate{
 		FriendUserID: friendID,
 		ChannelID:    channelID,
+		Locale:       locale,
 	}
 	return update, nil
 }
@@ -366,4 +384,26 @@ func parseOptionSnowflake(value json.RawMessage) (snowflake.ID, string, error) {
 
 	normalized := id.String()
 	return id, normalized, nil
+}
+
+func extractLocaleOption(data discord.SlashCommandInteractionData) (*string, error) {
+	raw, present, err := safeOptString(
+		data,
+		localeOptionName,
+		localeOptionName,
+		uccalendar.InputCodeInvalidLocale,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !present {
+		return nil, nil //nolint:nilnil // nil pointer indicates an omitted optional field
+	}
+
+	parsed, parseErr := uccalendar.ParseGuildLocale(raw)
+	if parseErr != nil {
+		return nil, parseErr //nolint:wrapcheck // domain InputError mapped by TryMapError
+	}
+
+	return &parsed, nil
 }

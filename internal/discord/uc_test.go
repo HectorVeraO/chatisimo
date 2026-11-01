@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	appdiscord "github.com/HectorVeraO/chatisimo/internal/discord"
 	"github.com/HectorVeraO/chatisimo/internal/fakediscord"
 	"github.com/HectorVeraO/chatisimo/internal/uccalendar"
 )
@@ -138,6 +139,9 @@ func TestUCAnswersPubliclyAcrossPathsContextsWindowsDatesAndLocalesWithSilentMen
 	if cfgRes.Message == nil || cfgRes.Message.EphemeralFor != userA {
 		t.Fatalf("/uc-config/set: reply is not ephemeral to userA: %+v", cfgRes.Message)
 	}
+	if !strings.Contains(cfgRes.Message.Content, "es-CL (por defecto)") {
+		t.Errorf("/uc-config/set reply = %q, want default es-CL language label", cfgRes.Message.Content)
+	}
 
 	h.fake.SetUCFixtures([]fakediscord.UCFixture{
 		{
@@ -167,7 +171,7 @@ func TestUCAnswersPubliclyAcrossPathsContextsWindowsDatesAndLocalesWithSilentMen
 		t.Fatalf("uc.Sync: %v", syncErr)
 	}
 
-	cases := []struct {
+	defaultESCLCases := []struct {
 		name        string
 		caller      string
 		guildLocale string
@@ -178,31 +182,33 @@ func TestUCAnswersPubliclyAcrossPathsContextsWindowsDatesAndLocalesWithSilentMen
 		forbidParts []string
 	}{
 		{
-			name:        "default weekend in guild Spanish on /uc",
+			name:        "default weekend in guild defaults to es-CL even when Discord server locale is en-US",
 			caller:      userA,
 			guildLocale: "en-US",
 			path:        "/uc",
 			inGuild:     true,
 			options:     nil,
 			wantParts: []string{
-				"\U0001f534 **Bloqueado (este finde (07/11-08/11)): Juega la franja**",
-				"Universidad Cat\u00f3lica vs Colo-Colo",
-				"Local \U0001f3df\ufe0f Claro Arena",
-				"de 16:00 a 21:30 hrs",
-				"<@" + userB + ">",
-				"*(Ojo - pr\u00f3ximo partido:",
-				"Audax Italiano vs Universidad Cat\u00f3lica",
+				"\u26aa\U0001f535 \U0001f534 **Bloqueado \u00b7 este finde (07/11-08/11)**",
+				"\u26bd **Universidad Cat\u00f3lica vs Colo-Colo**",
+				"- Local \U0001f3df\ufe0f Claro Arena \u00b7 Liga de Primera",
+				"- **Bloqueo:** 16:00 a 21:30 hrs para <@" + userB + ">",
+				"-# Pr\u00f3ximo partido: Audax Italiano vs Universidad Cat\u00f3lica",
+			},
+			forbidParts: []string{
+				"(<@" + userB + ">)",
+				"((",
 			},
 		},
 		{
-			name:        "default weekend in DM Spanish on /chatisimo/uc uses generic fallback without guild friend",
-			caller:      userA,
+			name:        "default weekend in DM defaults to es-CL and uses generic fallback without guild friend",
+			caller:      userB,
 			guildLocale: "en-US",
 			path:        "/chatisimo/uc",
 			inGuild:     false,
 			options:     nil,
 			wantParts: []string{
-				"\U0001f534 **Bloqueado (este finde (07/11-08/11)): Juega la franja**",
+				"\u26aa\U0001f535 \U0001f534 **Bloqueado \u00b7 este finde (07/11-08/11)**",
 				"Universidad Cat\u00f3lica vs Colo-Colo",
 				"el hincha cruzado",
 			},
@@ -211,83 +217,53 @@ func TestUCAnswersPubliclyAcrossPathsContextsWindowsDatesAndLocalesWithSilentMen
 			},
 		},
 		{
-			name:        "today free window in English in guild",
+			name:        "today free window in guild defaults to es-CL even for en-US caller",
 			caller:      userB,
 			guildLocale: "en-US",
 			path:        "/uc",
 			inGuild:     true,
 			options:     map[string]any{"window": "today"},
 			wantParts: []string{
-				"\U0001f7e2 **All clear (today): Plans can go ahead**",
-				"*(Heads up - next match:",
-				"Universidad Catolica vs Colo-Colo",
-				"Home \U0001f3df\ufe0f Claro Arena",
-				"<@" + userB + ">",
+				"\u26aa\U0001f535 \U0001f7e2 **V\u00eda libre \u00b7 hoy**",
+				"- **Disponibilidad:** <@" + userB + "> sin partido de la UC",
+				"-# Pr\u00f3ximo partido: Universidad Cat\u00f3lica vs Colo-Colo",
 			},
 		},
 		{
-			name:        "this_month window in English in DM uses generic fallback without guild friend",
-			caller:      userB,
+			name:        "this_month window in DM defaults to es-CL without guild friend",
+			caller:      userC,
 			guildLocale: "en-US",
 			path:        "/chatisimo/uc",
 			inGuild:     false,
 			options:     map[string]any{"window": "this_month"},
 			wantParts: []string{
-				"\U0001f534 **Blocked (this month): UC plays**",
-				"Universidad Catolica vs Colo-Colo",
-				"Audax Italiano vs Universidad Catolica",
-				"Away \U0001f4fa Bicentenario La Florida",
-				"kickoff hour still TBD by ANFP",
-				"the UC fan",
+				"\u26aa\U0001f535 \U0001f534 **Bloqueado \u00b7 este mes**",
+				"Universidad Cat\u00f3lica vs Colo-Colo",
+				"Audax Italiano vs Universidad Cat\u00f3lica",
+				"- Visita \U0001f4fa Bicentenario La Florida \u00b7 Copa Chile",
+				"horario pendiente ANFP para el hincha cruzado",
 			},
 			forbidParts: []string{
 				"<@" + userB + ">",
 			},
 		},
 		{
-			name:        "DD/MM date query for pending ANFP match in Spanish",
+			name:        "DD/MM date query for pending ANFP match in Chilean Spanish",
 			caller:      userA,
 			guildLocale: "en-US",
 			path:        "/uc",
 			inGuild:     true,
 			options:     map[string]any{"date": "15/11"},
 			wantParts: []string{
-				"\U0001f7e1 **Pendiente ANFP (el domingo 15/11): Horario por confirmar**",
+				"\u26aa\U0001f535 \U0001f7e1 **Pendiente ANFP \u00b7 domingo 15/11**",
 				"Audax Italiano vs Universidad Cat\u00f3lica",
-				"Visita \U0001f4fa Bicentenario La Florida",
-				"horario a\u00fan pendiente de la ANFP",
-			},
-		},
-		{
-			name:        "YYYY-MM-DD date query for blocked match in English",
-			caller:      userB,
-			guildLocale: "en-US",
-			path:        "/chatisimo/uc",
-			inGuild:     true,
-			options:     map[string]any{"date": "2026-11-07"},
-			wantParts: []string{
-				"\U0001f534 **Blocked (Saturday 07/11): UC plays**",
-				"Universidad Catolica vs Colo-Colo",
-				"16:00 to 21:30",
-			},
-		},
-		{
-			name:        "guild locale fallback to Chilean Spanish when user locale unsupported",
-			caller:      userC,
-			guildLocale: "es-419",
-			path:        "/uc",
-			inGuild:     true,
-			options:     map[string]any{"window": "today"},
-			wantParts: []string{
-				"\U0001f7e2 **V\u00eda libre (hoy): Se puede armar junta**",
-				"*(Ojo - pr\u00f3ximo partido:",
-				"Universidad Cat\u00f3lica vs Colo-Colo",
-				"<@" + userB + ">",
+				"- Visita \U0001f4fa Bicentenario La Florida \u00b7 Copa Chile",
+				"horario pendiente ANFP para <@" + userB + ">",
 			},
 		},
 	}
 
-	for _, tc := range cases {
+	for _, tc := range defaultESCLCases {
 		mustSetGuildLocale(t, h, tc.guildLocale)
 
 		res := slashOrFail(t, h, tc.caller, h.slashAt(tc.path, tc.inGuild, tc.options))
@@ -312,14 +288,62 @@ func TestUCAnswersPubliclyAcrossPathsContextsWindowsDatesAndLocalesWithSilentMen
 		}
 	}
 
-	// Verify /uc and /chatisimo/uc produce identical output for the same caller and options.
+	// Switch the guild's UC message language to en-US via /uc-config set locale:en-US.
+	setENRes := slashOrFail(t, h, userA, h.slashAt("/uc-config/set", true, map[string]any{"locale": "en-US"}))
+	if setENRes.Message == nil || setENRes.Message.EphemeralFor != userA {
+		t.Fatalf("/uc-config/set locale:en-US not ephemeral to userA: %+v", setENRes.Message)
+	}
+	if !strings.Contains(setENRes.Message.Content, "- **Idioma de mensajes:** en-US") {
+		t.Errorf("/uc-config/set locale:en-US reply = %q, want en-US confirmation", setENRes.Message.Content)
+	}
+
+	guildENBlocked := slashOrFail(t, h, userA, h.slashAt("/chatisimo/uc", true, map[string]any{"date": "2026-11-07"}))
+	for _, want := range []string{
+		"\u26aa\U0001f535 \U0001f534 **Blocked \u00b7 Saturday 07/11**",
+		"\u26bd **Universidad Catolica vs Colo-Colo**",
+		"- **Unavailable:** 16:00 to 21:30 for <@" + userB + ">",
+	} {
+		if guildENBlocked.Message == nil || !strings.Contains(guildENBlocked.Message.Content, want) {
+			t.Errorf("guild en-US /chatisimo/uc missing %q in:\n%+v", want, guildENBlocked.Message)
+		}
+	}
+
+	guildENFree := slashOrFail(t, h, userA, h.slashAt("/uc", true, map[string]any{"window": "today"}))
+	for _, want := range []string{
+		"\u26aa\U0001f535 \U0001f7e2 **All clear \u00b7 today**",
+		"- **Availability:** <@" + userB + "> has no UC match",
+		"-# Next match: Universidad Catolica vs Colo-Colo",
+	} {
+		if guildENFree.Message == nil || !strings.Contains(guildENFree.Message.Content, want) {
+			t.Errorf("guild en-US /uc today missing %q in:\n%+v", want, guildENFree.Message)
+		}
+	}
+
+	// Bot DM remains es-CL even when guild 1 configured en-US.
+	dmStillES := slashOrFail(t, h, userB, h.slashAt("/uc", false, map[string]any{"window": "today"}))
+	if dmStillES.Message == nil || !strings.Contains(dmStillES.Message.Content, "\u26aa\U0001f535 \U0001f7e2 **V\u00eda libre \u00b7 hoy**") {
+		t.Errorf("DM /uc after guild en-US config = %+v, want es-CL default", dmStillES.Message)
+	}
+
+	// Clear only locale via /uc-config clear target:locale -> reverts guild to es-CL while keeping friend userB.
+	clearLocRes := slashOrFail(t, h, userA, h.slashAt("/uc-config/clear", true, map[string]any{"target": "locale"}))
+	if clearLocRes.Message == nil || clearLocRes.Message.EphemeralFor != userA ||
+		!strings.Contains(clearLocRes.Message.Content, "es-CL (por defecto)") ||
+		!strings.Contains(clearLocRes.Message.Content, "<@"+userB+">") {
+		t.Fatalf("/uc-config/clear target:locale reply = %+v, want default es-CL and preserved friend", clearLocRes.Message)
+	}
+
+	// Verify /uc and /chatisimo/uc produce identical es-CL output for the same caller and options.
 	shortRes := slashOrFail(t, h, userA, h.slashAt("/uc", true, map[string]any{"window": "this_weekend"}))
 	longRes := slashOrFail(t, h, userA, h.slashAt("/chatisimo/uc", true, map[string]any{"window": "this_weekend"}))
 	if shortRes.Message == nil || longRes.Message == nil || shortRes.Message.Content != longRes.Message.Content {
 		t.Errorf("/uc and /chatisimo/uc replies differ:\nshort: %+v\nlong:  %+v", shortRes.Message, longRes.Message)
 	}
+	if !strings.Contains(shortRes.Message.Content, "\u26aa\U0001f535 \U0001f534 **Bloqueado \u00b7 este finde (07/11-08/11)**") {
+		t.Errorf("/uc after clearing locale = %q, want es-CL header", shortRes.Message.Content)
+	}
 
-	wantTotal := 1 + len(cases) + 2
+	wantTotal := 1 + len(defaultESCLCases) + 7
 	records := h.fake.Outbound()
 	if len(records) != wantTotal {
 		t.Fatalf("outbound record count = %d, want %d", len(records), wantTotal)
@@ -334,7 +358,7 @@ func TestUCAnswersPubliclyAcrossPathsContextsWindowsDatesAndLocalesWithSilentMen
 		if !hasEmptyLists {
 			t.Errorf("record[%d] AllowedMentionsSent = %+v, want non-nil empty lists", i, sent)
 		}
-		isDMCase := i == 2 || i == 4
+		isDMCase := i == 2 || i == 4 || i == 9
 		hasRenderedFriend := false
 		for _, rendered := range rec.MentionsRendered {
 			if strings.Contains(rendered, userB) {
@@ -582,10 +606,11 @@ func TestUCProactiveAlertsDeliverToGuildChannelWithSilentMentionAndDeduplicate(t
 
 	fridayMsg := visible[0].Content
 	for _, want := range []string{
-		"\U0001f4e2 **Reporte de disponibilidad de <@" + userB + "> para el finde (05/12-06/12):**",
-		"\U0001f534 **s\u00e1bado 05/12 bloqueado de 16:00 a 21:30 hrs**",
+		"\u26aa\U0001f535 **Reporte cruzado de finde \u00b7 05/12-06/12**",
+		"- **Hincha:** <@" + userB + ">",
+		"- \U0001f534 **s\u00e1bado 05/12** (16:00 a 21:30 hrs)",
 		"Universidad Cat\u00f3lica vs Universidad de Chile",
-		"\U0001f7e2 **domingo 06/12 libre** para armar panorama.",
+		"- \U0001f7e2 **domingo 06/12** libre para armar panorama",
 	} {
 		if !strings.Contains(fridayMsg, want) {
 			t.Errorf("Friday alert missing %q in:\n%s", want, fridayMsg)
@@ -594,9 +619,9 @@ func TestUCProactiveAlertsDeliverToGuildChannelWithSilentMentionAndDeduplicate(t
 
 	matchdayMsg := visible[1].Content
 	for _, want := range []string{
-		"\u26a0\ufe0f **Aviso de utilidad p\u00fablica:** Hoy a las",
-		"Universidad Cat\u00f3lica vs Universidad de Chile",
-		"<@" + userB + "> desaparece del mapa entre las **16:00 y las 21:30 hrs**.",
+		"\u26aa\U0001f535 **Hoy juega la franja**",
+		"\u26bd **Universidad Cat\u00f3lica vs Universidad de Chile**",
+		"- **Bloqueo:** <@" + userB + "> no disponible de **16:00 a 21:30 hrs**",
 	} {
 		if !strings.Contains(matchdayMsg, want) {
 			t.Errorf("Matchday alert missing %q in:\n%s", want, matchdayMsg)
@@ -620,7 +645,7 @@ func TestUCProactiveAlertsDeliverToGuildChannelWithSilentMentionAndDeduplicate(t
 	}
 
 	_ = h.waitInteractionLogs(t, 1)
-	assertNoUCLogLeaks(t, h, "Universidad de Chile", "Claro Arena", "Reporte de disponibilidad")
+	assertNoUCLogLeaks(t, h, "Universidad de Chile", "Claro Arena", "Reporte cruzado de finde")
 }
 
 func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
@@ -697,15 +722,17 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 	if initialShow.Message == nil || initialShow.Message.EphemeralFor != userA {
 		t.Fatalf("initial /uc-config/show: reply not ephemeral to userA: %+v", initialShow.Message)
 	}
-	if strings.Count(initialShow.Message.Content, "sin configurar") != 2 {
-		t.Errorf("initial /uc-config/show = %q, want both fields sin configurar", initialShow.Message.Content)
+	if strings.Count(initialShow.Message.Content, "sin configurar") != 2 ||
+		!strings.Contains(initialShow.Message.Content, "es-CL (por defecto)") {
+		t.Errorf("initial /uc-config/show = %q, want friend/channel sin configurar and es-CL (por defecto)", initialShow.Message.Content)
 	}
 
-	// 4. Reject invalid options: empty update, bot user, non-member from guild 2, channel from guild 2, voice channel, bad clear target.
+	// 4. Reject invalid options: empty update, bot user, cross-guild user, cross-guild channel, voice channel, invalid locale, bad clear target.
 	invalidCalls := []struct {
-		name    string
-		in      fakediscord.Slash
-		wantSub string
+		name      string
+		in        fakediscord.Slash
+		wantSub   string
+		forbidSub string
 	}{
 		{
 			name: "empty set",
@@ -713,7 +740,7 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 				Guild: &h.guild,
 				Path:  "/uc-config/set",
 			},
-			wantSub: "Elige al menos un amigo o un canal de alertas",
+			wantSub: "Elige al menos un amigo, un canal de alertas o un idioma",
 		},
 		{
 			name: "bot user as friend",
@@ -755,6 +782,17 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 			wantSub: "canal de texto o anuncios de este servidor",
 		},
 		{
+			name: "invalid locale",
+			in: fakediscord.Slash{
+				Guild:            &h.guild,
+				Path:             "/uc-config/set",
+				Options:          map[string]any{"locale": "pt-BR"},
+				BypassValidation: true,
+			},
+			wantSub:   "Idioma desconocido",
+			forbidSub: "pt-BR",
+		},
+		{
 			name: "invalid clear target",
 			in: fakediscord.Slash{
 				Guild:            &h.guild,
@@ -762,7 +800,8 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 				Options:          map[string]any{"target": "everything"},
 				BypassValidation: true,
 			},
-			wantSub: "Objetivo desconocido",
+			wantSub:   "Objetivo desconocido",
+			forbidSub: "everything",
 		},
 	}
 
@@ -774,9 +813,12 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 		if !strings.Contains(res.Message.Content, tc.wantSub) {
 			t.Errorf("%s: reply = %q, want substring %q", tc.name, res.Message.Content, tc.wantSub)
 		}
+		if tc.forbidSub != "" && strings.Contains(res.Message.Content, tc.forbidSub) {
+			t.Errorf("%s: reply %q echoed rejected input %q", tc.name, res.Message.Content, tc.forbidSub)
+		}
 	}
 
-	// 5. Configure guild 1 (friend + dedicated alert channel) and guild 2 (dedicated alert channel only, via Administrator).
+	// 5. Configure guild 1 (friend + dedicated alert channel, default es-CL) and guild 2 (dedicated alert channel + en-US locale).
 	setG1 := slashOrFail(t, h, userA, h.slashAt("/uc-config/set", true, map[string]any{
 		"friend":  userB,
 		"channel": guildOneAlertCh,
@@ -784,7 +826,7 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 	if setG1.Message == nil || setG1.Message.EphemeralFor != userA {
 		t.Fatalf("guild 1 set: reply not ephemeral to userA: %+v", setG1.Message)
 	}
-	for _, want := range []string{"<@" + userB + ">", "<#" + guildOneAlertCh + ">"} {
+	for _, want := range []string{"<@" + userB + ">", "<#" + guildOneAlertCh + ">", "es-CL (por defecto)"} {
 		if !strings.Contains(setG1.Message.Content, want) {
 			t.Errorf("guild 1 set missing %q in:\n%s", want, setG1.Message.Content)
 		}
@@ -793,7 +835,7 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 	setG2, err := h.fake.Slash(t.Context(), memberD, fakediscord.Slash{
 		Guild:   &guildTwo,
 		Path:    "/uc-config/set",
-		Options: map[string]any{"channel": guildTwoAlertCh},
+		Options: map[string]any{"channel": guildTwoAlertCh, "locale": "en-US"},
 	})
 	if err != nil {
 		t.Fatalf("guild 2 Slash /uc-config/set: %v", err)
@@ -801,7 +843,7 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 	if setG2.Message == nil || setG2.Message.EphemeralFor != userD {
 		t.Fatalf("guild 2 set: reply not ephemeral to userD: %+v", setG2.Message)
 	}
-	for _, want := range []string{"not configured", "<#" + guildTwoAlertCh + ">"} {
+	for _, want := range []string{"not configured", "<#" + guildTwoAlertCh + ">", "- **Message language:** en-US"} {
 		if !strings.Contains(setG2.Message.Content, want) {
 			t.Errorf("guild 2 set missing %q in:\n%s", want, setG2.Message.Content)
 		}
@@ -837,40 +879,47 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 	}
 
 	ucG1 := slashOrFail(t, h, userA, h.slashAt("/uc", true, nil))
-	if ucG1.Message == nil || !strings.Contains(ucG1.Message.Content, "<@"+userB+">") {
-		t.Fatalf("guild 1 /uc missing configured <@%s>: %+v", userB, ucG1.Message)
+	if ucG1.Message == nil || !strings.Contains(ucG1.Message.Content, "<@"+userB+">") ||
+		!strings.Contains(ucG1.Message.Content, "\u26aa\U0001f535 \U0001f534 **Bloqueado") {
+		t.Fatalf("guild 1 /uc missing es-CL header or <@%s>: %+v", userB, ucG1.Message)
 	}
 
 	ucG2, err := h.fake.Slash(t.Context(), memberD, fakediscord.Slash{Guild: &guildTwo, Path: "/uc"})
 	if err != nil {
 		t.Fatalf("guild 2 /uc: %v", err)
 	}
-	if ucG2.Message == nil || strings.Contains(ucG2.Message.Content, userB) || !strings.Contains(ucG2.Message.Content, "the UC fan") {
-		t.Fatalf("guild 2 /uc = %+v, want generic fallback without guild 1 friend", ucG2.Message)
+	if ucG2.Message == nil || strings.Contains(ucG2.Message.Content, userB) ||
+		!strings.Contains(ucG2.Message.Content, "\u26aa\U0001f535 \U0001f534 **Blocked") ||
+		!strings.Contains(ucG2.Message.Content, "the UC fan") {
+		t.Fatalf("guild 2 /uc = %+v, want English report with generic fallback and no guild 1 friend", ucG2.Message)
 	}
 
 	ucG3 := slashOrFail(t, h, userC, fakediscord.Slash{Guild: &guildThree, Path: "/uc"})
-	if ucG3.Message == nil || strings.Contains(ucG3.Message.Content, userB) {
-		t.Fatalf("guild 3 /uc leaked guild 1 friend: %+v", ucG3.Message)
+	if ucG3.Message == nil || strings.Contains(ucG3.Message.Content, userB) ||
+		!strings.Contains(ucG3.Message.Content, "\u26aa\U0001f535 \U0001f534 **Bloqueado") {
+		t.Fatalf("guild 3 /uc = %+v, want default es-CL report without guild 1 friend", ucG3.Message)
 	}
 
 	ucDM := slashOrFail(t, h, userA, h.slashAt("/uc", false, nil))
 	if ucDM.Message == nil || strings.Contains(ucDM.Message.Content, userB) || !strings.Contains(ucDM.Message.Content, "el hincha cruzado") {
-		t.Fatalf("DM /uc = %+v, want generic fallback without guild 1 friend", ucDM.Message)
+		t.Fatalf("DM /uc = %+v, want es-CL generic fallback without guild 1 friend", ucDM.Message)
 	}
 
-	// 7. Proactive Friday alerts deliver independently to guildOneAlertCh and guildTwoAlertCh, skipping unconfigured guildThree.
+	// 7. Proactive Friday alerts deliver in es-CL to guildOneAlertCh and in en-US to guildTwoAlertCh, skipping unconfigured guildThree.
 	if alertErr := h.uc.CheckAlerts(t.Context()); alertErr != nil {
 		t.Fatalf("CheckAlerts (Friday): %v", alertErr)
 	}
 
 	g1Alerts := h.fake.Visible(h.users[userC], guildOneAlertCh)
-	if len(g1Alerts) != 1 || !strings.Contains(g1Alerts[0].Content, "<@"+userB+">") {
-		t.Fatalf("guild 1 alert channel messages = %+v, want 1 Friday alert mentioning userB", g1Alerts)
+	if len(g1Alerts) != 1 || !strings.Contains(g1Alerts[0].Content, "<@"+userB+">") ||
+		!strings.Contains(g1Alerts[0].Content, "Reporte cruzado de finde") {
+		t.Fatalf("guild 1 alert channel messages = %+v, want 1 es-CL Friday alert mentioning userB", g1Alerts)
 	}
 	g2Alerts := h.fake.Visible(memberD, guildTwoAlertCh)
-	if len(g2Alerts) != 1 || strings.Contains(g2Alerts[0].Content, userB) || !strings.Contains(g2Alerts[0].Content, "el hincha cruzado") {
-		t.Fatalf("guild 2 alert channel messages = %+v, want 1 Friday alert with generic fallback", g2Alerts)
+	if len(g2Alerts) != 1 || strings.Contains(g2Alerts[0].Content, userB) ||
+		!strings.Contains(g2Alerts[0].Content, "UC weekend report") ||
+		!strings.Contains(g2Alerts[0].Content, "the UC fan") {
+		t.Fatalf("guild 2 alert channel messages = %+v, want 1 en-US Friday alert with generic fallback", g2Alerts)
 	}
 	g3Messages := h.fake.Visible(h.users[userC], guildThree.ChannelID)
 	if len(g3Messages) != 1 || g3Messages[0].ID != ucG3.Message.ID {
@@ -897,7 +946,7 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 
 	clearAll := slashOrFail(t, h, userA, h.slashAt("/uc-config/clear", true, nil))
 	if clearAll.Message == nil || strings.Count(clearAll.Message.Content, "sin configurar") != 2 {
-		t.Fatalf("full clear reply = %+v, want both fields sin configurar", clearAll.Message)
+		t.Fatalf("full clear reply = %+v, want both friend and channel sin configurar", clearAll.Message)
 	}
 
 	for i, rec := range h.fake.Outbound() {
@@ -921,5 +970,82 @@ func TestUCConfigAuthorizationValidationAndMultiGuildIsolation(t *testing.T) {
 		guildThree.ChannelID,
 		"Everton",
 		"everything",
+		"pt-BR",
 	)
+}
+
+func TestUCCustomDatabaseTemplatesLiveReloadAcrossSlashCommandsAndProactiveAlerts(t *testing.T) {
+	h := newHarness(t)
+	resetUCGuildConfigsOnCleanup(t, h, h.guild.ID)
+	santiago := mustLoadSantiago(t)
+
+	mustSetGuildMemberPerms(t, h, h.guild, h.users[userA], "32")
+	_ = slashOrFail(t, h, userA, h.slashAt("/uc-config/set", true, map[string]any{
+		"friend":  userB,
+		"channel": h.guild.ChannelID,
+	}))
+
+	h.fake.SetUCFixtures([]fakediscord.UCFixture{
+		{
+			ID:         "404001",
+			Date:       "2026-12-12T21:00Z",
+			OpponentID: "9030",
+			Opponent:   "@everyone **Rival**",
+			Home:       true,
+			Venue:      "Claro Arena",
+			Tournament: "Liga de Primera",
+			TimeValid:  true,
+		},
+	})
+	h.clock.Set(time.Date(2026, time.December, 11, 17, 30, 0, 0, santiago))
+	if err := h.uc.Sync(t.Context()); err != nil {
+		t.Fatalf("uc.Sync: %v", err)
+	}
+
+	h.ucSettings.Set(
+		appdiscord.SettingUCReportTemplateESCL,
+		"DB-REPORT {{.Period}} :: {{.Friend}}{{range .Matches}} :: {{.Opponent}}{{end}}\n> {{.Banter}}",
+	)
+	h.ucSettings.Set(
+		appdiscord.SettingUCFridayAlertTemplateESCL,
+		"DB-FRIDAY {{.SaturdayDate}}-{{.SundayDate}} :: {{.Friend}}{{range .Matches}} :: {{.Opponent}}{{end}}",
+	)
+	h.clock.Advance(10 * time.Millisecond)
+
+	res := slashOrFail(t, h, userA, h.slashAt("/uc", true, nil))
+	if res.Message == nil {
+		t.Fatal("nil /uc reply")
+	}
+	for _, want := range []string{
+		"DB-REPORT este finde (12/12-13/12) :: <@" + userB + ">",
+		`\@everyone \*\*Rival\*\*`,
+	} {
+		if !strings.Contains(res.Message.Content, want) {
+			t.Errorf("custom DB /uc reply missing %q in:\n%s", want, res.Message.Content)
+		}
+	}
+
+	if err := h.uc.CheckAlerts(t.Context()); err != nil {
+		t.Fatalf("CheckAlerts: %v", err)
+	}
+	visible := h.fake.Visible(h.users[userC], h.guild.ChannelID)
+	foundAlert := false
+	for _, msg := range visible {
+		if strings.Contains(msg.Content, "DB-FRIDAY 12/12-13/12 :: <@"+userB+">") &&
+			strings.Contains(msg.Content, `\@everyone \*\*Rival\*\*`) {
+			foundAlert = true
+		}
+	}
+	if !foundAlert {
+		t.Fatalf("channel messages = %+v, want custom DB Friday alert with escaped opponent", visible)
+	}
+
+	for i, rec := range h.fake.Outbound() {
+		if len(rec.Pings) != 0 {
+			t.Errorf("record[%d] Pings = %v, want empty silent mentions", i, rec.Pings)
+		}
+	}
+
+	_ = h.waitInteractionLogs(t, 2)
+	assertNoUCLogLeaks(t, h, "Rival", "Claro Arena", "DB-REPORT", "DB-FRIDAY")
 }

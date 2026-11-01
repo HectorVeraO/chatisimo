@@ -280,13 +280,14 @@ func (a *fakeAlertSender) Delivered() []deliveredAlert {
 }
 
 type fakeBanterGenerator struct {
-	mu        sync.Mutex
-	calls     int
-	prompts   []string
-	response  string
-	err       error
-	startedCh chan struct{}
-	gateCh    <-chan struct{}
+	mu            sync.Mutex
+	calls         int
+	prompts       []string
+	systemPrompts []string
+	response      string
+	err           error
+	startedCh     chan struct{}
+	gateCh        <-chan struct{}
 }
 
 func newFakeBanter(response string) *fakeBanterGenerator {
@@ -297,9 +298,14 @@ func newFakeBanter(response string) *fakeBanterGenerator {
 }
 
 func (b *fakeBanterGenerator) Generate(ctx context.Context, prompt string) (string, error) {
+	return b.GenerateWithPrompt(ctx, "", prompt)
+}
+
+func (b *fakeBanterGenerator) GenerateWithPrompt(ctx context.Context, systemPrompt, scenario string) (string, error) {
 	b.mu.Lock()
 	b.calls++
-	b.prompts = append(b.prompts, prompt)
+	b.prompts = append(b.prompts, scenario)
+	b.systemPrompts = append(b.systemPrompts, systemPrompt)
 	gate := b.gateCh
 	resp := b.response
 	genErr := b.err
@@ -353,6 +359,24 @@ func (b *fakeBanterGenerator) Prompts() []string {
 	copy(out, b.prompts)
 
 	return out
+}
+
+func (b *fakeBanterGenerator) SystemPrompts() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	out := make([]string, len(b.systemPrompts))
+	copy(out, b.systemPrompts)
+
+	return out
+}
+
+type legacyOnlyBanterGenerator struct {
+	inner *fakeBanterGenerator
+}
+
+func (l legacyOnlyBanterGenerator) Generate(ctx context.Context, prompt string) (string, error) {
+	return l.inner.Generate(ctx, prompt)
 }
 
 func santiagoLocation(t *testing.T) *time.Location {
@@ -460,6 +484,20 @@ func newRealConfigStore(t *testing.T, pool *pgxpool.Pool) *config.Store {
 			Name:    uccalendar.SettingAPIBaseURL,
 			Default: uccalendar.DefaultAPIBaseURL,
 			Doc:     "UC ESPN API base URL",
+		},
+		{
+			Name:      uccalendar.SettingBanterPrompt,
+			Default:   uccalendar.DefaultBanterPrompt,
+			Multiline: true,
+			Validate: func(v string, _ config.Environment) error {
+				_, parseErr := uccalendar.ValidateBanterPrompt(v)
+				if parseErr != nil {
+					return fmt.Errorf("invalid banter prompt: %w", parseErr)
+				}
+
+				return nil
+			},
+			Doc: "UC banter system prompt",
 		},
 	}
 

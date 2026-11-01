@@ -127,7 +127,15 @@ func TestTryMapErrorInMapsUCCalendarErrorsAndSkipsOthers(t *testing.T) {
 			err:         &uccalendar.InputError{Field: "update", Code: uccalendar.InputCodeEmpty},
 			wantMatched: true,
 			wantOutcome: "rejected:invalid_input",
-			wantSubstr:  "at least a friend or an alert channel",
+			wantSubstr:  "at least a friend, an alert channel, or a message language",
+		},
+		{
+			name:        "invalid locale InputError in Spanish",
+			loc:         uccmd.LocaleESCL,
+			err:         &uccalendar.InputError{Field: "locale", Code: uccalendar.InputCodeInvalidLocale},
+			wantMatched: true,
+			wantOutcome: "rejected:invalid_input",
+			wantSubstr:  "Idioma desconocido",
 		},
 		{
 			name:        "domain friend_user_id InputError",

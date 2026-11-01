@@ -61,13 +61,16 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 	observer := s.members[1]
 	friendMention := "<@" + friend.ID + ">"
 
-	// Before configuration, /uc uses generic fallback copy without any user mention.
-	unconfigured := s.slash(t, spanishCaller, "/uc", map[string]any{"date": "2030-05-11"})
+	// Before configuration, /uc defaults to es-CL with UC white/blue circles and generic fallback copy without mentions,
+	// regardless of whether the caller uses es-419 or en-US in Discord.
+	unconfigured := s.slash(t, englishCaller, "/uc", map[string]any{"date": "2030-05-11"})
 	if unconfigured.message.EphemeralFor != "" {
 		t.Errorf("unconfigured /uc EphemeralFor = %q, want public", unconfigured.message.EphemeralFor)
 	}
-	if !strings.Contains(unconfigured.text, "el hincha cruzado") || strings.Contains(unconfigured.text, "<@") {
-		t.Errorf("unconfigured /uc = %q, want generic Spanish fallback without mention", unconfigured.text)
+	if !strings.Contains(unconfigured.text, "\u26aa\U0001f535") ||
+		!strings.Contains(unconfigured.text, "el hincha cruzado") ||
+		strings.Contains(unconfigured.text, "<@") {
+		t.Errorf("unconfigured /uc = %q, want es-CL UC-branded generic fallback without mention", unconfigured.text)
 	}
 
 	// Non-managers cannot mutate or inspect guild UC configuration.
@@ -92,14 +95,18 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 	}
 
 	setReply := s.slash(t, spanishCaller, "/uc-config/set", map[string]any{"friend": friend})
-	if setReply.message.EphemeralFor != spanishCaller.ID || !strings.Contains(setReply.text, friendMention) {
-		t.Fatalf("/uc-config/set = %q (ephemeral=%q), want ephemeral confirmation mentioning %s",
+	if setReply.message.EphemeralFor != spanishCaller.ID ||
+		!strings.Contains(setReply.text, friendMention) ||
+		!strings.Contains(setReply.text, "es-CL (por defecto)") {
+		t.Fatalf("/uc-config/set = %q (ephemeral=%q), want ephemeral confirmation mentioning %s and default es-CL",
 			setReply.text, setReply.message.EphemeralFor, friendMention)
 	}
 
 	showReply := s.slash(t, englishCaller, "/uc-config/show", nil)
-	if showReply.message.EphemeralFor != englishCaller.ID || !strings.Contains(showReply.text, friendMention) {
-		t.Errorf("/uc-config/show = %q (ephemeral=%q), want ephemeral config mentioning %s",
+	if showReply.message.EphemeralFor != englishCaller.ID ||
+		!strings.Contains(showReply.text, friendMention) ||
+		!strings.Contains(showReply.text, "es-CL (default)") {
+		t.Errorf("/uc-config/show = %q (ephemeral=%q), want ephemeral config mentioning %s and es-CL (default)",
 			showReply.text, showReply.message.EphemeralFor, friendMention)
 	}
 
@@ -125,10 +132,13 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 	if blocked.message.EphemeralFor != "" {
 		t.Errorf("blocked reply EphemeralFor = %q, want public", blocked.message.EphemeralFor)
 	}
-	for _, want := range []string{"\U0001F534", "Deportes Iquique", "Claro Arena", "15:00", "20:30", "<t:", friendMention} {
+	for _, want := range []string{"\u26aa\U0001f535", "\U0001F534", "\u26bd", "Deportes Iquique", "Claro Arena", "15:00", "20:30", "<t:", friendMention} {
 		if !strings.Contains(blocked.text, want) {
 			t.Errorf("blocked /uc date:2030-05-11 = %q, want substring %q", blocked.text, want)
 		}
+	}
+	if strings.Contains(blocked.text, "("+friendMention+")") {
+		t.Errorf("blocked /uc date:2030-05-11 duplicated trailing friend mention: %q", blocked.text)
 	}
 
 	isSeenByObserver := false
@@ -144,7 +154,7 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 
 	// Scenario B: Free day warning about nearest upcoming away match (-30m to +2h30m -> 17:00 to 20:00).
 	freeDay := s.slash(t, spanishCaller, "/uc", map[string]any{"date": "2030-05-18"})
-	for _, want := range []string{"\U0001F7E2", "Colo-Colo", "17:00", "20:00", friendMention} {
+	for _, want := range []string{"\u26aa\U0001f535", "\U0001F7E2", "Colo-Colo", "17:00", "20:00", friendMention, "-# Pr\u00f3ximo partido:"} {
 		if !strings.Contains(freeDay.text, want) {
 			t.Errorf("free /uc date:2030-05-18 = %q, want substring %q", freeDay.text, want)
 		}
@@ -152,7 +162,7 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 
 	// Scenario C: Pending ANFP (TBD kickoff -> yellow light, no placeholder timestamp).
 	pending := s.slash(t, spanishCaller, "/uc", map[string]any{"date": "2030-05-26"})
-	for _, want := range []string{"\U0001F7E1", "Huachipato", "ANFP", friendMention} {
+	for _, want := range []string{"\u26aa\U0001f535", "\U0001F7E1", "Huachipato", "ANFP", friendMention} {
 		if !strings.Contains(pending.text, want) {
 			t.Errorf("pending /uc date:2030-05-26 = %q, want substring %q", pending.text, want)
 		}
@@ -161,25 +171,39 @@ func TestUCCommandsAndAvailabilityStatuses(t *testing.T) {
 		t.Errorf("pending /uc date:2030-05-26 rendered a Discord timestamp for a TBD match: %q", pending.text)
 	}
 
-	// English catalog via /chatisimo/uc.
-	englishBlocked := s.slash(t, englishCaller, "/chatisimo/uc", map[string]any{"date": "2030-05-11"})
-	for _, want := range []string{"\U0001F534", "Deportes Iquique", "15:00", "20:30", friendMention} {
+	// Switch guild UC language to en-US via /uc-config set, verify /chatisimo/uc renders English, then clear locale back to es-CL.
+	setEN := s.slash(t, englishCaller, "/uc-config/set", map[string]any{"locale": "en-US"})
+	if setEN.message.EphemeralFor != englishCaller.ID || !strings.Contains(setEN.text, "- **Message language:** en-US") {
+		t.Fatalf("/uc-config/set locale:en-US = %q (ephemeral=%q), want en-US confirmation", setEN.text, setEN.message.EphemeralFor)
+	}
+
+	englishBlocked := s.slash(t, spanishCaller, "/chatisimo/uc", map[string]any{"date": "2030-05-11"})
+	for _, want := range []string{"\u26aa\U0001f535 \U0001f534 **Blocked", "Deportes Iquique", "15:00", "20:30", friendMention} {
 		if !strings.Contains(englishBlocked.text, want) {
 			t.Errorf("english /chatisimo/uc = %q, want substring %q", englishBlocked.text, want)
 		}
 	}
 
-	// Cross-guild and DM isolation: neither another guild nor a bot DM mentions s.guild's configured friend.
+	clearLocale := s.slash(t, englishCaller, "/uc-config/clear", map[string]any{"target": "locale"})
+	if clearLocale.message.EphemeralFor != englishCaller.ID || !strings.Contains(clearLocale.text, "es-CL (default)") {
+		t.Fatalf("/uc-config/clear target:locale = %q (ephemeral=%q), want es-CL (default)", clearLocale.text, clearLocale.message.EphemeralFor)
+	}
+
+	// Cross-guild and DM isolation: neither another guild nor a bot DM mentions s.guild's configured friend, and both default to es-CL.
 	otherGuild := newGuild(t, 1)
 	otherReply := otherGuild.slash(t, otherGuild.members[0], "/uc", map[string]any{"date": "2030-05-11"})
-	if strings.Contains(otherReply.text, friend.ID) || !strings.Contains(otherReply.text, "the UC fan") {
-		t.Errorf("unconfigured other guild /uc = %q, want generic English fallback without %s",
+	if strings.Contains(otherReply.text, friend.ID) ||
+		!strings.Contains(otherReply.text, "\u26aa\U0001f535") ||
+		!strings.Contains(otherReply.text, "el hincha cruzado") {
+		t.Errorf("unconfigured other guild /uc = %q, want default es-CL fallback without %s",
 			otherReply.text, friend.ID)
 	}
 
-	dmReply := s.dmSlash(t, spanishCaller, "/uc", map[string]any{"date": "2030-05-11"})
-	if strings.Contains(dmReply.text, friend.ID) || !strings.Contains(dmReply.text, "el hincha cruzado") {
-		t.Errorf("bot DM /uc = %q, want generic Spanish fallback without %s", dmReply.text, friend.ID)
+	dmReply := s.dmSlash(t, englishCaller, "/uc", map[string]any{"date": "2030-05-11"})
+	if strings.Contains(dmReply.text, friend.ID) ||
+		!strings.Contains(dmReply.text, "\u26aa\U0001f535") ||
+		!strings.Contains(dmReply.text, "el hincha cruzado") {
+		t.Errorf("bot DM /uc = %q, want default es-CL fallback without %s", dmReply.text, friend.ID)
 	}
 
 	// Validation errors are ephemeral and never echo raw user input.
@@ -321,7 +345,7 @@ func TestUCProactiveMatchdayAlertAndRestartDedup(t *testing.T) {
 		var last fakediscord.Message
 		for _, msg := range b.fake.Visible(viewer, channelID) {
 			isMatchdayAlert := msg.EphemeralFor == "" &&
-				strings.Contains(msg.Content, "Aviso de utilidad p\u00fablica") &&
+				strings.Contains(msg.Content, "\u26aa\U0001f535 **Hoy juega la franja**") &&
 				strings.Contains(msg.Content, "Audax Italiano")
 			if isMatchdayAlert {
 				count++
@@ -386,12 +410,33 @@ func TestUCProactiveMatchdayAlertAndRestartDedup(t *testing.T) {
 		t.Fatalf("stop run 2: %v", err)
 	}
 
-	// Run 3: restart against the same database; (guild_id, alert_key) in uccalendar.sent_alert prevents duplicates.
+	// Store custom uc.banter_prompt and uc.template.report.es_cl in platform.setting via CLI before Run 3.
+	customPromptRes, promptErr := b.runCLI(
+		t.Context(),
+		"Tono chileno de grupo de amigos.\nUsa king, kin, kingcito y mi rey sin voseo.",
+		"config", "set", "uc.banter_prompt",
+	)
+	if promptErr != nil || customPromptRes.code != 0 {
+		t.Fatalf("config set uc.banter_prompt: err=%v res=%+v", promptErr, customPromptRes)
+	}
+
+	customTmplRes, tmplErr := b.runCLI(
+		t.Context(),
+		"\u26aa\U0001f535 [DB] {{.Period}} \u00b7 {{.Friend}}\n> {{.Banter}}",
+		"config", "set", "uc.template.report.es_cl",
+	)
+	if tmplErr != nil || customTmplRes.code != 0 {
+		t.Fatalf("config set uc.template.report.es_cl: err=%v res=%+v", tmplErr, customTmplRes)
+	}
+
+	// Run 3: restart against the same database; (guild_id, alert_key) in uccalendar.sent_alert prevents duplicates
+	// and /uc renders the database-configured template.
 	log3 := filepath.Join(tempLogs, "run3.log")
 	p3, err := b.start(log3)
 	if err != nil {
 		t.Fatalf("start run 3: %v", err)
 	}
+	var run3Reply string
 	waitFor(t, "run 3 to answer a /uc slash command", func() bool {
 		if p3.hasExited() {
 			t.Fatalf("run 3 exited before answering /uc")
@@ -401,9 +446,16 @@ func TestUCProactiveMatchdayAlertAndRestartDedup(t *testing.T) {
 			Path:    "/uc",
 			Options: map[string]any{"window": "tomorrow"},
 		})
-
-		return slashErr == nil && slashRes.Status != fakediscord.StatusTimeout && slashRes.Message != nil
+		if slashErr != nil || slashRes.Status == fakediscord.StatusTimeout || slashRes.Message == nil {
+			return false
+		}
+		run3Reply = slashRes.Message.Content
+		return true
 	})
+
+	if !strings.HasPrefix(run3Reply, "\u26aa\U0001f535 [DB] ") || !strings.Contains(run3Reply, "<@"+friend.ID+">") {
+		t.Errorf("run 3 /uc reply = %q, want database-configured uc.template.report.es_cl with friend mention", run3Reply)
+	}
 
 	if countA, _ := countAlertsIn(member, alertChannelID); countA != 1 {
 		t.Errorf("guild A matchday alert count after restart = %d, want 1 (deduplicated)", countA)

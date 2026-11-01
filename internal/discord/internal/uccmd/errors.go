@@ -115,6 +115,8 @@ func mapInputErrorField(inputErr *uccalendar.InputError) (MsgID, bool) {
 		return textConfigInvalidFriend, true
 	case inputErr.Field == channelOptionName || inputErr.Field == "channel_id":
 		return textConfigInvalidChannel, true
+	case inputErr.Field == localeOptionName:
+		return textConfigInvalidLocale, true
 	case inputErr.Field == clearTargetOptionName:
 		return textConfigInvalidClearTarget, true
 	default:

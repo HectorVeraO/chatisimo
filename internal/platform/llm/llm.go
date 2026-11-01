@@ -139,7 +139,7 @@ func New(cfg Config) (*Client, error) {
 		problems = append(problems, err)
 	}
 
-	prompt, promptErr := resolvePrompt(cfg.Prompt)
+	prompt, promptErr := resolvePrompt(cfg.Prompt, DefaultPrompt)
 	if promptErr != nil {
 		problems = append(problems, promptErr)
 	}
@@ -179,7 +179,7 @@ func New(cfg Config) (*Client, error) {
 	return client, nil
 }
 
-func resolvePrompt(raw string) (string, error) {
+func resolvePrompt(raw, fallback string) (string, error) {
 	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
 
 	var problems []error
@@ -198,7 +198,7 @@ func resolvePrompt(raw string) (string, error) {
 			return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 		}
 
-		return DefaultPrompt, nil
+		return fallback, nil
 	}
 
 	if len(trimmed) > maxPromptBytes {
@@ -298,6 +298,40 @@ func (c *Client) Generate(ctx context.Context, text string) (string, error) {
 		return "", errors.New("llm: nil client")
 	}
 
+	return c.generate(ctx, c.prompt, text)
+}
+
+// GenerateWithPrompt sends text as user content to the configured Vertex AI model using prompt as
+// the system instruction (or the client's configured prompt when prompt is blank). Validation
+// errors never include prompt, text, or the API key.
+func (c *Client) GenerateWithPrompt(ctx context.Context, prompt, text string) (string, error) {
+	if c == nil {
+		return "", errors.New("llm: nil client")
+	}
+
+	var problems []error
+	if ctx == nil {
+		problems = append(problems, errors.New("llm: nil context"))
+	}
+
+	resolvedPrompt, promptErr := resolvePrompt(prompt, c.prompt)
+	if promptErr != nil {
+		problems = append(problems, promptErr)
+	}
+
+	trimmedText := strings.TrimSpace(text)
+	if trimmedText == "" {
+		problems = append(problems, errors.New("llm: question text is empty"))
+	}
+
+	if len(problems) > 0 {
+		return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+	}
+
+	return c.generate(ctx, resolvedPrompt, trimmedText)
+}
+
+func (c *Client) generate(ctx context.Context, systemPrompt, text string) (string, error) {
 	if ctx == nil {
 		return "", errors.New("llm: nil context")
 	}
@@ -312,7 +346,7 @@ func (c *Client) Generate(ctx context.Context, text string) (string, error) {
 
 	payload := generateContentRequest{
 		SystemInstruction: contentInstruction{
-			Parts: []contentPart{{Text: c.prompt}},
+			Parts: []contentPart{{Text: systemPrompt}},
 		},
 		Contents: []contentMessage{
 			{
