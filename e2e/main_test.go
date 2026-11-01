@@ -20,8 +20,9 @@ var (
 	logDirFlag   = flag.String("logdir", "", "directory that receives the binary's stderr as chatisimo.log (default: a temp dir)")
 )
 
-// intentGuilds is the Gateway intent the bot must ask for, and no other.
-const intentGuilds = 1
+// gatewayIntents is the Gateway intents bitmask the bot must ask for:
+// IntentGuilds (1) | IntentGuildMessages (512) | IntentMessageContent (32768) = 33281.
+const gatewayIntents = 1 | 512 | 32768
 
 // shared is the backend and the binary that every flow test talks to.
 var shared *backend
@@ -188,15 +189,15 @@ func awaitReady(ctx context.Context, b *backend, p *process) error {
 
 	var problems []error
 	intents, identified := b.fake.Intents()
-	if !identified || intents != intentGuilds {
-		problems = append(problems, fmt.Errorf("intents = %d (identified %v), want %d", intents, identified, intentGuilds))
+	if !identified || intents != gatewayIntents {
+		problems = append(problems, fmt.Errorf("intents = %d (identified %v), want %d", intents, identified, gatewayIntents))
 	}
 
 	names := map[string]bool{}
 	for _, command := range b.fake.Commands() {
 		names[command.Name] = true
 	}
-	for _, want := range []string{"chatisimo", "ge", "uc", "uc-config"} {
+	for _, want := range []string{"capitime-config", "chatisimo", "ge", "uc", "uc-config"} {
 		if !names[want] {
 			problems = append(problems, fmt.Errorf("command tree /%s is not registered", want))
 		}

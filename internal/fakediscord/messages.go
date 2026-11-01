@@ -222,6 +222,11 @@ func (s *Server) guildOfChannelLocked(channelID string) string {
 
 // newMessageLocked builds a message from the bot in the channel.
 func (s *Server) newMessageLocked(channelID string, body createMessageBody) Message {
+	var replyToID string
+	if body.MessageReference != nil {
+		replyToID = body.MessageReference.MessageID
+	}
+
 	return Message{
 		ID:         s.ids.next(),
 		ChannelID:  channelID,
@@ -231,6 +236,7 @@ func (s *Server) newMessageLocked(channelID string, body createMessageBody) Mess
 		Components: nonNilRaw(body.Components),
 		Flags:      body.Flags,
 		CreatedAt:  time.Now().UTC(),
+		ReplyToID:  replyToID,
 	}
 }
 

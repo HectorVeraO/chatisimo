@@ -10,6 +10,7 @@ import (
 
 	"go.uber.org/goleak"
 
+	"github.com/HectorVeraO/chatisimo/internal/capitime"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/db"
@@ -90,5 +91,10 @@ func migrationSources() ([]db.Source, error) {
 		return nil, fmt.Errorf("uccalendar source: %w", err)
 	}
 
-	return []db.Source{platformSource, giftexchangeSource, uccalendarSource, jobs.NewMigrationSource()}, nil
+	capitimeSource, err := capitime.MigrationSource()
+	if err != nil {
+		return nil, fmt.Errorf("capitime source: %w", err)
+	}
+
+	return []db.Source{platformSource, giftexchangeSource, uccalendarSource, capitimeSource, jobs.NewMigrationSource()}, nil
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 
+	"github.com/HectorVeraO/chatisimo/internal/capitime"
 	appdiscord "github.com/HectorVeraO/chatisimo/internal/discord"
 	"github.com/HectorVeraO/chatisimo/internal/fakediscord"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
@@ -277,6 +278,7 @@ func (s *fakeUCSettings) Set(name, value string) {
 type service struct {
 	svc        *giftexchange.Service
 	uc         *uccalendar.Service
+	capi       *capitime.Service
 	ucSettings *fakeUCSettings
 	clock      *fakeClock
 	rephraser  *fakeRephraser
@@ -341,6 +343,15 @@ func newService(t *testing.T, w *world) *service {
 		}
 	})
 
+	capi, err := capitime.New(capitime.Deps{
+		Pool:     shared.Pool(),
+		Settings: ucSettings,
+		Clock:    clock.Now,
+	})
+	if err != nil {
+		t.Fatalf("capitime.New: %v", err)
+	}
+
 	groupRef := giftexchange.GroupRef{Provider: giftexchange.ProviderDiscord, Subject: guildID}
 	group, err := svc.ResolveGroup(t.Context(), groupRef)
 	if err != nil {
@@ -350,6 +361,7 @@ func newService(t *testing.T, w *world) *service {
 	s := &service{
 		svc:        svc,
 		uc:         uc,
+		capi:       capi,
 		ucSettings: ucSettings,
 		clock:      clock,
 		rephraser:  rephraser,

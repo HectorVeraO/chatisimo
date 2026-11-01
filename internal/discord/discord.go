@@ -18,10 +18,14 @@ import (
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/rest"
 
+	"github.com/HectorVeraO/chatisimo/internal/capitime"
+	"github.com/HectorVeraO/chatisimo/internal/discord/internal/capitimecmd"
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/giftexchangecmd"
+	"github.com/HectorVeraO/chatisimo/internal/discord/internal/render"
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/router"
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/uccmd"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
@@ -62,17 +66,28 @@ type GiftExchange = giftexchangecmd.Service
 // satisfies it.
 type UCCalendar = uccmd.Service
 
+// CapiTime is the part of the capitime module the adapter calls. *capitime.Service satisfies it.
+type CapiTime = capitimecmd.Service
+
 var (
 	_ GiftExchange           = (*giftexchange.Service)(nil)
 	_ UCCalendar             = (*uccalendar.Service)(nil)
+	_ CapiTime               = (*capitime.Service)(nil)
 	_ uccalendar.AlertSender = (*Notifier)(nil)
 )
+
+// GatewayIntents is the Gateway intent bitmask requested by the adapter on Identify.
+const GatewayIntents = gateway.IntentGuilds | gateway.IntentGuildMessages | gateway.IntentMessageContent
 
 // Adapter connects the bot to Discord over the Gateway and routes interactions to handlers.
 type Adapter struct {
 	notifier *Notifier
 	router   *router.Router
 	commands []discord.ApplicationCommandCreate
+	logger   *slog.Logger
+
+	capiMu   sync.RWMutex
+	capiTime CapiTime
 
 	// mu guards the fields below and is never held across a network call, so CloseGateway
 	// stays bounded by its ctx while Open is in flight.
@@ -128,18 +143,28 @@ func New(n *Notifier, gx GiftExchange, uc UCCalendar, logger *slog.Logger) (*Ada
 		n.recordInteractionLocales(req.UserID(), req.GuildID(), req.Locale(), req.GuildLocale())
 	}
 	mapError := func(requestID string, err error) router.Rejection {
-		rejection, matched := uccmd.TryMapError(requestID, err)
-		if matched {
+		if rejection, matched := capitimecmd.TryMapError(requestID, err); matched {
+			return rejection
+		}
+		if rejection, matched := uccmd.TryMapError(requestID, err); matched {
 			return rejection
 		}
 
 		return giftexchangecmd.MapError(requestID, err)
 	}
+
+	adapter := &Adapter{
+		notifier: n,
+		commands: buildCommands(),
+		logger:   logger,
+	}
+
 	r, err := router.New(router.Config{
-		Resolver: gx,
-		MapError: mapError,
-		Observe:  observe,
-		Logger:   logger,
+		Resolver:        gx,
+		MapError:        mapError,
+		Observe:         observe,
+		OnMessageCreate: adapter.onMessageCreate,
+		Logger:          logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("discord adapter: %w", err)
@@ -147,13 +172,133 @@ func New(n *Notifier, gx GiftExchange, uc UCCalendar, logger *slog.Logger) (*Ada
 	handlers.Register(r)
 	ucHandlers.Register(r)
 
-	adapter := &Adapter{notifier: n, router: r, commands: buildCommands()}
+	capiHandlers, err := capitimecmd.New(&capiAdapterDelegate{adapter: adapter})
+	if err != nil {
+		return nil, fmt.Errorf("discord adapter: %w", err)
+	}
+	capiHandlers.Register(r)
+
+	adapter.router = r
 	return adapter, nil
+}
+
+// SetCapiTime attaches the Capi Time domain service handled by /capitime-config and Gateway
+// MESSAGE_CREATE listeners.
+func (a *Adapter) SetCapiTime(capi CapiTime) {
+	if a == nil {
+		return
+	}
+
+	a.capiMu.Lock()
+	a.capiTime = capi
+	a.capiMu.Unlock()
+}
+
+func (a *Adapter) getCapiTime() CapiTime {
+	a.capiMu.RLock()
+	defer a.capiMu.RUnlock()
+
+	return a.capiTime
+}
+
+type capiAdapterDelegate struct {
+	adapter *Adapter
+}
+
+func (d *capiAdapterDelegate) GetGuildConfig(ctx context.Context, guildID string) (capitime.GuildConfig, error) {
+	svc := d.adapter.getCapiTime()
+	if svc == nil {
+		return capitime.GuildConfig{}, errors.New("discord adapter: capitime service is not configured")
+	}
+
+	return svc.GetGuildConfig(ctx, guildID) //nolint:wrapcheck // domain errors are mapped by router
+}
+
+func (d *capiAdapterDelegate) UpdateGuildConfig(
+	ctx context.Context,
+	scope capitime.GuildScope,
+	update capitime.GuildConfigUpdate,
+) (capitime.GuildConfig, error) {
+	svc := d.adapter.getCapiTime()
+	if svc == nil {
+		return capitime.GuildConfig{}, errors.New("discord adapter: capitime service is not configured")
+	}
+
+	return svc.UpdateGuildConfig(ctx, scope, update) //nolint:wrapcheck // domain errors are mapped by router
+}
+
+func (d *capiAdapterDelegate) ClearGuildConfig(
+	ctx context.Context,
+	scope capitime.GuildScope,
+	target capitime.ClearTarget,
+) (capitime.GuildConfig, error) {
+	svc := d.adapter.getCapiTime()
+	if svc == nil {
+		return capitime.GuildConfig{}, errors.New("discord adapter: capitime service is not configured")
+	}
+
+	return svc.ClearGuildConfig(ctx, scope, target) //nolint:wrapcheck // domain errors are mapped by router
+}
+
+func (d *capiAdapterDelegate) HandleMessage(ctx context.Context, msg capitime.MessageInput) (capitime.Reply, error) {
+	svc := d.adapter.getCapiTime()
+	if svc == nil {
+		return capitime.Reply{}, nil
+	}
+
+	return svc.HandleMessage(ctx, msg) //nolint:wrapcheck // handled by onMessageCreate
+}
+
+func (a *Adapter) onMessageCreate(ctx context.Context, event *events.MessageCreate) {
+	if event == nil || event.GuildID == nil {
+		return
+	}
+	if event.Message.Author.Bot || event.Message.WebhookID != nil {
+		return
+	}
+
+	svc := a.getCapiTime()
+	if svc == nil {
+		return
+	}
+
+	input := capitime.MessageInput{
+		GuildID:   event.GuildID.String(),
+		ChannelID: event.ChannelID.String(),
+		MessageID: event.Message.ID.String(),
+		AuthorID:  event.Message.Author.ID.String(),
+		AuthorBot: event.Message.Author.Bot,
+		Content:   event.Message.Content,
+	}
+
+	reply, err := svc.HandleMessage(ctx, input)
+	if err != nil {
+		a.logger.ErrorContext(ctx, "capi time handle message failed")
+		return
+	}
+	if !reply.Handled || reply.Content == "" {
+		return
+	}
+
+	noMentions := render.NoMentions()
+	message := discord.NewMessageCreate().
+		WithContent(reply.Content).
+		WithMessageReferenceByID(event.Message.ID)
+	message.AllowedMentions = &noMentions
+
+	_, sendErr := a.notifier.rest.CreateMessage(event.ChannelID, message, rest.WithCtx(ctx))
+	if sendErr != nil {
+		a.logger.ErrorContext(
+			ctx,
+			"capi time reply send failed",
+			slog.String("error", reduceRESTError(opSendMessage, sendErr).Error()),
+		)
+	}
 }
 
 func buildCommands() []discord.ApplicationCommandCreate {
 	gxCommands := giftexchangecmd.Commands()
-	commands := make([]discord.ApplicationCommandCreate, 0, len(gxCommands)+2)
+	commands := make([]discord.ApplicationCommandCreate, 0, len(gxCommands)+3)
 	for _, cmd := range gxCommands {
 		slash, isSlash := cmd.(discord.SlashCommandCreate)
 		if isSlash && slash.Name == "chatisimo" {
@@ -167,7 +312,7 @@ func buildCommands() []discord.ApplicationCommandCreate {
 
 		commands = append(commands, cmd)
 	}
-	commands = append(commands, uccmd.Command(), uccmd.ConfigCommand())
+	commands = append(commands, uccmd.Command(), uccmd.ConfigCommand(), capitimecmd.ConfigCommand())
 	return commands
 }
 
@@ -231,7 +376,7 @@ func (a *Adapter) openClient(ctx context.Context) (*bot.Client, error) {
 		bot.WithRest(a.notifier.rest),
 		bot.WithCaches(a.notifier.caches),
 		bot.WithGatewayConfigOpts(
-			gateway.WithIntents(gateway.IntentGuilds),
+			gateway.WithIntents(GatewayIntents),
 			gateway.WithCompression(gateway.CompressionNone),
 		),
 		bot.WithEventManagerConfigOpts(bot.WithAsyncEventsEnabled()),

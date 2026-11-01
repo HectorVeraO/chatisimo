@@ -13,6 +13,7 @@ import (
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/handler"
 
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
@@ -59,16 +60,21 @@ type Config struct {
 	// Observe, when non-nil, is called for every incoming interaction once its Request is
 	// created, before any handler or error mapper runs.
 	Observe func(req *Request)
+	// OnMessageCreate, when non-nil, is invoked for Gateway MESSAGE_CREATE events inside the
+	// router's tracked in-flight lifecycle.
+	OnMessageCreate func(ctx context.Context, event *events.MessageCreate)
 }
 
 // Router owns the handler mux. It is safe for concurrent use once handlers are registered.
 type Router struct {
-	mux      *handler.Mux
-	resolver Resolver
-	mapError ErrorMapper
-	logger   *slog.Logger
-	observe  func(req *Request)
-	cancel   context.CancelFunc
+	mux             *handler.Mux
+	resolver        Resolver
+	mapError        ErrorMapper
+	logger          *slog.Logger
+	observe         func(req *Request)
+	onMessageCreate func(ctx context.Context, event *events.MessageCreate)
+	baseCtx         context.Context
+	cancel          context.CancelFunc
 
 	mu       sync.Mutex
 	closed   bool
@@ -93,12 +99,14 @@ func New(cfg Config) (*Router, error) {
 
 	base, cancel := context.WithCancel(context.Background())
 	r := &Router{
-		mux:      handler.New(),
-		resolver: cfg.Resolver,
-		mapError: cfg.MapError,
-		logger:   cfg.Logger,
-		observe:  cfg.Observe,
-		cancel:   cancel,
+		mux:             handler.New(),
+		resolver:        cfg.Resolver,
+		mapError:        cfg.MapError,
+		logger:          cfg.Logger,
+		observe:         cfg.Observe,
+		onMessageCreate: cfg.OnMessageCreate,
+		baseCtx:         base,
+		cancel:          cancel,
 	}
 
 	r.mux.DefaultContext(func() context.Context { return base })
@@ -126,6 +134,13 @@ func (r *Router) OnEvent(event bot.Event) {
 	r.mu.Unlock()
 
 	defer r.inflight.Done()
+	if msgEvent, isMsg := event.(*events.MessageCreate); isMsg {
+		if r.onMessageCreate != nil {
+			r.onMessageCreate(r.baseCtx, msgEvent)
+		}
+		return
+	}
+
 	r.mux.OnEvent(event)
 }
 

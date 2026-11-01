@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/HectorVeraO/chatisimo/internal/capitime"
 	"github.com/HectorVeraO/chatisimo/internal/discord"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
@@ -39,7 +40,12 @@ func migrationSources() ([]db.Source, error) {
 		return nil, fmt.Errorf("migration sources: %w", err)
 	}
 
-	sources := []db.Source{platform, exchanges, ucCalendar, jobs.NewMigrationSource()}
+	capiTime, err := capitime.MigrationSource()
+	if err != nil {
+		return nil, fmt.Errorf("migration sources: %w", err)
+	}
+
+	sources := []db.Source{platform, exchanges, ucCalendar, capiTime, jobs.NewMigrationSource()}
 
 	return sources, nil
 }
@@ -264,6 +270,11 @@ func (s *server) openStorage(ctx context.Context, env config.Env) (runtimeSettin
 		return runtimeSettings{}, err
 	}
 
+	err = checkCapiSettings(ctx, store)
+	if err != nil {
+		return runtimeSettings{}, err
+	}
+
 	out := runtimeSettings{
 		store:   store,
 		discord: discord.Settings{Token: token, APIBaseURL: baseURL, Store: store},
@@ -298,6 +309,31 @@ func checkUCSettings(ctx context.Context, store *config.Store) error {
 		if err != nil {
 			return fmt.Errorf("read settings: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// checkCapiSettings validates stored platform-wide Capi Time settings at boot.
+func checkCapiSettings(ctx context.Context, store *config.Store) error {
+	for _, name := range []string{
+		settingCapiBanterPrompt,
+		settingCapiEasterEggPrompt,
+		settingCapiEasterEggPercent,
+		settingCapiDelayMinMinutes,
+		settingCapiDelayMaxMinutes,
+		settingCapiDebounceWindow,
+		settingCapiRegexPattern,
+	} {
+		_, err := store.Get(ctx, name)
+		if err != nil {
+			return fmt.Errorf("read settings: %w", err)
+		}
+	}
+
+	err := capitime.ValidateSettings(ctx, store)
+	if err != nil {
+		return fmt.Errorf("read settings: %w", err)
 	}
 
 	return nil
@@ -350,6 +386,16 @@ func (s *server) construct(settings runtimeSettings) error {
 
 	s.uc = uc
 
+	capi, err := capitime.New(capitime.Deps{
+		Pool:     s.pool,
+		Settings: settings.store,
+		Clock:    systemClock{}.Now,
+		LLM:      banterLLM,
+	})
+	if err != nil {
+		return fmt.Errorf("create capitime: %w", err)
+	}
+
 	exchanges, err := giftexchange.New(giftexchange.Deps{
 		Pool:      s.pool,
 		Scheduler: scheduler,
@@ -381,6 +427,8 @@ func (s *server) construct(settings runtimeSettings) error {
 	if err != nil {
 		return fmt.Errorf("create discord adapter: %w", err)
 	}
+
+	adapter.SetCapiTime(capi)
 
 	s.adapter = adapter
 
