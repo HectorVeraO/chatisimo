@@ -22,12 +22,19 @@ const VERBS = [
   "help",
 ];
 
-test("the composer offers the four top-level commands in a server and hides /uc-config in DM", async ({ world }) => {
+test("the composer offers the five top-level commands in a server and hides guild-only config commands in DM", async ({
+  world,
+}) => {
   const { page } = world;
   const input = page.getByTestId("slash-input");
 
   await input.fill("/");
-  await expect.poll(() => suggestedPaths(page)).toEqual(["/chatisimo", "/ge", "/uc", "/uc-config"]);
+  await expect.poll(() => suggestedPaths(page)).toEqual(["/capitime-config", "/chatisimo", "/ge", "/uc", "/uc-config"]);
+
+  await input.fill("/capitime-config ");
+  await expect
+    .poll(() => suggestedPaths(page))
+    .toEqual(["/capitime-config clear", "/capitime-config set", "/capitime-config show"]);
 
   await input.fill("/uc-config ");
   await expect.poll(() => suggestedPaths(page)).toEqual(["/uc-config clear", "/uc-config set", "/uc-config show"]);
