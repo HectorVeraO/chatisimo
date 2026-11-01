@@ -223,6 +223,14 @@ func TestConfigListFormat(t *testing.T) {
 		return strings.ReplaceAll(s, "\n", `\n`)
 	}
 
+	capiHead := "capitime.banter_prompt\tplain\t" + esc(defaultCapiBanterPrompt) + " (default)\tVertex AI Capi Time Chilean banter system prompt\n" +
+		"capitime.debounce_window\tplain\t" + defaultCapiDebounceWindow + " (default)\tCapi Time per-user anti-spam debounce window (0s to 24h)\n" +
+		"capitime.delay_max_minutes\tplain\t" + defaultCapiDelayMaxMinutes + " (default)\tCapi Time maximum delay in minutes (1-1440)\n" +
+		"capitime.delay_min_minutes\tplain\t" + defaultCapiDelayMinMinutes + " (default)\tCapi Time minimum delay in minutes (1-1440)\n" +
+		"capitime.easter_egg_percent\tplain\t" + defaultCapiEasterEggPercent + " (default)\tCapi Time on-time easter-egg probability percent (0-100)\n" +
+		"capitime.easter_egg_prompt\tplain\t" + esc(defaultCapiEasterEggPrompt) + " (default)\tVertex AI Capi Time on-time miracle easter-egg prompt\n" +
+		"capitime.regex_pattern\tplain\t" + esc(defaultCapiRegexPattern) + " (default)\tCapi Time Stage-1 arrival detection regex pattern\n"
+
 	ucTail := "uc.api_base_url\tplain\t" + defaultUCAPIBaseURL + " (default)\tESPN soccer API base URL\n" +
 		"uc.banter_prompt\tplain\t" + esc(defaultUCBanterPrompt) + " (default)\tVertex AI UC Chilean banter system prompt\n" +
 		"uc.friday_alert_time\tplain\t" + defaultUCFridayAlertTime + " (default)\tFriday UC weekend summary time (HH:MM Santiago)\n" +
@@ -235,7 +243,8 @@ func TestConfigListFormat(t *testing.T) {
 		"uc.template.report.en_us\tplain\t" + esc(defaultUCReportTemplateENUS) + " (default)\tUC schedule report Discord message template (en-US)\n" +
 		"uc.template.report.es_cl\tplain\t" + esc(defaultUCReportTemplateESCL) + " (default)\tUC schedule report Discord message template (es-CL)\n"
 
-	wantBefore := "discord.api_base_url\tplain\t" + defaultDiscordAPIBaseURL + " (default)\tDiscord REST base URL\n" +
+	wantBefore := capiHead +
+		"discord.api_base_url\tplain\t" + defaultDiscordAPIBaseURL + " (default)\tDiscord REST base URL\n" +
 		"discord.token\tsecret\t(unset)\tDiscord bot token\n" +
 		"llm.api_key\tsecret\t(unset)\tVertex AI API key\n" +
 		"llm.base_url\tplain\t" + defaultLLMBaseURL + " (default)\tVertex AI publisher models base URL\n" +
@@ -253,7 +262,8 @@ func TestConfigListFormat(t *testing.T) {
 
 	after := invoke(t, env, strings.NewReader(""), "config", "list")
 
-	wantAfter := "discord.api_base_url\tplain\thttp://127.0.0.1:10010/api/v10\tDiscord REST base URL\n" +
+	wantAfter := capiHead +
+		"discord.api_base_url\tplain\thttp://127.0.0.1:10010/api/v10\tDiscord REST base URL\n" +
 		"discord.token\tsecret\t(unset)\tDiscord bot token\n" +
 		"llm.api_key\tsecret\t(unset)\tVertex AI API key\n" +
 		"llm.base_url\tplain\t" + defaultLLMBaseURL + " (default)\tVertex AI publisher models base URL\n" +

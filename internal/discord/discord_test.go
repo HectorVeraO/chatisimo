@@ -71,8 +71,9 @@ func TestOpenRegistersBothTreesAndAsksForTheGuildsIntentOnly(t *testing.T) {
 	h := newHarness(t)
 
 	intents, identified := h.fake.Intents()
-	if !identified || intents != 1 {
-		t.Errorf("Intents() = %d, %v, want 1, true", intents, identified)
+	wantIntents := int(appdiscord.GatewayIntents)
+	if !identified || intents != wantIntents {
+		t.Errorf("Intents() = %d, %v, want %d, true", intents, identified, wantIntents)
 	}
 
 	var names []string
@@ -83,8 +84,8 @@ func TestOpenRegistersBothTreesAndAsksForTheGuildsIntentOnly(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	if !slices.Equal(names, []string{"chatisimo", "ge", "uc", "uc-config"}) {
-		t.Errorf("registered commands = %v, want chatisimo, ge, uc and uc-config", names)
+	if !slices.Equal(names, []string{"capitime-config", "chatisimo", "ge", "uc", "uc-config"}) {
+		t.Errorf("registered commands = %v, want capitime-config, chatisimo, ge, uc and uc-config", names)
 	}
 }
 

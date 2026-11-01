@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/HectorVeraO/chatisimo/internal/capitime"
 	"github.com/HectorVeraO/chatisimo/internal/discord"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
 	"github.com/HectorVeraO/chatisimo/internal/platform/llm"
@@ -32,6 +33,13 @@ const (
 	settingUCFridayAlertTemplateENUS   = discord.SettingUCFridayAlertTemplateENUS
 	settingUCMatchdayAlertTemplateESCL = discord.SettingUCMatchdayAlertTemplateESCL
 	settingUCMatchdayAlertTemplateENUS = discord.SettingUCMatchdayAlertTemplateENUS
+	settingCapiBanterPrompt            = capitime.SettingBanterPrompt
+	settingCapiEasterEggPrompt         = capitime.SettingEasterEggPrompt
+	settingCapiEasterEggPercent        = capitime.SettingEasterEggPercent
+	settingCapiDelayMinMinutes         = capitime.SettingDelayMinMinutes
+	settingCapiDelayMaxMinutes         = capitime.SettingDelayMaxMinutes
+	settingCapiDebounceWindow          = capitime.SettingDebounceWindow
+	settingCapiRegexPattern            = capitime.SettingRegexPattern
 
 	defaultDiscordAPIBaseURL           = "https://discord.com/api/v10"
 	defaultLLMModel                    = llm.DefaultModel
@@ -48,6 +56,13 @@ const (
 	defaultUCFridayAlertTemplateENUS   = discord.DefaultUCFridayAlertTemplateENUS
 	defaultUCMatchdayAlertTemplateESCL = discord.DefaultUCMatchdayAlertTemplateESCL
 	defaultUCMatchdayAlertTemplateENUS = discord.DefaultUCMatchdayAlertTemplateENUS
+	defaultCapiBanterPrompt            = capitime.DefaultBanterPrompt
+	defaultCapiEasterEggPrompt         = capitime.DefaultEasterEggPrompt
+	defaultCapiEasterEggPercent        = capitime.DefaultEasterEggPercent
+	defaultCapiDelayMinMinutes         = capitime.DefaultDelayMinMinutes
+	defaultCapiDelayMaxMinutes         = capitime.DefaultDelayMaxMinutes
+	defaultCapiDebounceWindow          = capitime.DefaultDebounceWindow
+	defaultCapiRegexPattern            = capitime.DefaultRegexPattern
 
 	maxDiscordTokenBytes = 256
 	maxLLMModelBytes     = 128
@@ -168,6 +183,50 @@ func settingKeys() []config.Key {
 			Validate:  validateUCReportTemplate,
 			Doc:       "UC schedule report Discord message template (es-CL)",
 		},
+		{
+			Name:      settingCapiBanterPrompt,
+			Multiline: true,
+			Default:   defaultCapiBanterPrompt,
+			Validate:  validateCapiPrompt,
+			Doc:       "Vertex AI Capi Time Chilean banter system prompt",
+		},
+		{
+			Name:      settingCapiEasterEggPrompt,
+			Multiline: true,
+			Default:   defaultCapiEasterEggPrompt,
+			Validate:  validateCapiPrompt,
+			Doc:       "Vertex AI Capi Time on-time miracle easter-egg prompt",
+		},
+		{
+			Name:     settingCapiEasterEggPercent,
+			Default:  defaultCapiEasterEggPercent,
+			Validate: validateCapiEasterEggPercent,
+			Doc:      "Capi Time on-time easter-egg probability percent (0-100)",
+		},
+		{
+			Name:     settingCapiDelayMinMinutes,
+			Default:  defaultCapiDelayMinMinutes,
+			Validate: validateCapiDelayMinutes,
+			Doc:      "Capi Time minimum delay in minutes (1-1440)",
+		},
+		{
+			Name:     settingCapiDelayMaxMinutes,
+			Default:  defaultCapiDelayMaxMinutes,
+			Validate: validateCapiDelayMinutes,
+			Doc:      "Capi Time maximum delay in minutes (1-1440)",
+		},
+		{
+			Name:     settingCapiDebounceWindow,
+			Default:  defaultCapiDebounceWindow,
+			Validate: validateCapiDebounceWindow,
+			Doc:      "Capi Time per-user anti-spam debounce window (0s to 24h)",
+		},
+		{
+			Name:     settingCapiRegexPattern,
+			Default:  defaultCapiRegexPattern,
+			Validate: validateCapiRegexPattern,
+			Doc:      "Capi Time Stage-1 arrival detection regex pattern",
+		},
 	}
 
 	return keys
@@ -286,6 +345,34 @@ func validateUCFridayAlertTemplate(value string, _ config.Environment) error {
 // definition without echoing raw input in returned errors.
 func validateUCMatchdayAlertTemplate(value string, _ config.Environment) error {
 	return discord.ValidateUCMatchdayAlertTemplate(value) //nolint:wrapcheck // preserves value-free validation message
+}
+
+// validateCapiPrompt validates a capitime.*_prompt value without echoing raw input.
+func validateCapiPrompt(value string, _ config.Environment) error {
+	return capitime.ValidatePrompt(value) //nolint:wrapcheck // preserves value-free validation message
+}
+
+// validateCapiEasterEggPercent validates an integer percentage in 0..100 without echoing raw input.
+func validateCapiEasterEggPercent(value string, _ config.Environment) error {
+	_, err := capitime.ParseEasterEggPercent(value)
+	return err //nolint:wrapcheck // preserves value-free validation message
+}
+
+// validateCapiDelayMinutes validates an integer delay bound in 1..1440 without echoing raw input.
+func validateCapiDelayMinutes(value string, _ config.Environment) error {
+	_, err := capitime.ParseDelayMinutes(value)
+	return err //nolint:wrapcheck // preserves value-free validation message
+}
+
+// validateCapiDebounceWindow validates a duration in 0s..24h without echoing raw input.
+func validateCapiDebounceWindow(value string, _ config.Environment) error {
+	_, err := capitime.ParseDebounceWindow(value)
+	return err //nolint:wrapcheck // preserves value-free validation message
+}
+
+// validateCapiRegexPattern validates a Stage-1 arrival regex pattern without echoing raw input.
+func validateCapiRegexPattern(value string, _ config.Environment) error {
+	return capitime.ValidateRegexPattern(value) //nolint:wrapcheck // preserves value-free validation message
 }
 
 // validateLLMModel accepts a 1-128 byte printable ASCII model identifier without URL path or

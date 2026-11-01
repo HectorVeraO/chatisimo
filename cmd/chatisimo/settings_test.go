@@ -709,3 +709,111 @@ func FuzzValidateUCTemplates(f *testing.F) {
 		}
 	})
 }
+
+func TestValidateCapiSettings(t *testing.T) {
+	const leakMarker = "SyntheticCapiLeakMarker"
+
+	if err := validateCapiPrompt(defaultCapiBanterPrompt, config.EnvLocal); err != nil {
+		t.Fatalf("defaultCapiBanterPrompt rejected: %v", err)
+	}
+	if err := validateCapiPrompt(defaultCapiEasterEggPrompt, config.EnvLocal); err != nil {
+		t.Fatalf("defaultCapiEasterEggPrompt rejected: %v", err)
+	}
+	if err := validateCapiEasterEggPercent(defaultCapiEasterEggPercent, config.EnvLocal); err != nil {
+		t.Fatalf("defaultCapiEasterEggPercent rejected: %v", err)
+	}
+	if err := validateCapiDelayMinutes(defaultCapiDelayMinMinutes, config.EnvLocal); err != nil {
+		t.Fatalf("defaultCapiDelayMinMinutes rejected: %v", err)
+	}
+	if err := validateCapiDelayMinutes(defaultCapiDelayMaxMinutes, config.EnvLocal); err != nil {
+		t.Fatalf("defaultCapiDelayMaxMinutes rejected: %v", err)
+	}
+	if err := validateCapiDebounceWindow(defaultCapiDebounceWindow, config.EnvLocal); err != nil {
+		t.Fatalf("defaultCapiDebounceWindow rejected: %v", err)
+	}
+	if err := validateCapiRegexPattern(defaultCapiRegexPattern, config.EnvLocal); err != nil {
+		t.Fatalf("defaultCapiRegexPattern rejected: %v", err)
+	}
+
+	checks := []struct {
+		name     string
+		validate func(string, config.Environment) error
+		bad      string
+	}{
+		{name: "banter_prompt", validate: validateCapiPrompt, bad: leakMarker + "\x00bad"},
+		{name: "easter_egg_percent", validate: validateCapiEasterEggPercent, bad: leakMarker + "150"},
+		{name: "delay_minutes", validate: validateCapiDelayMinutes, bad: leakMarker + "9999"},
+		{name: "debounce_window", validate: validateCapiDebounceWindow, bad: leakMarker + "50h"},
+		{name: "regex_pattern", validate: validateCapiRegexPattern, bad: "[" + leakMarker},
+	}
+
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			err := check.validate(check.bad, config.EnvLocal)
+			if err == nil {
+				t.Fatalf("%s accepted invalid value %q", check.name, check.bad)
+			}
+			if strings.Contains(err.Error(), leakMarker) {
+				t.Errorf("%s error %q leaked marker %q", check.name, err.Error(), leakMarker)
+			}
+		})
+	}
+}
+
+func FuzzValidateCapiSettings(f *testing.F) {
+	seeds := append([]string{
+		"",
+		"0",
+		"5",
+		"100",
+		"101",
+		"-1",
+		"45",
+		"180",
+		"1440",
+		"1441",
+		"0s",
+		"2m",
+		"24h",
+		"25h",
+		"1500ms",
+		defaultCapiRegexPattern,
+		"[unclosed",
+	}, settingAbuseSeeds()...)
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	fixedCorpus := strings.Join([]string{
+		"prompt must be 1-16384 bytes",
+		"prompt must not be blank",
+		"prompt must be valid UTF-8",
+		"prompt must not contain control characters other than newline",
+		"easter egg percent must be an integer between 0 and 100",
+		"delay minutes must be an integer between 1 and 1440",
+		"debounce window must be a duration between 0s and 24h in whole seconds",
+		"regex pattern must be 1-4096 bytes",
+		"regex pattern must not be blank",
+		"regex pattern must be valid UTF-8",
+		"regex pattern must not contain control characters",
+		"regex pattern is not a valid regular expression",
+	}, " ")
+
+	f.Fuzz(func(t *testing.T, value string) {
+		for _, fn := range []func(string, config.Environment) error{
+			validateCapiPrompt,
+			validateCapiEasterEggPercent,
+			validateCapiDelayMinutes,
+			validateCapiDebounceWindow,
+			validateCapiRegexPattern,
+		} {
+			err := fn(value, config.EnvLocal)
+			if err != nil {
+				msg := err.Error()
+				if len(value) >= 6 && !strings.Contains(fixedCorpus, value) && strings.Contains(msg, value) {
+					t.Fatalf("error %q echoed input %q", msg, value)
+				}
+			}
+		}
+	})
+}

@@ -42,6 +42,7 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("discord.New: %v", err)
 	}
+	adapter.SetCapiTime(s.capi)
 
 	openCtx, cancel := context.WithTimeout(t.Context(), deliveryDeadline)
 	defer cancel()

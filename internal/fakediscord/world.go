@@ -39,6 +39,8 @@ type Message struct {
 	// InteractionID is the interaction the message answers, or empty for a message the bot
 	// sent straight to a channel.
 	InteractionID string
+	// ReplyToID is the referenced message ID when the bot replies to an existing message.
+	ReplyToID string
 }
 
 // Modal is a modal the bot opened for a user in answer to an interaction.

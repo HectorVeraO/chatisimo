@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"time"
 	"unicode/utf8"
 )
 
@@ -720,6 +721,58 @@ func walkModalInputs(raws []json.RawMessage, parentLabel string, depth int, visi
 			walkModalInputs([]json.RawMessage{info.Component}, innerLabel, depth+1, visit)
 		}
 	}
+}
+
+// SendUserMessage dispatches a Gateway MESSAGE_CREATE event from u in channelID of guild g
+// (defaulting to g.ChannelID when channelID is empty) and returns the generated message ID.
+func (s *Server) SendUserMessage(u User, g Guild, channelID, content string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	storedUser, hasUser := s.w.users[u.ID]
+	if !hasUser {
+		return "", fmt.Errorf("send user message: %w", ErrUnknownUser)
+	}
+	guild, hasGuild := s.w.guilds[g.ID]
+	if !hasGuild {
+		return "", fmt.Errorf("send user message: %w", ErrUnknownGuild)
+	}
+	if !slices.Contains(guild.members, storedUser.ID) {
+		return "", fmt.Errorf("send user message: user %q is not a member of guild %q", storedUser.ID, guild.ID)
+	}
+
+	targetChannelID := channelID
+	if targetChannelID == "" {
+		targetChannelID = guild.ChannelID
+	}
+	ch, hasChannel := s.w.channels[targetChannelID]
+	if !hasChannel || ch.guildID != guild.ID {
+		return "", fmt.Errorf("send user message: channel %q does not belong to guild %q", targetChannelID, guild.ID)
+	}
+
+	msgID := s.ids.next()
+	now := time.Now().UTC()
+	payload := map[string]any{
+		"id":          msgID,
+		"channel_id":  targetChannelID,
+		"guild_id":    guild.ID,
+		"author":      userToJSON(storedUser),
+		"member":      map[string]any{"roles": []string{}},
+		"content":     content,
+		"timestamp":   now.Format(time.RFC3339),
+		"type":        0,
+		"flags":       0,
+		"embeds":      []any{},
+		"components":  []any{},
+		"attachments": []any{},
+		"mentions":    []any{},
+	}
+
+	for _, sess := range s.sessions {
+		s.dispatchLocked(sess, "MESSAGE_CREATE", payload)
+	}
+
+	return msgID, nil
 }
 
 // modalSubmitComponents builds the components of a modal submission: one action row per

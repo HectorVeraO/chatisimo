@@ -65,13 +65,16 @@ type dmChannelJSON struct {
 }
 
 type createMessageBody struct {
-	Nonce           json.RawMessage   `json:"nonce"`
-	EnforceNonce    bool              `json:"enforce_nonce"`
-	Content         string            `json:"content"`
-	Embeds          []json.RawMessage `json:"embeds"`
-	Components      []json.RawMessage `json:"components"`
-	Flags           int               `json:"flags"`
-	AllowedMentions json.RawMessage   `json:"allowed_mentions"`
+	Nonce            json.RawMessage   `json:"nonce"`
+	EnforceNonce     bool              `json:"enforce_nonce"`
+	Content          string            `json:"content"`
+	Embeds           []json.RawMessage `json:"embeds"`
+	Components       []json.RawMessage `json:"components"`
+	Flags            int               `json:"flags"`
+	AllowedMentions  json.RawMessage   `json:"allowed_mentions"`
+	MessageReference *struct {
+		MessageID string `json:"message_id"`
+	} `json:"message_reference"`
 }
 
 func (s *Server) buildHandler() http.Handler {

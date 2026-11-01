@@ -188,7 +188,7 @@ func TestRunRegistersTheGlobalCommands(t *testing.T) {
 	}
 
 	names := globalCommandNames(fake)
-	for _, want := range []string{"chatisimo", "ge", "uc", "uc-config"} {
+	for _, want := range []string{"capitime-config", "chatisimo", "ge", "uc", "uc-config"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("registered commands = %v, want %q among them", names, want)
 		}
