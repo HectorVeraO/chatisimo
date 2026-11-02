@@ -1,6 +1,8 @@
 # Chatisimo
 
 [![CI](https://github.com/HectorVeraO/chatisimo/actions/workflows/ci.yml/badge.svg)](https://github.com/HectorVeraO/chatisimo/actions/workflows/ci.yml)
+[![Security: Trivy](https://img.shields.io/badge/security-Trivy-blue.svg)](https://trivy.dev/)
+[![Security: gitleaks](https://img.shields.io/badge/security-gitleaks-blue.svg)](https://github.com/gitleaks/gitleaks)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Chatisimo is Chatolandia's platform, written in Go.
@@ -109,9 +111,9 @@ lowered against `master`. The Playwright suite uploads its coverage but is not p
 
 ## Continuous integration
 
-Every push and pull request to `master` runs nine jobs. Eight are required before a pull request
+Every push and pull request to `master` runs ten jobs. Eight are required before a pull request
 can merge: `gitleaks`, `identity`, `lint`, `build`, `test`, `govulncheck`, `e2e` and `coverage`.
-`playwright` is not required.
+`playwright` and `prod-image` are not required.
 
 | Job | What it checks |
 |---|---|
@@ -124,12 +126,23 @@ can merge: `gitleaks`, `identity`, `lint`, `build`, `test`, `govulncheck`, `e2e`
 | `govulncheck` | Known vulnerabilities reachable from the code (`govulncheck ./...`) |
 | `coverage` | Merged unit, integration and E2E coverage against `.coverage-floor`; fails if the floor was lowered |
 | `playwright` | Browser suite against the E2E stack; uploads the `playwright-report` artifact (not required) |
+| `prod-image` | Builds the release image, scans the Dockerfile and container with Trivy, and verifies production compose configuration |
 
 A separate `mutation` workflow runs nightly (07:00 UTC) and on demand through `workflow_dispatch`.
 It runs [gremlins](https://github.com/go-gremlins/gremlins) on `internal/giftexchange` to find tests
 that pass without checking anything, and publishes the killed, lived and not covered
 counts and the test efficacy as the job summary, with the JSON report attached as an artifact. It is
 a report, not a required check.
+
+## Security
+
+Chatisimo enforces multi-layer security across code, container images, and infrastructure:
+
+- **Secret leak prevention**: `gitleaks` checks staged commits via `lefthook` and scans the complete git history in CI.
+- **Vulnerability scanning**: `govulncheck` detects reachable Go vulnerabilities in CI.
+- **Container scanning**: `trivy` scans `.deploy/prod/Dockerfile` and the `chatisimo:ci` release image in CI, failing on unfixed HIGH or CRITICAL findings.
+- **Secret encryption**: Sensitive settings and credentials are stored encrypted at rest in Postgres using AES-GCM keys derived from `MASTER_KEY`.
+- **Zero-ingress network boundary**: The production host exposes no public ingress ports; administration and deployments route exclusively through Google Cloud Identity-Aware Proxy (IAP).
 
 ## Repository layout
 
