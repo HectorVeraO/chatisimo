@@ -98,7 +98,8 @@ or personal data is ever pushed, rotate any secret first, then clean the history
 
 ## Workflow
 
-1. Open an issue from the `task` or `bug` template, give it a milestone (`1 Domain`,
+1. Open an issue from the `task` or `bug` template (structure and section guide:
+   `.claude/references/issue-format.md`), give it a milestone (`1 Domain`,
    `2 Discord bot`, `3 Publish`) and add it to the
    [Chatisimo Project](https://github.com/users/HectorVeraO/projects/1).
 2. Create a branch named `feature/<task>` for a `task` issue or `bugfix/<task>` for a `bug`
