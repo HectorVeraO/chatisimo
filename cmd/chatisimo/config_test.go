@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"io"
 	"strings"
 	"testing"
 )
@@ -549,5 +551,197 @@ func TestNoCommandPrintsSecrets(t *testing.T) {
 				t.Errorf("%v printed a secret", r.args)
 			}
 		}
+	}
+}
+
+type fakeTerminal struct {
+	isTerm   bool
+	secret   string
+	plain    string
+	canceled bool
+	err      error
+}
+
+func (f *fakeTerminal) Read(_ []byte) (n int, err error) {
+	return 0, io.EOF
+}
+
+func (f *fakeTerminal) IsTerminal() bool {
+	return f.isTerm
+}
+
+func (f *fakeTerminal) ReadPassword(ctx context.Context) (string, error) {
+	if f.canceled || ctx.Err() != nil {
+		return "", errCancelled
+	}
+	if f.err != nil {
+		return "", f.err
+	}
+
+	return f.secret, nil
+}
+
+func (f *fakeTerminal) ReadLine(ctx context.Context) (string, error) {
+	if f.canceled || ctx.Err() != nil {
+		return "", errCancelled
+	}
+	if f.err != nil {
+		return "", f.err
+	}
+
+	return f.plain, nil
+}
+
+func TestConfigSetPromptSecretInTerminal(t *testing.T) {
+	database := newClone(t)
+	env := envFor(database, "local")
+	token := syntheticToken(t, 64)
+
+	term := &fakeTerminal{isTerm: true, secret: token}
+	set := invoke(t, env, term, "config", "set", "discord.token")
+	get := invoke(t, env, strings.NewReader(""), "config", "get", "discord.token")
+
+	if set.code != 0 {
+		t.Fatalf("set code = %d, want 0 (stderr=%q)", set.code, set.stderr)
+	}
+
+	wantPrompt := "Value for discord.token: "
+	if !strings.HasPrefix(set.stdout, wantPrompt) {
+		t.Errorf("stdout = %q, want prompt %q", set.stdout, wantPrompt)
+	}
+
+	wantMasked := "discord.token set (" + maskSecret(token) + ")\n"
+	if !strings.Contains(set.stdout, wantMasked) {
+		t.Errorf("stdout = %q, want %q", set.stdout, wantMasked)
+	}
+
+	if strings.Contains(set.stdout, token) {
+		t.Errorf("stdout leaked the full secret: %q", set.stdout)
+	}
+	if strings.Contains(set.stderr, token) {
+		t.Errorf("stderr leaked the secret: %q", set.stderr)
+	}
+
+	if get.code != 0 || get.stdout != "[redacted]\n" {
+		t.Errorf("get = %+v, want [redacted]", get)
+	}
+}
+
+func TestConfigSetPromptPlainInTerminal(t *testing.T) {
+	database := newClone(t)
+	env := envFor(database, "local")
+	const url = "http://127.0.0.1:10010/api/v10"
+
+	term := &fakeTerminal{isTerm: true, plain: url}
+	set := invoke(t, env, term, "config", "set", "discord.api_base_url")
+	get := invoke(t, env, strings.NewReader(""), "config", "get", "discord.api_base_url")
+
+	if set.code != 0 {
+		t.Fatalf("set code = %d, want 0 (stderr=%q)", set.code, set.stderr)
+	}
+
+	wantPrompt := "Value for discord.api_base_url: "
+	if !strings.HasPrefix(set.stdout, wantPrompt) {
+		t.Errorf("stdout = %q, want prompt %q", set.stdout, wantPrompt)
+	}
+
+	wantSuccess := "discord.api_base_url set (" + url + ")\n"
+	if !strings.Contains(set.stdout, wantSuccess) {
+		t.Errorf("stdout = %q, want %q", set.stdout, wantSuccess)
+	}
+
+	if get.code != 0 || get.stdout != url+"\n" {
+		t.Errorf("get = %+v, want %q", get, url+"\n")
+	}
+}
+
+func TestConfigSetCancelledInTerminal(t *testing.T) {
+	database := newClone(t)
+	env := envFor(database, "local")
+
+	tests := []struct {
+		name string
+		key  string
+		term *fakeTerminal
+	}{
+		{
+			name: "secret canceled",
+			key:  "discord.token",
+			term: &fakeTerminal{isTerm: true, canceled: true},
+		},
+		{
+			name: "plain canceled",
+			key:  "discord.api_base_url",
+			term: &fakeTerminal{isTerm: true, canceled: true},
+		},
+		{
+			name: "secret ctrl-c byte",
+			key:  "discord.token",
+			term: &fakeTerminal{isTerm: true, secret: "\x03"},
+		},
+		{
+			name: "plain ctrl-c byte",
+			key:  "discord.api_base_url",
+			term: &fakeTerminal{isTerm: true, plain: "\x03"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			set := invoke(t, env, tc.term, "config", "set", tc.key)
+
+			if set.code != 1 {
+				t.Errorf("code = %d, want 1", set.code)
+			}
+			if set.stderr != "chatisimo: cancelled, nothing stored\n" {
+				t.Errorf("stderr = %q, want %q", set.stderr, "chatisimo: cancelled, nothing stored\n")
+			}
+
+			if tc.key == "discord.token" {
+				get := invoke(t, env, strings.NewReader(""), "config", "get", tc.key)
+				if get.code == 0 {
+					t.Errorf("setting %s was stored despite cancellation", tc.key)
+				}
+			} else {
+				list := invoke(t, env, strings.NewReader(""), "config", "list")
+				wantRow := tc.key + "\tplain\t" + defaultDiscordAPIBaseURL + " (default)"
+				if !strings.Contains(list.stdout, wantRow) {
+					t.Errorf("setting %s was stored despite cancellation: %s", tc.key, list.stdout)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigSetShortSecretMasking(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"", "****"},
+		{"a", "****"},
+		{"ab", "****"},
+		{"abc", "****"},
+		{"abcd", "****"},
+		{"abcde", "****bcde"},
+		{"12345678", "****5678"},
+		{"my-secret-token", "****oken"},
+	}
+
+	for _, tc := range cases {
+		if got := maskSecret(tc.input); got != tc.want {
+			t.Errorf("maskSecret(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestConfigSetHelpDescribesBothInputModes(t *testing.T) {
+	got := invoke(t, environment{}, forbiddenReader{t: t}, "config", "set", "--help")
+
+	if got.code != 0 {
+		t.Fatalf("exit code = %d, want 0", got.code)
+	}
+	if !strings.Contains(got.stdout, "terminal") || !strings.Contains(got.stdout, "piped") {
+		t.Errorf("stdout = %q, want help describing terminal and piped modes", got.stdout)
 	}
 }

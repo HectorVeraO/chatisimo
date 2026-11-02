@@ -31,7 +31,7 @@ type cli struct {
 	Version versionCmd `cmd:"" help:"Print the build version."`
 	Migrate migrateCmd `cmd:"" help:"Apply pending migrations and exit."`
 	Config  struct {
-		Set  configSetCmd  `cmd:"" help:"Set a setting; the value is read from stdin."`
+		Set  configSetCmd  `cmd:"" help:"Set a setting: prompts interactively when run in a terminal (masking secrets), or reads raw input from stdin when piped."`
 		Get  configGetCmd  `cmd:"" help:"Print a setting; secrets print [redacted]."`
 		List configListCmd `cmd:"" help:"List every setting."`
 	} `cmd:"" help:"Read and write settings stored in the database."`
@@ -45,6 +45,7 @@ type app struct {
 	stdout io.Writer
 	stderr io.Writer
 	lookup func(string) (string, bool)
+	term   terminal
 }
 
 // usageError marks an error the caller caused by the way it invoked a command (exit code 2).
@@ -86,7 +87,14 @@ func run(
 		exitCode int
 	)
 
-	process := &app{stdin: stdin, stdout: stdout, stderr: stderr, lookup: lookup}
+	var term terminal
+	if t, ok := stdin.(terminal); ok {
+		term = t
+	} else if f, ok := stdin.(filer); ok && isTerminalFile(f) {
+		term = newOSFileTerminal(f, stdin)
+	}
+
+	process := &app{stdin: stdin, stdout: stdout, stderr: stderr, lookup: lookup, term: term}
 
 	parser, err := kong.New(&tree,
 		kong.Name("chatisimo"),
@@ -191,27 +199,80 @@ func (c *configSetCmd) Run(ctx context.Context, a *app) error {
 		return unknownKeyError(c.Key)
 	}
 
-	return withStore(ctx, a.lookup, a.stderr, func(store *config.Store) error {
-		raw, err := io.ReadAll(io.LimitReader(a.stdin, config.MaxInputBytes+1))
-		if err != nil {
-			return fmt.Errorf("read value from stdin: %w", err)
+	signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	isTerm := a.term != nil && a.term.IsTerminal()
+
+	return withStore(signalCtx, a.lookup, a.stderr, func(store *config.Store) error {
+		var (
+			raw   []byte
+			value string
+			err   error
+		)
+
+		if isTerm {
+			_, err = fmt.Fprintf(a.stdout, "Value for %s: ", key.Name)
+			if err != nil {
+				return fmt.Errorf("write prompt: %w", err)
+			}
+
+			var line string
+			if key.Secret {
+				line, err = a.term.ReadPassword(signalCtx)
+				if err == nil {
+					_, _ = fmt.Fprintln(a.stdout)
+				}
+			} else {
+				line, err = a.term.ReadLine(signalCtx)
+			}
+			if err != nil {
+				if errors.Is(err, errCancelled) || signalCtx.Err() != nil {
+					return errCancelled
+				}
+
+				return fmt.Errorf("read value: %w", err)
+			}
+
+			if strings.Contains(line, "\x03") {
+				return errCancelled
+			}
+
+			raw = []byte(line)
+		} else {
+			raw, err = io.ReadAll(io.LimitReader(a.stdin, config.MaxInputBytes+1))
+			if err != nil {
+				if errors.Is(err, errCancelled) || signalCtx.Err() != nil {
+					return errCancelled
+				}
+
+				return fmt.Errorf("read value from stdin: %w", err)
+			}
+
+			if len(raw) > config.MaxInputBytes {
+				return fmt.Errorf("value from stdin is longer than %d bytes", config.MaxInputBytes)
+			}
 		}
 
-		if len(raw) > config.MaxInputBytes {
-			return fmt.Errorf("value from stdin is longer than %d bytes", config.MaxInputBytes)
-		}
-
-		value, err := config.ParseKeyInput(raw, key.Secret, key.Multiline)
+		value, err = config.ParseKeyInput(raw, key.Secret, key.Multiline)
 		if err != nil {
 			return fmt.Errorf("setting %s: %w", key.Name, err)
 		}
 
-		err = store.Set(ctx, key.Name, value)
+		err = store.Set(signalCtx, key.Name, value)
 		if err != nil {
 			return fmt.Errorf("set %s: %w", key.Name, err)
 		}
 
-		_, err = fmt.Fprintf(a.stdout, "%s set\n", key.Name)
+		if isTerm {
+			display := value
+			if key.Secret {
+				display = maskSecret(value)
+			}
+			_, err = fmt.Fprintf(a.stdout, "%s set (%s)\n", key.Name, display)
+		} else {
+			_, err = fmt.Fprintf(a.stdout, "%s set\n", key.Name)
+		}
 		if err != nil {
 			return fmt.Errorf("print result: %w", err)
 		}
