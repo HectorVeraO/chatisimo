@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -218,11 +220,13 @@ func (g *Gateway) lifecycle(ready func(error)) {
 
 func (g *Gateway) connectAndRead(ready func(error)) error {
 	g.sessionMu.RLock()
-	dialURL := g.resumeURL
+	resumeURL := g.resumeURL
 	sessID := g.sessionID
 	g.sessionMu.RUnlock()
-	if dialURL == "" {
-		dialURL = g.url
+
+	dialURL := g.url
+	if IsValidRedirectURL(resumeURL, g.url) {
+		dialURL = resumeURL
 	}
 
 	g.statusMu.Lock()
@@ -402,9 +406,14 @@ func (g *Gateway) handleDispatch(msg *gateway.Message, ready func(error)) {
 
 	eventData, _ := msg.D.(gateway.EventData)
 	if readyEvent, ok := eventData.(gateway.EventReady); ok {
+		var resumeURL string
+		candidate := readyEvent.ResumeGatewayURL
+		if IsValidRedirectURL(candidate, g.url) {
+			resumeURL = candidate
+		}
 		g.sessionMu.Lock()
 		g.sessionID = readyEvent.SessionID
-		g.resumeURL = readyEvent.ResumeGatewayURL
+		g.resumeURL = resumeURL
 		g.sessionMu.Unlock()
 
 		g.statusMu.Lock()
@@ -520,4 +529,93 @@ func (g *Gateway) heartbeatLoop(ctx context.Context, interval time.Duration) {
 			g.sendHeartbeat()
 		}
 	}
+}
+
+// IsValidRedirectURL reports whether rawURL is an allowed Gateway resume URL for a client
+// configured with baseURL. It permits only ws or wss URLs with no userinfo, fragment, or
+// backslashes whose scheme and host:port match baseURL, or wss URLs on discord.gg subdomains
+// when baseURL is a wss Discord Gateway URL.
+func IsValidRedirectURL(rawURL, baseURL string) bool {
+	if rawURL == "" || baseURL == "" {
+		return false
+	}
+	if strings.ContainsAny(rawURL, "\\ \t\r\n") || strings.ContainsAny(baseURL, "\\ \t\r\n") {
+		return false
+	}
+
+	target, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+
+	if !isCleanWebSocketURL(target) || !isCleanWebSocketURL(base) {
+		return false
+	}
+
+	sameScheme := strings.EqualFold(target.Scheme, base.Scheme)
+	if !sameScheme {
+		return false
+	}
+
+	sameHost := strings.EqualFold(target.Host, base.Host)
+	if sameHost {
+		return true
+	}
+
+	isSecureDiscordBase := strings.EqualFold(base.Scheme, "wss") && isDiscordGatewayHost(base.Hostname())
+	if !isSecureDiscordBase {
+		return false
+	}
+
+	targetPort := target.Port()
+	hasAllowedPort := targetPort == "" || targetPort == "443"
+	isAllowedDiscordTarget := hasAllowedPort && isDiscordGatewayHost(target.Hostname())
+	return isAllowedDiscordTarget
+}
+
+func isCleanWebSocketURL(u *url.URL) bool {
+	if u.Opaque != "" || u.User != nil || u.Fragment != "" {
+		return false
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return false
+	}
+
+	isWebSocketScheme := strings.EqualFold(u.Scheme, "ws") || strings.EqualFold(u.Scheme, "wss")
+	return isWebSocketScheme
+}
+
+func isDiscordGatewayHost(host string) bool {
+	lower := strings.ToLower(host)
+	if lower == "discord.gg" {
+		return true
+	}
+
+	sub, hasSuffix := strings.CutSuffix(lower, ".discord.gg")
+	if !hasSuffix || sub == "" {
+		return false
+	}
+
+	return isValidSubdomainLabel(sub)
+}
+
+func isValidSubdomainLabel(sub string) bool {
+	for _, label := range strings.Split(sub, ".") {
+		if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			ch := label[i]
+			isAlphaNum := (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+			if !isAlphaNum && ch != '-' {
+				return false
+			}
+		}
+	}
+
+	return true
 }
