@@ -79,6 +79,7 @@ type Server struct {
 	rephrases      map[string]string
 	ucFixtures     []UCFixture
 	botStatus      string
+	appDescription string
 	// stopped is closed by Close so waits and event streams end.
 	stopped chan struct{}
 	// changed is closed and replaced on every state change WaitReady cares about.
@@ -309,6 +310,14 @@ func (s *Server) Token() string {
 // ApplicationID is the ID of the fake's application, which is also the bot user's ID.
 func (s *Server) ApplicationID() string {
 	return s.appID
+}
+
+// ApplicationDescription returns the last description set via PATCH /applications/@me.
+func (s *Server) ApplicationDescription() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.appDescription
 }
 
 // WaitReady returns once a bot session has identified, been sent every guild, and a global

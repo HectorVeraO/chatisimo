@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,9 +39,24 @@ const (
 	// timeZoneName is the zone people type times in.
 	timeZoneName = "America/Santiago"
 
-	opCreateClient     = "create client"
-	opRegisterCommands = "register commands"
+	opCreateClient      = "create client"
+	opRegisterCommands  = "register commands"
+	opUpdateApplication = "update application"
+
+	//nolint:misspell // Spanish text in template
+	defaultApplicationDescriptionTemplate = "El bot oficial de Chatolandia [%s]. Sí, me tienen chato, pero si no les automatizo las cosas se coordinan como el hoyo.\n\nComandos:\n• /ge, /chatisimo: Amigo secreto (sorteo, reglas y preguntas).\n• /uc: Fixture, horario y canales de la UC.\n• /uc-config: Alertas de partidos en el canal.\n• /capitime-config: Detector y avisos de Capi Time."
 )
+
+// FormatApplicationDescription returns the application description with the given version.
+// When version is empty, it formats as "dev".
+func FormatApplicationDescription(version string) string {
+	v := strings.TrimSpace(version)
+	if v == "" {
+		v = "dev"
+	}
+
+	return fmt.Sprintf(defaultApplicationDescriptionTemplate, v)
+}
 
 // Settings are the values read from the database at startup, plus optional runtime template
 // reload dependencies.
@@ -89,6 +105,7 @@ type Adapter struct {
 
 	capiMu   sync.RWMutex
 	capiTime CapiTime
+	version  string
 
 	// mu guards the fields below and is never held across a network call, so CloseGateway
 	// stays bounded by its ctx while Open is in flight.
@@ -193,6 +210,17 @@ func (a *Adapter) SetCapiTime(capi CapiTime) {
 	a.capiMu.Lock()
 	a.capiTime = capi
 	a.capiMu.Unlock()
+}
+
+// SetVersion sets the application build version used when updating the Discord application description.
+func (a *Adapter) SetVersion(version string) {
+	if a == nil {
+		return
+	}
+
+	a.mu.Lock()
+	a.version = version
+	a.mu.Unlock()
 }
 
 func (a *Adapter) getCapiTime() CapiTime {
@@ -401,6 +429,18 @@ func (a *Adapter) openClient(ctx context.Context) (*bot.Client, error) {
 	_, err = client.Rest.SetGlobalCommands(client.ApplicationID, a.commands, rest.WithCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("discord adapter: %w", reduceRESTError(opRegisterCommands, err))
+	}
+
+	a.mu.Lock()
+	currentVersion := a.version
+	a.mu.Unlock()
+
+	desc := FormatApplicationDescription(currentVersion)
+	_, err = client.Rest.UpdateCurrentApplication(discord.ApplicationUpdate{
+		Description: &desc,
+	}, rest.WithCtx(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("discord adapter: %w", reduceRESTError(opUpdateApplication, err))
 	}
 
 	err = client.OpenGateway(ctx)

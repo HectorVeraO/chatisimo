@@ -14,6 +14,8 @@ import (
 // names inside braces do not matter when a fault is matched.
 const (
 	routeGetGateway        = "GET /gateway"
+	routeGetApplication    = "GET /applications/@me"
+	routePatchApplication  = "PATCH /applications/@me"
 	routePutCommands       = "PUT /applications/{app}/commands"
 	routePutGuildCommands  = "PUT /applications/{app}/guilds/{guild}/commands"
 	routeCreateDM          = "POST /users/@me/channels"

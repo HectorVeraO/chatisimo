@@ -80,6 +80,8 @@ type createMessageBody struct {
 func (s *Server) buildHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+restPrefix+"/gateway", s.faulted(routeGetGateway, s.handleGetGateway))
+	mux.HandleFunc("GET "+restPrefix+"/applications/@me", s.botOnly(s.faulted(routeGetApplication, s.handleGetApplication)))
+	mux.HandleFunc("PATCH "+restPrefix+"/applications/@me", s.botOnly(s.faulted(routePatchApplication, s.handlePatchApplication)))
 	mux.HandleFunc("PUT "+restPrefix+"/applications/{app}/commands", s.botOnly(s.faulted(routePutCommands, s.handlePutGlobalCommands)))
 	mux.HandleFunc("PUT "+restPrefix+"/applications/{app}/guilds/{guild}/commands", s.botOnly(s.faulted(routePutGuildCommands, s.handlePutGuildCommands)))
 	mux.HandleFunc("POST "+restPrefix+"/users/@me/channels", s.botOnly(s.faulted(routeCreateDM, s.handleCreateDM)))
@@ -551,4 +553,46 @@ func nonNilRaw(values []json.RawMessage) []json.RawMessage {
 	}
 
 	return values
+}
+
+type patchApplicationBody struct {
+	Description *string `json:"description"`
+}
+
+func (s *Server) handleGetApplication(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	desc := s.appDescription
+	appID := s.appID
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":                     appID,
+		"name":                   "chatisimo",
+		"description":            desc,
+		"bot_public":             true,
+		"bot_require_code_grant": false,
+	})
+}
+
+func (s *Server) handlePatchApplication(w http.ResponseWriter, r *http.Request) {
+	var body patchApplicationBody
+	if !decodeBody(w, r, &body) {
+		return
+	}
+
+	s.mu.Lock()
+	if body.Description != nil {
+		s.appDescription = *body.Description
+	}
+	desc := s.appDescription
+	appID := s.appID
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":                     appID,
+		"name":                   "chatisimo",
+		"description":            desc,
+		"bot_public":             true,
+		"bot_require_code_grant": false,
+	})
 }

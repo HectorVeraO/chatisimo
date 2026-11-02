@@ -82,6 +82,72 @@ func TestOpenRegistersBothTreesAndAsksForTheGuildsIntentOnly(t *testing.T) {
 	if !slices.Equal(names, []string{"capitime-config", "chatisimo", "ge", "uc", "uc-config"}) {
 		t.Errorf("registered commands = %v, want capitime-config, chatisimo, ge, uc and uc-config", names)
 	}
+
+	wantDesc := appdiscord.FormatApplicationDescription("dev")
+	if got := h.fake.ApplicationDescription(); got != wantDesc {
+		t.Errorf("ApplicationDescription() = %q, want %q", got, wantDesc)
+	}
+}
+
+func TestFormatApplicationDescription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		version string
+		wantTag string
+	}{
+		{name: "empty version defaults to dev", version: "", wantTag: "[dev]"},
+		{name: "whitespace version defaults to dev", version: "   ", wantTag: "[dev]"},
+		{name: "custom semver version", version: "v1.2.3", wantTag: "[v1.2.3]"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := appdiscord.FormatApplicationDescription(tc.version)
+			if !strings.Contains(got, tc.wantTag) {
+				t.Errorf("FormatApplicationDescription(%q) = %q, want tag %s", tc.version, got, tc.wantTag)
+			}
+			if len([]rune(got)) > 400 {
+				t.Errorf("description length = %d runes, want <= 400", len([]rune(got)))
+			}
+			for _, root := range []string{"/ge", "/chatisimo", "/uc", "/uc-config", "/capitime-config"} {
+				if !strings.Contains(got, root) {
+					t.Errorf("description does not mention root command %s", root)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenUpdatesApplicationDescriptionWithConfiguredVersion(t *testing.T) {
+	w := newWorld(t)
+	s := newService(t, w)
+	adapter, err := appdiscord.New(w.notifier, s.svc, s.uc, w.logger)
+	if err != nil {
+		t.Fatalf("discord.New: %v", err)
+	}
+	adapter.SetCapiTime(s.capi)
+	adapter.SetVersion("v2.4.0")
+
+	openCtx, cancel := context.WithTimeout(t.Context(), deliveryDeadline)
+	defer cancel()
+
+	if openErr := adapter.Open(openCtx); openErr != nil {
+		t.Fatalf("Open: %v", openErr)
+	}
+	t.Cleanup(func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), closeDeadline)
+		defer closeCancel()
+
+		adapter.Close(closeCtx)
+		w.notifierClosed = true
+	})
+
+	wantDesc := appdiscord.FormatApplicationDescription("v2.4.0")
+	if got := w.fake.ApplicationDescription(); got != wantDesc {
+		t.Errorf("ApplicationDescription() = %q, want %q", got, wantDesc)
+	}
 }
 
 func TestOpenTwiceFails(t *testing.T) {
