@@ -112,8 +112,9 @@ or personal data is ever pushed, rotate any secret first, then clean the history
    Héctor: it fixes every mandatory finding and applies a polish finding when it improves the
    change. Every finding left unapplied goes in the pull request body with the reason.
 4. Open a pull request to `master` from the template, with `Closes #<issue>` in the body.
-5. Merge once `gitleaks`, `identity`, `lint`, `build`, `test`, `govulncheck`, `e2e` and `coverage` pass against the
-   latest `master`. Merging closes the issue; move its card to `Done`.
+5. Merge once `gitleaks`, `identity`, `lint`, `build`, `test`, `govulncheck`, `e2e`, `coverage`, `Analyze (go)`,
+   `Analyze (actions)`, `Analyze (javascript-typescript)` and `CodeQL` pass against the latest `master`. Merging
+   closes the issue; move its card to `Done`.
 
 `master` accepts changes only through pull requests: no direct pushes, no force-pushes. Agents
 commit, push and merge on their own once every required check passes and the review
