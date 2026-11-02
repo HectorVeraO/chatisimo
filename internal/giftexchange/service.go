@@ -100,12 +100,12 @@ func (s *Service) inTx(ctx context.Context, fn func(q *db.Queries, tx pgx.Tx) er
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	fnErr := fn(db.New(tx), tx)
 	if fnErr != nil {
-		// A failed rollback leaves the connection to be discarded by the pool; fnErr is the
-		// error the caller needs.
-		_ = tx.Rollback(ctx)
 		return fnErr
 	}
 
