@@ -262,7 +262,6 @@ findings (see "Workflow") apply on top of this format.
 
 ## Local environment
 
-<!-- AGENTIC-SETUP:AUTOGEN:local-environment START -->
 - **Source of Truth**: `.deploy/local/docker-compose.yaml` (project `chatisimo`) is the local compose project; ports and commands in `.deploy/local/README.md`.
 - **The Split**:
   - **Infra** (databases): `postgres` -> Always in Docker.
@@ -270,7 +269,6 @@ findings (see "Workflow") apply on top of this format.
 - **Booting**: `docker compose --env-file .env -f .deploy/local/docker-compose.yaml up -d` (add `--profile e2e` for the E2E services; always detached). Output directed to `.me/<slug>/logs/`.
 - **Resets**: `docker compose --env-file .env -f .deploy/local/docker-compose.yaml down -v` is authorized for routine local recovery. Applies to local disposable volumes only; never target shared or staging stacks. It also deletes the development database.
 - Full addressing rules, port allocation, verification layout and cleanup: see `.claude/references/local-env.md`.
-<!-- AGENTIC-SETUP:AUTOGEN:local-environment END -->
 
 ## Data changes
 
