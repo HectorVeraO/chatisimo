@@ -1,9 +1,3 @@
-//go:build !race
-
-// These tests open a real disgo Gateway client. disgo v0.19 touches the fields of its gateway
-// from several goroutines without synchronization, so the race detector reports races inside
-// the library; the adapter's own Gateway tests carry the same tag.
-
 package main
 
 import (

@@ -27,6 +27,7 @@ import (
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/giftexchangecmd"
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/render"
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/router"
+	"github.com/HectorVeraO/chatisimo/internal/discord/internal/safegw"
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/uccmd"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 	"github.com/HectorVeraO/chatisimo/internal/platform/config"
@@ -377,20 +378,25 @@ func (a *Adapter) openClient(ctx context.Context) (*bot.Client, error) {
 	// disgo logs request and response bodies, which hold message text and snowflakes, so its
 	// own logger is silenced.
 	silent := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	gwRs, err := a.notifier.rest.GetGateway(rest.WithCtx(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("discord adapter: %w", reduceRESTError(opCreateClient, err))
+	}
+
+	gw := safegw.New(a.notifier.token.Reveal(), gwRs.URL, GatewayIntents, nil)
 	client, err := disgo.New(a.notifier.token.Reveal(),
 		bot.WithLogger(silent),
 		bot.WithRest(a.notifier.rest),
 		bot.WithCaches(a.notifier.caches),
-		bot.WithGatewayConfigOpts(
-			gateway.WithIntents(GatewayIntents),
-			gateway.WithCompression(gateway.CompressionNone),
-		),
+		bot.WithGateway(gw),
 		bot.WithEventManagerConfigOpts(bot.WithAsyncEventsEnabled()),
 		bot.WithEventListeners(a.router.Listener()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("discord adapter: %w", reduceRESTError(opCreateClient, err))
 	}
+	gw.SetEventHandlerFunc(client.EventManager.HandleGatewayEvent)
 
 	_, err = client.Rest.SetGlobalCommands(client.ApplicationID, a.commands, rest.WithCtx(ctx))
 	if err != nil {

@@ -1,9 +1,3 @@
-//go:build !race
-
-// These tests drive the fake with a real disgo client answering interactions. See
-// gateway_disgo_test.go for why they stay out of -race; the raw WebSocket tests cover the
-// same routes under -race.
-
 package fakediscord_test
 
 import (
