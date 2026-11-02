@@ -15,6 +15,7 @@ env:
   SQLC_VERSION: 1.31.1
   # sqlc publishes no checksums file; this is the digest GitHub reports for the release asset.
   SQLC_LINUX_AMD64_SHA256: 497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354
+  TRIVY_VERSION: 0.76.1
 
 jobs:
   gitleaks:
@@ -315,8 +316,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install trivy
+        run: |
+          set -euo pipefail
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          archive="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -sSfL -o "${RUNNER_TEMP}/${archive}" "${base}/${archive}"
+          curl -sSfL -o "${RUNNER_TEMP}/checksums.txt" "${base}/trivy_${TRIVY_VERSION}_checksums.txt"
+          cd "${RUNNER_TEMP}"
+          grep " ${archive}\$" checksums.txt | sha256sum --check -
+          mkdir -p "${RUNNER_TEMP}/trivy-bin"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/trivy-bin" trivy
+          echo "${RUNNER_TEMP}/trivy-bin" >> "${GITHUB_PATH}"
+      - name: Scan Dockerfile with Trivy
+        run: trivy config --severity HIGH,CRITICAL --exit-code 1 .deploy/prod/Dockerfile
       - name: Build the release image
         run: docker build -f .deploy/prod/Dockerfile --build-arg VERSION=ci -t chatisimo:ci .
+      - name: Scan release image with Trivy
+        run: trivy image --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 chatisimo:ci
       - name: Check the production stack
         run: |
           set -euo pipefail
