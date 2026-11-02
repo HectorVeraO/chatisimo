@@ -136,13 +136,11 @@ a report, not a required check.
 
 ## Security
 
-Chatisimo enforces multi-layer security across code, container images, and infrastructure:
-
-- **Secret leak prevention**: `gitleaks` checks staged commits via `lefthook` and scans the complete git history in CI.
-- **Vulnerability scanning**: `govulncheck` detects reachable Go vulnerabilities in CI.
-- **Container scanning**: `trivy` scans `.deploy/prod/Dockerfile` and the `chatisimo:ci` release image in CI, failing on unfixed HIGH or CRITICAL findings.
-- **Secret encryption**: Sensitive settings and credentials are stored encrypted at rest in Postgres using AES-GCM keys derived from `MASTER_KEY`.
-- **Zero-ingress network boundary**: The production host exposes no public ingress ports; administration and deployments route exclusively through Google Cloud Identity-Aware Proxy (IAP).
+- `gitleaks` checks staged commits through `lefthook` and scans the full git history in CI.
+- `govulncheck` scans reachable Go vulnerabilities in CI.
+- `trivy` scans `.deploy/prod/Dockerfile` and the `chatisimo:ci` release image in CI, failing on unfixed HIGH or CRITICAL findings.
+- App secrets and tokens are stored encrypted at rest in Postgres using AES-GCM keys derived from `MASTER_KEY`.
+- The production host exposes no public ingress ports; SSH and deployments route exclusively through Google Cloud Identity-Aware Proxy (IAP).
 
 ## Repository layout
 
