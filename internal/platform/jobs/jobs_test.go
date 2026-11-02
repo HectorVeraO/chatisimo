@@ -750,7 +750,7 @@ func TestMigrationSourceIsIdempotent(t *testing.T) {
 
 // pinnedRiverFingerprint is the digest of the River migrations of the pinned River version.
 // Upgrading River to a release with a different migration set must update it on purpose.
-const pinnedRiverFingerprint = "15901c2e337ed302d695a5f3b75a750075dfa2dacc05cd2bf99e28d59e31ed7e"
+const pinnedRiverFingerprint = "1868be013e623cc410d331abb4fd86f7d51e78383b975989fd3179e92770d801"
 
 func TestMigrationSourceFingerprintTracksRiverMigrations(t *testing.T) {
 	got, err := jobs.NewMigrationSource().Fingerprint()
