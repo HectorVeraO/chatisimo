@@ -31,6 +31,8 @@ func TestBotRoutesRequireBotAuthorization(t *testing.T) {
 		{"guild commands", http.MethodPut, "/api/v10/applications/" + app + "/guilds/" + guild.ID + "/commands", `[]`},
 		{"create DM", http.MethodPost, "/api/v10/users/@me/channels", `{"recipient_id":"` + aliceID + `"}`},
 		{"create message", http.MethodPost, "/api/v10/channels/" + guild.ChannelID + "/messages", `{"content":"hi"}`},
+		{"get application", http.MethodGet, "/api/v10/applications/@me", ""},
+		{"patch application", http.MethodPatch, "/api/v10/applications/@me", `{"description":"test"}`},
 	}
 	credentials := []struct {
 		name string
@@ -571,4 +573,38 @@ func callHeader(t testing.TB, srv *fakediscord.Server, method, path, headerName,
 	srv.Handler().ServeHTTP(recorder, req)
 
 	return reply{status: recorder.Code, header: recorder.Header(), body: recorder.Body.Bytes()}
+}
+
+func TestApplicationDescriptionEndpoints(t *testing.T) {
+	srv := newFake(t, fakediscord.Options{})
+
+	initial := call(t, srv, http.MethodGet, "/api/v10/applications/@me", botAuth(srv), "")
+	if initial.status != http.StatusOK {
+		t.Fatalf("GET /applications/@me: status = %d, want 200", initial.status)
+	}
+
+	patched := call(t, srv, http.MethodPatch, "/api/v10/applications/@me", botAuth(srv), `{"description":"Updated description"}`)
+	if patched.status != http.StatusOK {
+		t.Fatalf("PATCH /applications/@me: status = %d, want 200", patched.status)
+	}
+
+	if srv.ApplicationDescription() != "Updated description" {
+		t.Errorf("ApplicationDescription() = %q, want 'Updated description'", srv.ApplicationDescription())
+	}
+
+	after := call(t, srv, http.MethodGet, "/api/v10/applications/@me", botAuth(srv), "")
+	var got struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(after.body, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Description != "Updated description" {
+		t.Errorf("description in JSON = %q, want 'Updated description'", got.Description)
+	}
+	if got.ID != srv.ApplicationID() {
+		t.Errorf("id in JSON = %q, want %q", got.ID, srv.ApplicationID())
+	}
 }

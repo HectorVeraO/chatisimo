@@ -429,6 +429,7 @@ func (s *server) construct(settings runtimeSettings) error {
 	}
 
 	adapter.SetCapiTime(capi)
+	adapter.SetVersion(version)
 
 	s.adapter = adapter
 
