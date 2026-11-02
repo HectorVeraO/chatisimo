@@ -51,6 +51,14 @@ func TestCreateExchangeReturnsAnOpenExchangeOrganizedByTheCaller(t *testing.T) {
 	if len(view.Organizer.Identities) != 1 || view.Organizer.Identities[0] != wantIdentity {
 		t.Errorf("organizer identities = %v, want the caller's identity", view.Organizer.Identities)
 	}
+
+	persisted, err := h.svc.Exchange(t.Context(), organizer.actor, group, view.ID)
+	if err != nil {
+		t.Fatalf("Exchange after CreateExchange: %v", err)
+	}
+	if persisted.ID != view.ID {
+		t.Errorf("persisted id = %v, want %v", persisted.ID, view.ID)
+	}
 }
 
 func TestCreateExchangeNameBoundaries(t *testing.T) {

@@ -324,6 +324,9 @@ func TestDeadlineDrawsOnceAtDrawAt(t *testing.T) {
 	}
 	secrets := confidentialityTerms(s)
 	assertConfidential(t, s.h, nil, secrets)
+	if !strings.Contains(s.h.logs.String(), "exchange drawn at deadline") {
+		t.Errorf("expected log 'exchange drawn at deadline' not found")
+	}
 }
 
 func TestMovedDrawAtDrawsOnceAtTheNewTimeAndNeverAtTheOld(t *testing.T) {
@@ -426,6 +429,9 @@ func TestRevealJobRevealsOnceAtRevealAt(t *testing.T) {
 	}
 	secrets := confidentialityTerms(s)
 	assertConfidential(t, s.h, nil, secrets)
+	if !strings.Contains(s.h.logs.String(), "exchange revealed at reveal_at") {
+		t.Errorf("expected log 'exchange revealed at reveal_at' not found")
+	}
 }
 
 func TestMovedRevealAtRevealsOnceAtTheNewTime(t *testing.T) {

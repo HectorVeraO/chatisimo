@@ -697,3 +697,21 @@ func TestAvoidLastRoundThatLeavesNoDerangementIsInfeasibleAndChangesNothing(t *t
 	}
 	assertUnchanged(t, before, takeSnapshot(t, s.h, next.ID))
 }
+
+func TestRevealPanicsWhenDrawnExchangeHasNoAssignments(t *testing.T) {
+	s := newDrawScene(t, 3)
+	forceState(t, s.exchange, giftexchange.StateDrawn)
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("Reveal with 0 assignments did not panic")
+		}
+		msg, ok := r.(string)
+		if !ok || msg != "giftexchange: reveal: a Drawn exchange has no assignments" {
+			t.Fatalf("panic = %v, want 'giftexchange: reveal: a Drawn exchange has no assignments'", r)
+		}
+	}()
+
+	_ = s.h.svc.Reveal(t.Context(), s.organizer.actor, s.group, s.exchange)
+}
