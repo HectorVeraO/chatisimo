@@ -1,10 +1,3 @@
-//go:build !race
-
-// These tests drive the fake with a real disgo client. disgo v0.19 touches the fields of its
-// gateway (heartbeat state, close function, last sequence) from several goroutines without
-// synchronization, so the race detector reports races inside the library, not in the fake. The
-// same behaviors are covered under -race by the raw WebSocket tests in gateway_test.go.
-
 package fakediscord_test
 
 import (
@@ -64,17 +57,15 @@ func newBot(t *testing.T, srv *fakediscord.Server, token string, extra ...bot.Co
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 
+	gwURL := "ws://" + strings.TrimPrefix(srv.URL(), "http://") + "/ws"
+	gw := newSafeGateway(token, gwURL, gateway.IntentGuilds, func(_ gateway.Gateway, err error, _ bool) {
+		h.closed <- err
+	})
+
 	opts := []bot.ConfigOpt{
 		bot.WithLogger(quiet),
 		bot.WithRestClientConfigOpts(rest.WithURL(srv.RESTBase()), rest.WithHTTPClient(httpClient), rest.WithRateLimiter(noBucketLimiter{})),
-		bot.WithGatewayConfigOpts(
-			gateway.WithLogger(quiet),
-			gateway.WithIntents(gateway.IntentGuilds),
-			gateway.WithCompression(gateway.CompressionNone),
-			gateway.WithCloseHandler(func(_ gateway.Gateway, err error, _ bool) {
-				h.closed <- err
-			}),
-		),
+		bot.WithGateway(gw),
 		bot.WithCacheConfigOpts(cache.WithCaches(cache.FlagGuilds)),
 		bot.WithEventListenerFunc(func(e *events.GuildReady) { h.guilds <- e.GuildID.String() }),
 		bot.WithEventListenerFunc(func(e *events.GuildJoin) { h.joined <- e.GuildID.String() }),
@@ -84,6 +75,7 @@ func newBot(t *testing.T, srv *fakediscord.Server, token string, extra ...bot.Co
 	if err != nil {
 		t.Fatalf("disgo.New: %v", err)
 	}
+	gw.SetEventHandlerFunc(client.EventManager.HandleGatewayEvent)
 	h.client = client
 
 	t.Cleanup(func() {

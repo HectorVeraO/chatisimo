@@ -1,9 +1,3 @@
-//go:build !race
-
-// These tests drive the router with a real disgo client against the fake. disgo v0.19 touches
-// the fields of its gateway from several goroutines without synchronization, so the race
-// detector reports races inside the library; the fake's own Gateway tests carry the same tag.
-
 package router_test
 
 import (
@@ -29,6 +23,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 
 	"github.com/HectorVeraO/chatisimo/internal/discord/internal/router"
+	"github.com/HectorVeraO/chatisimo/internal/discord/internal/safegw"
 	"github.com/HectorVeraO/chatisimo/internal/fakediscord"
 	"github.com/HectorVeraO/chatisimo/internal/giftexchange"
 )
@@ -202,16 +197,19 @@ func newRig(t *testing.T) *rig {
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	gwURL := "ws://" + strings.TrimPrefix(fake.URL(), "http://") + "/ws"
+	gw := safegw.New(fake.Token(), gwURL, gateway.IntentGuilds, nil)
 	client, err := disgo.New(fake.Token(),
 		bot.WithLogger(quiet),
 		bot.WithRestClientConfigOpts(rest.WithURL(fake.RESTBase()), rest.WithHTTPClient(httpClient), rest.WithRateLimiter(noBucketLimiter{})),
-		bot.WithGatewayConfigOpts(gateway.WithIntents(gateway.IntentGuilds), gateway.WithCompression(gateway.CompressionNone)),
+		bot.WithGateway(gw),
 		bot.WithEventManagerConfigOpts(bot.WithAsyncEventsEnabled()),
 		bot.WithEventListeners(r.Listener()),
 	)
 	if err != nil {
 		t.Fatalf("disgo.New: %v", err)
 	}
+	gw.SetEventHandlerFunc(client.EventManager.HandleGatewayEvent)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

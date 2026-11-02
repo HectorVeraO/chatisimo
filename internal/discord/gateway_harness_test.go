@@ -1,9 +1,3 @@
-//go:build !race
-
-// The harness opens a real disgo Gateway client. disgo v0.19 touches the fields of its gateway
-// from several goroutines without synchronization, so the race detector reports races inside
-// the library; the fake's own Gateway tests carry the same tag.
-
 package discord_test
 
 import (

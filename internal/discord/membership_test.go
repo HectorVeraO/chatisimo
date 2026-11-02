@@ -1,8 +1,3 @@
-//go:build !race
-
-// These tests open a real disgo Gateway client; see gateway_harness_test.go for why they are
-// left out of the race run.
-
 package discord_test
 
 import (
