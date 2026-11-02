@@ -162,6 +162,7 @@ func TestRateLimitedDM(t *testing.T) {
 	organizer, givers := s.members[0], s.members[1:]
 	exchange, _ := s.setup(t, organizer, givers)
 	const route = "POST /channels/{id}/messages"
+	faultsBefore := len(shared.fake.InjectedFaults())
 
 	err := shared.fake.FailNext(route, 429, 0)
 	if err != nil {
@@ -178,5 +179,14 @@ func TestRateLimitedDM(t *testing.T) {
 		if got := dmAttempts(s, giver, 200); got != 1 {
 			t.Errorf("%s has %d delivered DM records, want exactly 1", giver.Name, got)
 		}
+	}
+
+	faultsAfter := shared.fake.InjectedFaults()
+	if len(faultsAfter) != faultsBefore+1 {
+		t.Fatalf("injected faults count = %d, want %d", len(faultsAfter), faultsBefore+1)
+	}
+	lastFault := faultsAfter[len(faultsAfter)-1]
+	if lastFault.Status != 429 || lastFault.Route != route {
+		t.Errorf("last fault = %+v, want status 429 on %s", lastFault, route)
 	}
 }

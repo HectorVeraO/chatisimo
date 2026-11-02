@@ -6,13 +6,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
-	"net/http/httputil"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -190,57 +186,19 @@ func TestNotifySendsDifferentNotificationsAsDifferentMessages(t *testing.T) {
 	}
 }
 
-// rateLimitingProxy forwards to the fake and answers the first message send with the 429 a
-// real Discord sends: a whole-second Retry-After and a bucket header. The fake's own 429 has a
-// fractional Retry-After, which disgo cannot parse.
-func rateLimitingProxy(t *testing.T, w *world) (*httptest.Server, *atomic.Bool) {
-	t.Helper()
-
-	target, err := url.Parse(w.fake.URL())
-	if err != nil {
-		t.Fatalf("parse fake URL: %v", err)
-	}
-	forward := httputil.NewSingleHostReverseProxy(target)
-
-	var limited atomic.Bool
-	proxy := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		isSend := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/messages")
-		if isSend && limited.CompareAndSwap(false, true) {
-			rw.Header().Set("Retry-After", "1")
-			rw.Header().Set("X-RateLimit-Bucket", "test")
-			rw.Header().Set("Content-Type", "application/json")
-			rw.WriteHeader(http.StatusTooManyRequests)
-			_, _ = rw.Write([]byte(`{"message":"You are being rate limited.","retry_after":1,"global":false}`))
-			return
-		}
-		forward.ServeHTTP(rw, r)
-	}))
-	t.Cleanup(proxy.Close)
-
-	return proxy, &limited
-}
-
 func TestNotifyDeliversOnceAfterARateLimit(t *testing.T) {
 	w := newWorld(t)
-	proxy, limited := rateLimitingProxy(t, w)
-	notifier, err := appdiscord.NewNotifier(appdiscord.Settings{
-		Token:      config.NewSecret(w.fake.Token()),
-		APIBaseURL: proxy.URL + "/api/v10",
-	}, discardLogger())
-	if err != nil {
-		t.Fatalf("NewNotifier: %v", err)
-	}
-	t.Cleanup(func() { notifier.Close(context.Background()) })
+	mustFail(t, w, routeCreateMessage, http.StatusTooManyRequests, 0)
 
-	err = notifier.Notify(t.Context(), cancelledNotice(userB))
+	err := w.notifier.Notify(t.Context(), cancelledNotice(userB))
 	if err != nil {
 		t.Fatalf("Notify after a 429: %v", err)
 	}
 
-	if !limited.Load() {
-		t.Fatal("the proxy never served a 429, so the retry path was not exercised")
+	faults := w.fake.InjectedFaults()
+	if len(faults) != 1 || faults[0].Status != http.StatusTooManyRequests {
+		t.Fatalf("injected faults = %v, want 1 fault with status 429", faults)
 	}
-
 	if got := len(w.fake.DMs(w.users[userB])); got != 1 {
 		t.Errorf("addressee has %d DMs after a 429, want 1", got)
 	}

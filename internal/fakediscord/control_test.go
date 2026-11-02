@@ -159,6 +159,8 @@ func TestControlAPIRefusesBadRequests(t *testing.T) {
 		{"modal of a user without one", http.MethodGet, "/modals/" + aliceID, "", 404},
 		{"outbound with a bad since", http.MethodGet, "/outbound?since=abc", "", 400},
 		{"outbound with a negative since", http.MethodGet, "/outbound?since=-1", "", 400},
+		{"faults with a bad since", http.MethodGet, "/faults?since=abc", "", 400},
+		{"faults with a negative since", http.MethodGet, "/faults?since=-1", "", 400},
 		{"fault on an unknown route", http.MethodPost, "/faults", `{"route":"POST /nowhere","status":500}`, 400},
 		{"fault with a success status", http.MethodPost, "/faults", `{"route":"GET /gateway","status":200}`, 400},
 		{"fault from malformed JSON", http.MethodPost, "/faults", `[`, 400},
@@ -518,6 +520,22 @@ func TestControlFaultsAndGatewayDrop(t *testing.T) {
 	if code := faulted.readClose(t); code != 4004 {
 		t.Errorf("Identify after the control fault closed with %d, want 4004", code)
 	}
+
+	allFaults := control(t, w.srv, http.MethodGet, "/faults", "").array(t)
+	if len(allFaults) != 2 {
+		t.Fatalf("GET /faults returned %d records, want 2: %v", len(allFaults), allFaults)
+	}
+	if allFaults[0]["seq"] != float64(1) || allFaults[0]["status"] != float64(429) || allFaults[0]["route"] != "POST /channels/{id}/messages" {
+		t.Errorf("first fault = %v, want 429 on message route", allFaults[0])
+	}
+	if allFaults[1]["seq"] != float64(2) || allFaults[1]["code"] != float64(4004) || allFaults[1]["route"] != "GATEWAY identify" {
+		t.Errorf("second fault = %v, want 4004 on gateway identify", allFaults[1])
+	}
+
+	sinceFaults := control(t, w.srv, http.MethodGet, "/faults?since=1", "").array(t)
+	if len(sinceFaults) != 1 || sinceFaults[0]["seq"] != float64(2) {
+		t.Errorf("GET /faults?since=1 = %v, want only seq 2", sinceFaults)
+	}
 }
 
 func TestResetClearsTheWorldAndKeepsTheBotSession(t *testing.T) {
@@ -525,6 +543,7 @@ func TestResetClearsTheWorldAndKeepsTheBotSession(t *testing.T) {
 	postChannelMessage(t, w.srv, w.guild.ChannelID, "before", "", "")
 	before := lastRecord(t, w.srv)
 	mustFailNext(t, w.srv, "GET /gateway", 500, 0)
+	call(t, w.srv, http.MethodGet, "/api/v10/gateway", "", "")
 
 	reset := control(t, w.srv, http.MethodPost, "/reset", "")
 
@@ -538,8 +557,11 @@ func TestResetClearsTheWorldAndKeepsTheBotSession(t *testing.T) {
 	if state["bot"] != "ready" || len(state["commands"].([]any)) != 2 || state["intents"] != float64(1) {
 		t.Errorf("state after reset = %v, want the bot session, commands and intents kept", state)
 	}
-	if len(w.srv.Outbound()) != 0 || len(w.srv.Visible(w.alice, w.guild.ChannelID)) != 0 {
-		t.Error("records or messages survived the reset")
+	if len(w.srv.Outbound()) != 0 || len(w.srv.Visible(w.alice, w.guild.ChannelID)) != 0 || len(w.srv.InjectedFaults()) != 0 {
+		t.Error("records, messages or faults survived the reset")
+	}
+	if faults := control(t, w.srv, http.MethodGet, "/faults", "").array(t); len(faults) != 0 {
+		t.Errorf("GET /faults after reset = %v, want none", faults)
 	}
 	if got := call(t, w.srv, http.MethodGet, "/api/v10/gateway", "", ""); got.status != http.StatusOK {
 		t.Errorf("a fault queued before the reset fired after it: %d", got.status)

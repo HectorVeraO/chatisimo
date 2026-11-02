@@ -38,7 +38,7 @@ func TestSecretsStayOutOfLogsRecordsAndControlAnswers(t *testing.T) {
 	surfaces := map[string]string{"the logs": logs.String(), "the outbound record": string(outbound)}
 	for _, path := range []string{
 		"/state", "/commands", "/outbound", "/healthz", "/channels/" + w.guild.ChannelID + "/messages?as=" + aliceID,
-		"/dms/" + aliceID, "/modals/" + aliceID,
+		"/dms/" + aliceID, "/modals/" + aliceID, "/faults",
 	} {
 		surfaces["GET /_control"+path] = string(control(t, w.srv, http.MethodGet, path, "").body)
 	}
