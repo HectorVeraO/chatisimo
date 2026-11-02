@@ -84,6 +84,14 @@ export interface Health {
   bot: "ready" | "connecting" | "absent";
 }
 
+export interface InjectedFault {
+  seq: number;
+  at: string;
+  route: string;
+  status: number;
+  code: number;
+}
+
 const CONTROL = "/_control";
 
 // Typed wrappers over the control API of the fake Discord. The API has no authentication and
@@ -166,6 +174,19 @@ export class Control {
   async latestOutboundSeq(): Promise<number> {
     const records = await this.outbound(0);
     return records.reduce((newest, record) => Math.max(newest, record.seq), 0);
+  }
+
+  async fail(route: string, status: number, code = 0): Promise<void> {
+    const response = await this.api.post(`${CONTROL}/faults`, {
+      data: { route, status, code },
+    });
+    await this.expectStatus(response, 204, "POST faults");
+  }
+
+  // The injected fault records with a sequence number above `since`.
+  async faults(since = 0): Promise<InjectedFault[]> {
+    const response = await this.api.get(`${CONTROL}/faults?since=${since}`);
+    return (await this.json(response, "GET faults")) as InjectedFault[];
   }
 
   async commands(): Promise<unknown[]> {

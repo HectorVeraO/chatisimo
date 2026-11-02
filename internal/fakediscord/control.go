@@ -96,6 +96,7 @@ func (s *Server) addControlRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+controlPrefix+"/modals/{user}", s.handleControlModal)
 	mux.HandleFunc("GET "+controlPrefix+"/outbound", s.handleControlOutbound)
 	mux.HandleFunc("GET "+controlPrefix+"/events", s.handleEvents)
+	mux.HandleFunc("GET "+controlPrefix+"/faults", s.handleControlFaults)
 	mux.HandleFunc("POST "+controlPrefix+"/faults", s.handleControlFault)
 	mux.HandleFunc("POST "+controlPrefix+"/uc-fixtures", s.handleControlUCFixtures)
 	mux.HandleFunc("POST "+controlPrefix+"/gateway/drop", s.handleControlGatewayDrop)
@@ -648,6 +649,27 @@ func (s *Server) handleControlOutbound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, records)
 }
 
+func (s *Server) handleControlFaults(w http.ResponseWriter, r *http.Request) {
+	since := 0
+	raw := r.URL.Query().Get("since")
+	if raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			invalidBody("since: must be a non-negative integer").write(w)
+			return
+		}
+		since = parsed
+	}
+
+	records := []InjectedFault{}
+	for _, f := range s.InjectedFaults() {
+		if f.Seq > since {
+			records = append(records, f)
+		}
+	}
+	writeJSON(w, http.StatusOK, records)
+}
+
 func (s *Server) handleControlFault(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Route  string `json:"route"`
@@ -710,6 +732,7 @@ func (s *Server) handleControlReset(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	s.w.reset()
 	s.faults = map[string][]fault{}
+	s.injectedFaults = nil
 	s.rephrases = map[string]string{}
 	s.ucFixtures = nil
 	s.publishWorldChangedLocked()

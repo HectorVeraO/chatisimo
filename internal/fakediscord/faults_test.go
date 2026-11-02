@@ -144,11 +144,14 @@ func TestFailNextAnswersOneRateLimit(t *testing.T) {
 	if limited.status != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429", limited.status)
 	}
-	if limited.header.Get("Retry-After") != "0.2" || limited.header.Get("X-RateLimit-Bucket") != "fake" {
-		t.Errorf("headers = %v, want Retry-After 0.2 and bucket fake", limited.header)
+	if limited.header.Get("Retry-After") != "1" || limited.header.Get("X-RateLimit-Bucket") != "fake" {
+		t.Errorf("headers = %v, want Retry-After 1 and bucket fake", limited.header)
+	}
+	if limited.header.Get("Via") != "1.1 discord" || limited.header.Get("X-RateLimit-Reset-After") != "1.000" {
+		t.Errorf("headers = %v, want Via 1.1 discord and X-RateLimit-Reset-After 1.000", limited.header)
 	}
 	body := limited.json(t)
-	if body["message"] != "You are being rate limited." || body["retry_after"] != 0.2 || body["global"] != false {
+	if body["message"] != "You are being rate limited." || body["retry_after"] != 1.0 || body["global"] != false {
 		t.Errorf("body = %v, want the rate limit body", body)
 	}
 	if retried.status != http.StatusOK {
@@ -156,6 +159,13 @@ func TestFailNextAnswersOneRateLimit(t *testing.T) {
 	}
 	if got := w.srv.Visible(w.alice, w.guild.ChannelID); len(got) != 1 {
 		t.Errorf("Alice sees %d messages, want 1: the limited request stored nothing", len(got))
+	}
+	faults := w.srv.InjectedFaults()
+	if len(faults) != 1 {
+		t.Fatalf("InjectedFaults() len = %d, want 1", len(faults))
+	}
+	if faults[0].Seq != 1 || faults[0].Status != 429 || faults[0].Route != "POST /channels/{id}/messages" || faults[0].At.IsZero() {
+		t.Errorf("InjectedFaults()[0] = %+v, want seq 1, status 429", faults[0])
 	}
 }
 

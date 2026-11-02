@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
+	"time"
 )
 
 // Route labels the fake knows, in the form FailNext and the control API accept. Parameter
@@ -26,7 +28,7 @@ const (
 	routeGenerateContent   = "POST /v1/publishers/google/models/{model}"
 	routeGetUCSchedule     = "GET /all/teams/885/schedule"
 	routeGatewayIdentify   = "GATEWAY identify"
-	rateLimitRetryAfter    = "0.2"
+	rateLimitRetryAfter    = "1"
 	rateLimitBucket        = "fake"
 	rateLimitedMessage     = "You are being rate limited."
 	injectedFaultMessage   = "Injected fault"
@@ -111,9 +113,18 @@ func validateFault(route string, status, code int) (string, error) {
 	return canonical, nil
 }
 
+// InjectedFault records one fault applied to a request or connection.
+type InjectedFault struct {
+	Seq    int       `json:"seq"`
+	At     time.Time `json:"at"`
+	Route  string    `json:"route"`
+	Status int       `json:"status"`
+	Code   int       `json:"code"`
+}
+
 // FailNext makes the next request on route fail instead of being served. route is a label
 // such as "POST /channels/{id}/messages"; status and discordCode shape the error answer (a
-// status of 429 answers a rate limit with Retry-After 0.2 and ignores discordCode). The
+// status of 429 answers a rate limit with Retry-After 1 and ignores discordCode). The
 // route "GATEWAY identify" closes the next Identify with the Gateway close code
 // discordCode, status being ignored, even when the token is right. Several calls queue up
 // in order. FailNext returns ErrInvalidFault when the fault cannot be applied.
@@ -139,6 +150,14 @@ func (s *Server) addFault(route string, status, code int) error {
 	return nil
 }
 
+// InjectedFaults returns every fault that was applied, oldest first.
+func (s *Server) InjectedFaults() []InjectedFault {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.injectedFaults)
+}
+
 // takeFault removes and returns the oldest fault waiting on the route.
 func (s *Server) takeFault(route string) (fault, bool) {
 	s.mu.Lock()
@@ -150,6 +169,14 @@ func (s *Server) takeFault(route string) (fault, bool) {
 	}
 	next := queue[0]
 	s.faults[route] = queue[1:]
+	s.faultSeq++
+	s.injectedFaults = append(s.injectedFaults, InjectedFault{
+		Seq:    s.faultSeq,
+		At:     time.Now().UTC(),
+		Route:  route,
+		Status: next.status,
+		Code:   next.code,
+	})
 
 	return next, true
 }
@@ -171,9 +198,12 @@ func writeFault(w http.ResponseWriter, f fault) {
 	if f.status == http.StatusTooManyRequests {
 		w.Header().Set("Retry-After", rateLimitRetryAfter)
 		w.Header().Set("X-RateLimit-Bucket", rateLimitBucket)
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset-After", "1.000")
+		w.Header().Set("Via", "1.1 discord")
 		writeJSON(w, f.status, map[string]any{
 			"message":     rateLimitedMessage,
-			"retry_after": 0.2,
+			"retry_after": 1.0,
 			"global":      false,
 		})
 

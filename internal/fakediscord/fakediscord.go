@@ -69,12 +69,16 @@ type Server struct {
 	heartbeatAcks int
 	// recordSeq numbers outbound records and never restarts, so a reader's ?since= cursor
 	// stays valid across a reset.
-	recordSeq  int
-	subs       map[*subscriber]struct{}
-	faults     map[string][]fault
-	rephrases  map[string]string
-	ucFixtures []UCFixture
-	botStatus  string
+	recordSeq int
+	// faultSeq numbers injected faults and never restarts, so a reader's ?since= cursor
+	// stays valid across a reset.
+	faultSeq       int
+	subs           map[*subscriber]struct{}
+	faults         map[string][]fault
+	injectedFaults []InjectedFault
+	rephrases      map[string]string
+	ucFixtures     []UCFixture
+	botStatus      string
 	// stopped is closed by Close so waits and event streams end.
 	stopped chan struct{}
 	// changed is closed and replaced on every state change WaitReady cares about.
