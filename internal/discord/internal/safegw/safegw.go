@@ -17,12 +17,26 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// DefaultOpenTimeout is how long Open keeps retrying transient failures of the first connection
+// before it gives up.
+const DefaultOpenTimeout = 30 * time.Second
+
+const (
+	initialReconnectDelay = 20 * time.Millisecond
+	maxReconnectDelay     = time.Second
+)
+
+// ErrOpenTimeout is wrapped by the error Open returns when neither READY nor RESUMED arrives
+// within the open timeout.
+var ErrOpenTimeout = errors.New("safegw: no READY or RESUMED within the open timeout")
+
 // Gateway is a race-free implementation of gateway.Gateway. It synchronizes all state
 // transitions, heartbeats, and socket writes under mutexes to satisfy the Go race detector (-race).
 type Gateway struct {
-	token   string
-	url     string
-	intents gateway.Intents
+	token       string
+	url         string
+	intents     gateway.Intents
+	openTimeout time.Duration
 
 	handlerMu    sync.RWMutex
 	eventHandler gateway.EventHandlerFunc
@@ -64,10 +78,23 @@ func New(token, url string, intents gateway.Intents, closeHandler gateway.CloseH
 		token:        token,
 		url:          url,
 		intents:      intents,
+		openTimeout:  DefaultOpenTimeout,
 		closeHandler: closeHandler,
 		status:       gateway.StatusUnconnected,
 		done:         make(chan struct{}),
 	}
+}
+
+// SetOpenTimeout sets how long Open retries transient failures of the first connection. It must
+// be called before Open and returns an error when d is not positive. The default is
+// DefaultOpenTimeout.
+func (g *Gateway) SetOpenTimeout(d time.Duration) error {
+	if d <= 0 {
+		return fmt.Errorf("safegw: open timeout must be positive, got %s", d)
+	}
+	g.openTimeout = d
+
+	return nil
 }
 
 // SetEventHandlerFunc sets the handler for incoming dispatch events.
@@ -145,6 +172,11 @@ func (g *Gateway) Presence() *gateway.MessageDataPresenceUpdate {
 }
 
 // Open connects the gateway to Discord and waits until Ready or Resumed is received.
+//
+// A transient failure of the first connection (a failed dial, a dropped socket, a close code
+// Discord allows reconnecting after) is retried until the open timeout. A fatal close code or a
+// malformed handshake fails Open at once. When the timeout passes the gateway is closed and the
+// returned error wraps ErrOpenTimeout.
 func (g *Gateway) Open(ctx context.Context) error {
 	readyChan := make(chan error, 1)
 	var readyOnce sync.Once
@@ -157,10 +189,16 @@ func (g *Gateway) Open(ctx context.Context) error {
 	//nolint:gosec // gateway lifecycle goroutine outlives the Open connection deadline context.
 	go g.lifecycle(ready)
 
+	openTimer := time.NewTimer(g.openTimeout)
+	defer openTimer.Stop()
+
 	select {
 	case <-ctx.Done():
 		g.Close(ctx)
 		return fmt.Errorf("safegw: %w", ctx.Err())
+	case <-openTimer.C:
+		g.Close(ctx)
+		return fmt.Errorf("failed to open gateway connection: %w (%s)", ErrOpenTimeout, g.openTimeout)
 	case err := <-readyChan:
 		if err != nil {
 			g.Close(ctx)
@@ -175,46 +213,84 @@ func (g *Gateway) lifecycle(ready func(error)) {
 	// Ensure ready is called before goroutine exits if an unexpected condition occurs.
 	defer ready(nil)
 
+	delay := initialReconnectDelay
 	for {
-		g.closeMu.Lock()
-		closed := g.closed
-		g.closeMu.Unlock()
-		if closed {
+		if g.isClosed() {
 			return
 		}
 
 		err := g.connectAndRead(ready)
 
-		g.closeMu.Lock()
-		closed = g.closed
-		g.closeMu.Unlock()
-		if closed {
+		if g.isClosed() {
 			return
 		}
 
-		if err != nil {
-			var closeErr *websocket.CloseError
-			if errors.As(err, &closeErr) {
-				closeCode := gateway.CloseEventCodeByCode(closeErr.Code)
-				if !closeCode.Reconnect {
-					g.CloseWithCode(context.Background(), closeErr.Code, closeErr.Text)
-					g.handlerMu.RLock()
-					ch := g.closeHandler
-					g.handlerMu.RUnlock()
-					if ch != nil {
-						ch(g, err, false)
-					}
-					return
-				}
-			}
+		if err != nil && g.stopOnFatalClose(err) {
+			return
 		}
 
-		// Brief pause before reconnecting.
+		// A connection that reached READY or RESUMED was healthy, so the next failure starts a
+		// fresh backoff.
+		if g.Status() == gateway.StatusReady {
+			delay = initialReconnectDelay
+		}
+
+		// Pause before reconnecting, longer after each consecutive failure.
 		select {
 		case <-g.done:
 			return
-		case <-time.After(20 * time.Millisecond):
+		case <-time.After(delay):
 		}
+		delay = min(delay*2, maxReconnectDelay)
+	}
+}
+
+func (g *Gateway) isClosed() bool {
+	g.closeMu.Lock()
+	defer g.closeMu.Unlock()
+
+	return g.closed
+}
+
+// stopOnFatalClose closes the gateway and notifies the close handler when err is a close code
+// Discord does not allow reconnecting after. It reports whether it did.
+func (g *Gateway) stopOnFatalClose(err error) bool {
+	closeErr := fatalCloseError(err)
+	if closeErr == nil {
+		return false
+	}
+
+	g.CloseWithCode(context.Background(), closeErr.Code, closeErr.Text)
+	g.handlerMu.RLock()
+	ch := g.closeHandler
+	g.handlerMu.RUnlock()
+	if ch != nil {
+		ch(g, err, false)
+	}
+
+	return true
+}
+
+// fatalCloseError returns the websocket close error in err when its code is one Discord does not
+// allow reconnecting after, and nil for every other error. Only a fatal close ends Open early:
+// every other failure before READY is transient, so the lifecycle loop reconnects and Open keeps
+// waiting until its timeout.
+func fatalCloseError(err error) *websocket.CloseError {
+	var closeErr *websocket.CloseError
+	if !errors.As(err, &closeErr) {
+		return nil
+	}
+	if gateway.CloseEventCodeByCode(closeErr.Code).Reconnect {
+		return nil
+	}
+
+	return closeErr
+}
+
+// failOpenIfFatal ends Open with err when it is a fatal close and leaves Open waiting otherwise.
+func failOpenIfFatal(ready func(error), err error) {
+	if fatalCloseError(err) != nil {
+		ready(err)
 	}
 }
 
@@ -242,18 +318,26 @@ func (g *Gateway) connectAndRead(ready func(error)) error {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		ready(err)
+		failOpenIfFatal(ready, err)
 		return fmt.Errorf("safegw: dial: %w", err)
 	}
 
+	// The gateway may have been closed while the dial was in flight; the closed check and the
+	// assignment share connMu so Close either sees this socket or this code sees the close.
 	g.connMu.Lock()
+	if g.isClosed() {
+		g.connMu.Unlock()
+		// Close the socket dialed after the gateway was closed.
+		_ = conn.Close()
+		return errors.New("safegw: gateway closed during dial")
+	}
 	g.conn = conn
 	g.connMu.Unlock()
 
 	// 1. Read OpcodeHello.
 	_, helloData, err := conn.ReadMessage()
 	if err != nil {
-		ready(err)
+		failOpenIfFatal(ready, err)
 		// Close connection immediately on read failure.
 		_ = conn.Close()
 		return fmt.Errorf("safegw: read hello: %w", err)
@@ -320,7 +404,6 @@ func (g *Gateway) connectAndRead(ready func(error)) error {
 			},
 		}
 		if err := g.Send(context.Background(), gateway.OpcodeIdentify, identifyData); err != nil {
-			ready(err)
 			g.stopHeartbeat()
 			// Close socket on identify transmission failure.
 			_ = conn.Close()
@@ -351,7 +434,7 @@ func (g *Gateway) readLoop(conn *websocket.Conn, ready func(error)) error {
 			status := g.status
 			g.statusMu.RUnlock()
 			if status != gateway.StatusReady {
-				ready(err)
+				failOpenIfFatal(ready, err)
 			}
 			return fmt.Errorf("safegw: read message: %w", err)
 		}

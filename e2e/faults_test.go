@@ -26,6 +26,15 @@ const (
 func TestGatewayResume(t *testing.T) {
 	s := newGuild(t, 2)
 
+	// The fake counts the bot as ready once it receives the identify; only an answered interaction
+	// shows that the bot processed READY, which the drop must not precede.
+	waitFor(t, "the bot to answer before the drop", func() bool {
+		guild := s.guild
+		result, err := s.fake.Slash(t.Context(), s.members[0], fakediscord.Slash{Guild: &guild, Path: "/ge/help"})
+
+		return err == nil && result.Status != fakediscord.StatusTimeout
+	})
+
 	resumesBefore := shared.fake.Resumes()
 	shared.fake.DropGateway(closeUnknownError)
 
