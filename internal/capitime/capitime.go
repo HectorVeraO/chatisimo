@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/HectorVeraO/chatisimo/internal/platform/llm"
 )
 
 // Timezone is the IANA timezone name used for all Capi Time arrival calculations.
@@ -92,6 +94,22 @@ type GuildConfigUpdate struct {
 	Locale       *Locale
 }
 
+// MaxImageRefs is the largest number of image references a client adapter should pass in one
+// MessageInput. A message that carries more usable images than the vision model accepts is not read.
+const MaxImageRefs = 4
+
+// ImageRef points at one image of a message: an attachment or a sticker.
+type ImageRef struct {
+	// URL is the HTTPS address of the image on the Discord CDN.
+	URL string
+	// MIMEType is the content type announced for the image, such as "image/png".
+	MIMEType string
+	// Name is the sticker name; it is empty for attachments.
+	Name string
+	// Size is the size in bytes announced for the image, or zero when unknown.
+	Size int
+}
+
 // MessageInput describes an incoming guild channel message evaluated by the Capi Time detector.
 type MessageInput struct {
 	GuildID   string
@@ -100,6 +118,8 @@ type MessageInput struct {
 	AuthorID  string
 	AuthorBot bool
 	Content   string
+	// Images lists the attachments and stickers of the message that may hold arrival text.
+	Images []ImageRef
 }
 
 // Prediction holds the detected arrival claim and the computed Capi Time target instant.
@@ -144,6 +164,16 @@ type LLMGenerator interface {
 	GenerateWithPrompt(ctx context.Context, systemInstruction, userPrompt string) (string, error)
 }
 
+// VisionGenerator reads images with a multimodal model. *llm.Client satisfies this interface.
+type VisionGenerator interface {
+	GenerateWithImages(ctx context.Context, systemInstruction, text string, images []llm.Image) (string, error)
+}
+
+// ImageFetcher downloads the image behind url, failing when it is larger than maxBytes.
+type ImageFetcher interface {
+	Fetch(ctx context.Context, url string, maxBytes int) ([]byte, error)
+}
+
 // BanterGenerator produces a short single-line banter clause for a Capi Time reply.
 type BanterGenerator interface {
 	GenerateBanter(ctx context.Context, input BanterInput) (string, error)
@@ -157,4 +187,9 @@ type Deps struct {
 	Settings SettingReader
 	LLM      LLMGenerator
 	Banter   BanterGenerator
+	// Vision reads arrival text from images and stickers. When nil, messages without text are ignored.
+	Vision VisionGenerator
+	// Images downloads the images Vision reads. When nil and Vision is set, an HTTPImageFetcher
+	// limited to the Discord CDN is used.
+	Images ImageFetcher
 }

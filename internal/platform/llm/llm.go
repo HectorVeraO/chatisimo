@@ -5,6 +5,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,11 @@ const (
 		"hmno, wn, weon, compa, crack, etc.) completely instead of translating or keeping them as subjects or nouns. " +
 		"Preserve the language of the input question and its exact gift-relevant meaning and constraints. " +
 		"Output ONLY the rewritten question as a single line of plain text under 450 characters, with no quotes, preamble, or explanation."
+
+	// MaxImages is the largest number of images GenerateWithImages accepts in one request.
+	MaxImages = 2
+	// MaxImageBytes is the largest size in bytes of one image accepted by GenerateWithImages.
+	MaxImageBytes = 4 << 20
 
 	maxPromptBytes   = 16 << 10
 	maxResponseBytes = 64 * 1024
@@ -265,7 +271,13 @@ type contentMessage struct {
 }
 
 type contentPart struct {
-	Text string `json:"text"`
+	Text       string      `json:"text,omitempty"`
+	InlineData *inlineData `json:"inline_data,omitempty"`
+}
+
+type inlineData struct {
+	MIMEType string `json:"mime_type"`
+	Data     string `json:"data"`
 }
 
 type generationConfig struct {
@@ -331,6 +343,78 @@ func (c *Client) GenerateWithPrompt(ctx context.Context, prompt, text string) (s
 	return c.generate(ctx, resolvedPrompt, trimmedText)
 }
 
+// Image is one inline image sent to the model. MIMEType must be image/png, image/jpeg, image/gif or
+// image/webp.
+type Image struct {
+	MIMEType string
+	Data     []byte
+}
+
+// GenerateWithImages sends images, followed by text when it is not blank, as user content to the
+// client's configured model, using prompt as the system instruction (or the client's configured
+// prompt when prompt is blank). It accepts between 1 and MaxImages images of at most MaxImageBytes
+// each. Validation errors never include prompt, text, image data or the API key.
+func (c *Client) GenerateWithImages(ctx context.Context, prompt, text string, images []Image) (string, error) {
+	if c == nil {
+		return "", errors.New("llm: nil client")
+	}
+
+	var problems []error
+	if ctx == nil {
+		problems = append(problems, errors.New("llm: nil context"))
+	}
+
+	resolvedPrompt, promptErr := resolvePrompt(prompt, c.prompt)
+	if promptErr != nil {
+		problems = append(problems, promptErr)
+	}
+
+	problems = append(problems, validateImages(images)...)
+
+	if len(problems) > 0 {
+		return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+	}
+
+	userParts := make([]contentPart, 0, len(images)+1)
+	for _, image := range images {
+		userParts = append(userParts, contentPart{InlineData: &inlineData{
+			MIMEType: image.MIMEType,
+			Data:     base64.StdEncoding.EncodeToString(image.Data),
+		}})
+	}
+
+	trimmedText := strings.TrimSpace(text)
+	if trimmedText != "" {
+		userParts = append(userParts, contentPart{Text: trimmedText})
+	}
+
+	return c.send(ctx, resolvedPrompt, userParts)
+}
+
+func validateImages(images []Image) []error {
+	var problems []error
+
+	if len(images) == 0 || len(images) > MaxImages {
+		problems = append(problems, fmt.Errorf("llm: image count must be between 1 and %d", MaxImages))
+	}
+
+	for i, image := range images {
+		switch image.MIMEType {
+		case "image/png", "image/jpeg", "image/gif", "image/webp":
+		default:
+			problems = append(problems, fmt.Errorf("llm: image %d has an unsupported MIME type", i))
+		}
+
+		if len(image.Data) == 0 {
+			problems = append(problems, fmt.Errorf("llm: image %d is empty", i))
+		} else if len(image.Data) > MaxImageBytes {
+			problems = append(problems, fmt.Errorf("llm: image %d exceeds %d bytes", i, MaxImageBytes))
+		}
+	}
+
+	return problems
+}
+
 func (c *Client) generate(ctx context.Context, systemPrompt, text string) (string, error) {
 	if ctx == nil {
 		return "", errors.New("llm: nil context")
@@ -341,6 +425,12 @@ func (c *Client) generate(ctx context.Context, systemPrompt, text string) (strin
 		return "", errors.New("llm: question text is empty")
 	}
 
+	return c.send(ctx, systemPrompt, []contentPart{{Text: trimmed}})
+}
+
+// send posts the user parts to the configured model's generateContent endpoint and returns the
+// generated text. It is the single HTTP path for text and image requests.
+func (c *Client) send(ctx context.Context, systemPrompt string, userParts []contentPart) (string, error) {
 	callCtx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 
@@ -351,7 +441,7 @@ func (c *Client) generate(ctx context.Context, systemPrompt, text string) (strin
 		Contents: []contentMessage{
 			{
 				Role:  "user",
-				Parts: []contentPart{{Text: trimmed}},
+				Parts: userParts,
 			},
 		},
 		GenerationConfig: generationConfig{

@@ -723,9 +723,38 @@ func walkModalInputs(raws []json.RawMessage, parentLabel string, depth int, visi
 	}
 }
 
+// Attachment is a file attached to a user message.
+type Attachment struct {
+	ID          string
+	Filename    string
+	ContentType string
+	URL         string
+	Size        int
+}
+
+// StickerItem is a sticker sent with a user message. FormatType follows Discord: 1 PNG, 2 APNG,
+// 3 Lottie, 4 GIF.
+type StickerItem struct {
+	ID         string
+	Name       string
+	FormatType int
+}
+
 // SendUserMessage dispatches a Gateway MESSAGE_CREATE event from u in channelID of guild g
 // (defaulting to g.ChannelID when channelID is empty) and returns the generated message ID.
 func (s *Server) SendUserMessage(u User, g Guild, channelID, content string) (string, error) {
+	return s.SendUserMessageWithMedia(u, g, channelID, content, nil, nil)
+}
+
+// SendUserMessageWithMedia is SendUserMessage for a message that also carries attachments and
+// stickers.
+func (s *Server) SendUserMessageWithMedia(
+	u User,
+	g Guild,
+	channelID, content string,
+	attachments []Attachment,
+	stickers []StickerItem,
+) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -764,8 +793,11 @@ func (s *Server) SendUserMessage(u User, g Guild, channelID, content string) (st
 		"flags":       0,
 		"embeds":      []any{},
 		"components":  []any{},
-		"attachments": []any{},
+		"attachments": attachmentsToJSON(attachments),
 		"mentions":    []any{},
+	}
+	if len(stickers) > 0 {
+		payload["sticker_items"] = stickerItemsToJSON(stickers)
 	}
 
 	for _, sess := range s.sessions {
@@ -773,6 +805,35 @@ func (s *Server) SendUserMessage(u User, g Guild, channelID, content string) (st
 	}
 
 	return msgID, nil
+}
+
+func attachmentsToJSON(attachments []Attachment) []map[string]any {
+	out := make([]map[string]any, 0, len(attachments))
+	for _, a := range attachments {
+		out = append(out, map[string]any{
+			"id":           a.ID,
+			"filename":     a.Filename,
+			"content_type": a.ContentType,
+			"url":          a.URL,
+			"proxy_url":    a.URL,
+			"size":         a.Size,
+		})
+	}
+
+	return out
+}
+
+func stickerItemsToJSON(stickers []StickerItem) []map[string]any {
+	out := make([]map[string]any, 0, len(stickers))
+	for _, st := range stickers {
+		out = append(out, map[string]any{
+			"id":          st.ID,
+			"name":        st.Name,
+			"format_type": st.FormatType,
+		})
+	}
+
+	return out
 }
 
 // modalSubmitComponents builds the components of a modal submission: one action row per
