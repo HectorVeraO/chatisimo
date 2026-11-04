@@ -110,6 +110,24 @@ type ImageRef struct {
 	Size int
 }
 
+// MaxAudioRefs is the largest number of audio references a client adapter should pass in one
+// MessageInput. Only the first usable audio of a message is read.
+const MaxAudioRefs = 2
+
+// AudioRef points at one voice message or audio file attached to a message.
+type AudioRef struct {
+	// URL is the HTTPS address of the audio on the Discord CDN.
+	URL string
+	// MIMEType is the content type announced for the audio, such as "audio/ogg".
+	MIMEType string
+	// Size is the size in bytes announced for the audio, or zero when unknown.
+	Size int
+	// DurationSeconds is the length announced for the audio, or zero when unknown.
+	DurationSeconds float64
+	// IsVoiceMessage reports whether Discord flagged the message as a voice message.
+	IsVoiceMessage bool
+}
+
 // MessageInput describes an incoming guild channel message evaluated by the Capi Time detector.
 type MessageInput struct {
 	GuildID   string
@@ -120,6 +138,8 @@ type MessageInput struct {
 	Content   string
 	// Images lists the attachments and stickers of the message that may hold arrival text.
 	Images []ImageRef
+	// Audio lists the voice messages and audio files of the message that may announce an arrival.
+	Audio []AudioRef
 }
 
 // Prediction holds the detected arrival claim and the computed Capi Time target instant.
@@ -169,7 +189,13 @@ type VisionGenerator interface {
 	GenerateWithImages(ctx context.Context, systemInstruction, text string, images []llm.Image) (string, error)
 }
 
-// ImageFetcher downloads the image behind url, failing when it is larger than maxBytes.
+// AudioGenerator listens to audio with a multimodal model. *llm.Client satisfies this interface.
+type AudioGenerator interface {
+	GenerateWithAudio(ctx context.Context, systemInstruction, text string, audio llm.Audio) (string, error)
+}
+
+// ImageFetcher downloads the media behind url, failing when it is larger than maxBytes. Despite the
+// name it is a generic byte fetcher: it serves images and audio alike.
 type ImageFetcher interface {
 	Fetch(ctx context.Context, url string, maxBytes int) ([]byte, error)
 }
@@ -189,7 +215,9 @@ type Deps struct {
 	Banter   BanterGenerator
 	// Vision reads arrival text from images and stickers. When nil, messages without text are ignored.
 	Vision VisionGenerator
-	// Images downloads the images Vision reads. When nil and Vision is set, an HTTPImageFetcher
-	// limited to the Discord CDN is used.
+	// Audio reads arrival announcements from voice messages and audio files. When nil, audio is ignored.
+	Audio AudioGenerator
+	// Images downloads the images Vision reads and the audio Audio listens to. When nil and Vision or
+	// Audio is set, an HTTPImageFetcher limited to the Discord CDN is used.
 	Images ImageFetcher
 }

@@ -29,6 +29,7 @@ type Service struct {
 	llm      LLMGenerator
 	banter   BanterGenerator
 	vision   VisionGenerator
+	audio    AudioGenerator
 	images   ImageFetcher
 
 	debounceMu    sync.Mutex
@@ -62,7 +63,7 @@ func New(deps Deps) (*Service, error) {
 	}
 
 	imageFetcher := deps.Images
-	if imageFetcher == nil && deps.Vision != nil {
+	if imageFetcher == nil && (deps.Vision != nil || deps.Audio != nil) {
 		imageFetcher = NewHTTPImageFetcher(HTTPImageFetcherConfig{})
 	}
 
@@ -74,6 +75,7 @@ func New(deps Deps) (*Service, error) {
 		llm:           deps.LLM,
 		banter:        banterGen,
 		vision:        deps.Vision,
+		audio:         deps.Audio,
 		images:        imageFetcher,
 		lastReplyTime: make(map[string]time.Time),
 	}
@@ -233,17 +235,17 @@ func (s *Service) ClearGuildConfig(
 // is authored by the guild's configured target user in a monitored channel, expresses arrival
 // intent, and falls outside the anti-spam debounce window.
 //
-// A message may carry only images or stickers. When the text is decided by the stage 1 heuristics
-// (a claim or a rejection), the text is trusted and the images are not read. When the text is
-// empty or undecided and the message has usable images and a VisionGenerator is configured, the
-// vision model reads the images together with the text; otherwise the text goes to the stage 2
-// text classifier. Every target, channel and debounce check runs before any download or model call.
+// A message may carry only images, stickers, a voice message or an audio file. When the text is
+// decided by the stage 1 heuristics (a claim or a rejection), the text is trusted and no media is
+// read. Otherwise the media is read in order (see detectClaim) and the text goes to the stage 2 text
+// classifier when the media yields no claim. Every target, channel and debounce check runs before
+// any download or model call.
 func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, error) {
 	if err := s.checkReady(ctx); err != nil {
 		return Reply{}, err
 	}
-	if msg.AuthorBot || msg.GuildID == "" || msg.ChannelID == "" || msg.AuthorID == "" ||
-		(msg.Content == "" && len(msg.Images) == 0) {
+	hasNoContent := msg.Content == "" && len(msg.Images) == 0 && len(msg.Audio) == 0
+	if msg.AuthorBot || msg.GuildID == "" || msg.ChannelID == "" || msg.AuthorID == "" || hasNoContent {
 		return Reply{}, nil
 	}
 	if !isValidSnowflake(msg.GuildID) ||
@@ -300,10 +302,17 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 	return reply, nil
 }
 
-// detectClaim runs the stage 1 heuristics on the message text and, when they cannot decide, the
-// vision model on its images, then the stage 2 text classifier. Text decided by stage 1 is trusted
-// and skips the images. When the images yield no claim (fetch or model failure, or no arrival read),
-// a message with text still goes through the stage 2 text classifier.
+// detectClaim looks for an arrival claim in this order, stopping at the first that applies:
+//
+//  1. The stage 1 heuristics on the text. A claim or a rejection they decide is trusted and skips
+//     all media.
+//  2. The vision model on the usable images, when Vision and Images are set.
+//  3. The audio model on the first usable voice message or audio file (at most one audio per
+//     message is read), when Audio and Images are set.
+//  4. The stage 2 text classifier on the text, when the text is not empty and an LLM is set.
+//
+// A step that fails or finds no arrival (fetch or model failure, or no arrival read) falls through
+// to the next one, so a message costs at most one image call and one audio call.
 func (s *Service) detectClaim(
 	ctx context.Context,
 	msg MessageInput,
@@ -325,6 +334,16 @@ func (s *Service) detectClaim(
 			visionClaim := classifyImagesWithVision(ctx, s.vision, s.images, refs, msg.Content, now)
 			if visionClaim.Detected {
 				return visionClaim
+			}
+		}
+	}
+
+	if s.audio != nil && s.images != nil {
+		refs := usableAudioRefs(msg.Audio)
+		if len(refs) > 0 {
+			audioClaim := classifyAudioWithModel(ctx, s.audio, s.images, refs, msg.Content, now)
+			if audioClaim.Detected {
+				return audioClaim
 			}
 		}
 	}

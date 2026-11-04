@@ -49,6 +49,12 @@ const (
 	// MaxImageBytes is the largest size in bytes of one image accepted by GenerateWithImages.
 	MaxImageBytes = 4 << 20
 
+	// MaxAudioBytes is the largest size in bytes of the audio accepted by GenerateWithAudio.
+	MaxAudioBytes = 2 << 20
+	// MaxAudioSeconds is the longest audio, in seconds, that callers should send to GenerateWithAudio.
+	// The client cannot measure duration, so callers enforce it from the announced length.
+	MaxAudioSeconds = 30
+
 	maxPromptBytes   = 16 << 10
 	maxResponseBytes = 64 * 1024
 	redacted         = "[redacted]"
@@ -415,6 +421,87 @@ func validateImages(images []Image) []error {
 	return problems
 }
 
+// Audio is one inline audio clip sent to the model. MIMEType must be one of the types
+// NormalizeAudioMIME accepts; parameters such as "; codecs=opus" are dropped before sending.
+type Audio struct {
+	MIMEType string
+	Data     []byte
+}
+
+// NormalizeAudioMIME maps an announced content type to one of the audio types the model accepts:
+// it drops parameters, trims and lowercases. It reports false for any other type.
+func NormalizeAudioMIME(raw string) (string, bool) {
+	base, _, _ := strings.Cut(raw, ";")
+	mime := strings.ToLower(strings.TrimSpace(base))
+
+	switch mime {
+	case "audio/ogg", "audio/opus", "audio/mpeg", "audio/mp3", "audio/wav",
+		"audio/aac", "audio/flac", "audio/m4a", "audio/webm":
+		return mime, true
+	default:
+		return "", false
+	}
+}
+
+// validateAudio returns the normalized MIME type of audio and every problem that makes it
+// unsendable. The problems never include the audio data.
+func validateAudio(audio Audio) (string, []error) {
+	var problems []error
+
+	mime, isSupportedType := NormalizeAudioMIME(audio.MIMEType)
+	if !isSupportedType {
+		problems = append(problems, errors.New("llm: audio has an unsupported MIME type"))
+	}
+
+	if len(audio.Data) == 0 {
+		problems = append(problems, errors.New("llm: audio is empty"))
+	} else if len(audio.Data) > MaxAudioBytes {
+		problems = append(problems, fmt.Errorf("llm: audio exceeds %d bytes", MaxAudioBytes))
+	}
+
+	return mime, problems
+}
+
+// GenerateWithAudio sends audio, followed by text when it is not blank, as user content to the
+// client's configured model, using prompt as the system instruction (or the client's configured
+// prompt when prompt is blank). The audio must be between 1 and MaxAudioBytes bytes. Validation
+// errors never include prompt, text, audio data or the API key.
+func (c *Client) GenerateWithAudio(ctx context.Context, prompt, text string, audio Audio) (string, error) {
+	if c == nil {
+		return "", errors.New("llm: nil client")
+	}
+
+	var problems []error
+	if ctx == nil {
+		problems = append(problems, errors.New("llm: nil context"))
+	}
+
+	resolvedPrompt, promptErr := resolvePrompt(prompt, c.prompt)
+	if promptErr != nil {
+		problems = append(problems, promptErr)
+	}
+
+	mime, audioProblems := validateAudio(audio)
+	problems = append(problems, audioProblems...)
+
+	if len(problems) > 0 {
+		return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+	}
+
+	userParts := make([]contentPart, 0, 2)
+	userParts = append(userParts, contentPart{InlineData: &inlineData{
+		MIMEType: mime,
+		Data:     base64.StdEncoding.EncodeToString(audio.Data),
+	}})
+
+	trimmedText := strings.TrimSpace(text)
+	if trimmedText != "" {
+		userParts = append(userParts, contentPart{Text: trimmedText})
+	}
+
+	return c.send(ctx, resolvedPrompt, userParts)
+}
+
 func (c *Client) generate(ctx context.Context, systemPrompt, text string) (string, error) {
 	if ctx == nil {
 		return "", errors.New("llm: nil context")
@@ -429,7 +516,7 @@ func (c *Client) generate(ctx context.Context, systemPrompt, text string) (strin
 }
 
 // send posts the user parts to the configured model's generateContent endpoint and returns the
-// generated text. It is the single HTTP path for text and image requests.
+// generated text. It is the single HTTP path for text, image and audio requests.
 func (c *Client) send(ctx context.Context, systemPrompt string, userParts []contentPart) (string, error) {
 	callCtx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
