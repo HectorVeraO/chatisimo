@@ -436,15 +436,19 @@ func sanitizeInputText(raw string) string {
 	return strings.TrimSpace(b.String())
 }
 
-const stage2SystemInstruction = "" +
+const stage2Rules = "" +
 	"Clasifica si un mensaje corto de Discord en espanol chileno expresa una promesa o intencion " +
 	"en primera persona (o apodandose Capi/Braulio/Braulitros/Capis) de llegar, conectarse o estar " +
 	"en camino en el presente o futuro cercano. " +
-	"Rechaza relatos en pasado (llegue, ayer) o sobre terceros ajenos. " +
+	"Rechaza relatos en pasado (llegue, ayer) o sobre terceros ajenos. "
+
+const stage2JSONContract = "" +
 	"Responde UNICAMENTE un objeto JSON valido en una linea con el formato: " +
 	`{"arrival":true,"immediate":true,"offset_minutes":0,"clock":""}` +
 	" o " +
 	`{"arrival":false}`
+
+const stage2SystemInstruction = stage2Rules + stage2JSONContract
 
 type stage2Response struct {
 	Arrival       bool   `json:"arrival"`
@@ -471,6 +475,12 @@ func classifyStage2WithLLM(ctx context.Context, gen LLMGenerator, raw string, no
 		return ArrivalClaim{}
 	}
 
+	return claimFromModelOutput(out, now)
+}
+
+// claimFromModelOutput turns the JSON object a stage 2 model returns into an ArrivalClaim. Any
+// output that is not the documented JSON, or that says arrival is false, yields no claim.
+func claimFromModelOutput(out string, now time.Time) ArrivalClaim {
 	trimmed := strings.TrimSpace(out)
 	trimmed = strings.TrimPrefix(trimmed, "```json")
 	trimmed = strings.TrimPrefix(trimmed, "```")

@@ -298,6 +298,7 @@ func (a *Adapter) onMessageCreate(ctx context.Context, event *events.MessageCrea
 		AuthorID:  event.Message.Author.ID.String(),
 		AuthorBot: event.Message.Author.Bot,
 		Content:   event.Message.Content,
+		Images:    capiImageRefs(event.Message),
 	}
 
 	reply, err := svc.HandleMessage(ctx, input)
@@ -329,6 +330,56 @@ func (a *Adapter) onMessageCreate(ctx context.Context, event *events.MessageCrea
 			)
 		}
 	}
+}
+
+// capiImageRefs lists the image attachments and the PNG, APNG and GIF stickers of message as Capi
+// Time image references, at most capitime.MaxImageRefs. Lottie stickers and other attachment
+// types are skipped because the vision model cannot read them.
+func capiImageRefs(message discord.Message) []capitime.ImageRef {
+	var refs []capitime.ImageRef
+
+	for _, attachment := range message.Attachments {
+		if len(refs) >= capitime.MaxImageRefs {
+			return refs
+		}
+
+		hasImageType := attachment.ContentType != nil &&
+			strings.HasPrefix(strings.ToLower(strings.TrimSpace(*attachment.ContentType)), "image/")
+		if !hasImageType {
+			continue
+		}
+
+		refs = append(refs, capitime.ImageRef{
+			URL:      attachment.URL,
+			MIMEType: *attachment.ContentType,
+			Size:     attachment.Size,
+		})
+	}
+
+	for _, item := range message.StickerItems {
+		if len(refs) >= capitime.MaxImageRefs {
+			return refs
+		}
+
+		var mimeType string
+		switch item.FormatType {
+		case discord.StickerFormatTypePNG, discord.StickerFormatTypeAPNG:
+			mimeType = "image/png"
+		case discord.StickerFormatTypeGIF:
+			mimeType = "image/gif"
+		default:
+			continue
+		}
+
+		sticker := discord.Sticker{ID: item.ID, FormatType: item.FormatType}
+		refs = append(refs, capitime.ImageRef{
+			URL:      sticker.URL(),
+			MIMEType: mimeType,
+			Name:     item.Name,
+		})
+	}
+
+	return refs
 }
 
 func buildCommands() []discord.ApplicationCommandCreate {

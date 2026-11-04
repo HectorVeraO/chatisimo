@@ -28,6 +28,8 @@ type Service struct {
 	settings SettingReader
 	llm      LLMGenerator
 	banter   BanterGenerator
+	vision   VisionGenerator
+	images   ImageFetcher
 
 	debounceMu    sync.Mutex
 	lastReplyTime map[string]time.Time
@@ -59,6 +61,11 @@ func New(deps Deps) (*Service, error) {
 		banterGen = NewLLMBanterGenerator(LLMBanterConfig{Generator: deps.LLM})
 	}
 
+	imageFetcher := deps.Images
+	if imageFetcher == nil && deps.Vision != nil {
+		imageFetcher = NewHTTPImageFetcher(HTTPImageFetcherConfig{})
+	}
+
 	svc := &Service{
 		store:         st,
 		clock:         clk,
@@ -66,6 +73,8 @@ func New(deps Deps) (*Service, error) {
 		settings:      deps.Settings,
 		llm:           deps.LLM,
 		banter:        banterGen,
+		vision:        deps.Vision,
+		images:        imageFetcher,
 		lastReplyTime: make(map[string]time.Time),
 	}
 	return svc, nil
@@ -223,11 +232,18 @@ func (s *Service) ClearGuildConfig(
 // HandleMessage evaluates an incoming guild message and returns a Capi Time Reply when the message
 // is authored by the guild's configured target user in a monitored channel, expresses arrival
 // intent, and falls outside the anti-spam debounce window.
+//
+// A message may carry only images or stickers. When the text is decided by the stage 1 heuristics
+// (a claim or a rejection), the text is trusted and the images are not read. When the text is
+// empty or undecided and the message has usable images and a VisionGenerator is configured, the
+// vision model reads the images together with the text; otherwise the text goes to the stage 2
+// text classifier. Every target, channel and debounce check runs before any download or model call.
 func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, error) {
 	if err := s.checkReady(ctx); err != nil {
 		return Reply{}, err
 	}
-	if msg.AuthorBot || msg.GuildID == "" || msg.ChannelID == "" || msg.AuthorID == "" || msg.Content == "" {
+	if msg.AuthorBot || msg.GuildID == "" || msg.ChannelID == "" || msg.AuthorID == "" ||
+		(msg.Content == "" && len(msg.Images) == 0) {
 		return Reply{}, nil
 	}
 	if !isValidSnowflake(msg.GuildID) ||
@@ -256,10 +272,7 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 		return Reply{}, nil
 	}
 
-	claim, decided := parseStage1(msg.Content, now, runtimeCfg.compiledRegex)
-	if !decided && s.llm != nil {
-		claim = classifyStage2WithLLM(ctx, s.llm, msg.Content, now)
-	}
+	claim := s.detectClaim(ctx, msg, now, runtimeCfg)
 	if !claim.Detected {
 		return Reply{}, nil
 	}
@@ -285,6 +298,42 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 		Content:    content,
 	}
 	return reply, nil
+}
+
+// detectClaim runs the stage 1 heuristics on the message text and, when they cannot decide, the
+// vision model on its images, then the stage 2 text classifier. Text decided by stage 1 is trusted
+// and skips the images. When the images yield no claim (fetch or model failure, or no arrival read),
+// a message with text still goes through the stage 2 text classifier.
+func (s *Service) detectClaim(
+	ctx context.Context,
+	msg MessageInput,
+	now time.Time,
+	runtimeCfg runtimeSettings,
+) ArrivalClaim {
+	hasText := sanitizeInputText(msg.Content) != ""
+
+	if hasText {
+		claim, decided := parseStage1(msg.Content, now, runtimeCfg.compiledRegex)
+		if decided {
+			return claim
+		}
+	}
+
+	if s.vision != nil && s.images != nil {
+		refs := usableImageRefs(msg.Images)
+		if len(refs) > 0 {
+			visionClaim := classifyImagesWithVision(ctx, s.vision, s.images, refs, msg.Content, now)
+			if visionClaim.Detected {
+				return visionClaim
+			}
+		}
+	}
+
+	if hasText && s.llm != nil {
+		return classifyStage2WithLLM(ctx, s.llm, msg.Content, now)
+	}
+
+	return ArrivalClaim{}
 }
 
 func (s *Service) isDebounced(guildID, authorID string, now time.Time, window time.Duration) bool {

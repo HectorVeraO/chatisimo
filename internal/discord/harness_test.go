@@ -279,6 +279,8 @@ type service struct {
 	svc        *giftexchange.Service
 	uc         *uccalendar.Service
 	capi       *capitime.Service
+	capiVision *fakeCapiVision
+	capiImages *fakeCapiImages
 	ucSettings *fakeUCSettings
 	clock      *fakeClock
 	rephraser  *fakeRephraser
@@ -343,10 +345,14 @@ func newService(t *testing.T, w *world) *service {
 		}
 	})
 
+	capiVision := &fakeCapiVision{}
+	capiImages := &fakeCapiImages{}
 	capi, err := capitime.New(capitime.Deps{
 		Pool:     shared.Pool(),
 		Settings: ucSettings,
 		Clock:    clock.Now,
+		Vision:   capiVision,
+		Images:   capiImages,
 	})
 	if err != nil {
 		t.Fatalf("capitime.New: %v", err)
@@ -362,6 +368,8 @@ func newService(t *testing.T, w *world) *service {
 		svc:        svc,
 		uc:         uc,
 		capi:       capi,
+		capiVision: capiVision,
+		capiImages: capiImages,
 		ucSettings: ucSettings,
 		clock:      clock,
 		rephraser:  rephraser,

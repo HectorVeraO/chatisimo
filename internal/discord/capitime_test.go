@@ -2,13 +2,93 @@ package discord_test
 
 import (
 	"context"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/HectorVeraO/chatisimo/internal/capitime"
 	"github.com/HectorVeraO/chatisimo/internal/fakediscord"
+	"github.com/HectorVeraO/chatisimo/internal/platform/llm"
 )
+
+const (
+	capiStickerID       = "500000000000000001"
+	capiAttachmentID    = "500000000000000002"
+	capiLottieID        = "500000000000000003"
+	capiGIFStickerID    = "500000000000000004"
+	capiDocumentID      = "500000000000000005"
+	capiAPNGStickerID   = "500000000000000006"
+	capiAttachmentURL   = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000002/photo.png?ex=abc"
+	capiDocumentURL     = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000005/notes.pdf?ex=def"
+	capiArrivalJSON     = `{"arrival":true,"immediate":true,"offset_minutes":0,"clock":""}`
+	stickerFormatPNG    = 1
+	stickerFormatAPNG   = 2
+	stickerFormatLottie = 3
+	stickerFormatGIF    = 4
+)
+
+// fakeCapiVision answers every image read with an arrival and records the requests.
+type fakeCapiVision struct {
+	mu    sync.Mutex
+	texts []string
+	mimes [][]string
+}
+
+func (v *fakeCapiVision) GenerateWithImages(_ context.Context, _, text string, images []llm.Image) (string, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	mimes := make([]string, 0, len(images))
+	for _, image := range images {
+		mimes = append(mimes, image.MIMEType)
+	}
+	v.texts = append(v.texts, text)
+	v.mimes = append(v.mimes, mimes)
+
+	return capiArrivalJSON, nil
+}
+
+func (v *fakeCapiVision) snapshot() ([]string, [][]string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	return slices.Clone(v.texts), slices.Clone(v.mimes)
+}
+
+// fakeCapiImages serves synthetic bytes for every URL and records which were requested.
+type fakeCapiImages struct {
+	mu   sync.Mutex
+	urls []string
+}
+
+func (f *fakeCapiImages) Fetch(_ context.Context, url string, _ int) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.urls = append(f.urls, url)
+
+	return []byte("synthetic image bytes"), nil
+}
+
+func (f *fakeCapiImages) snapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.urls)
+}
+
+func publicCapiReplies(h *harness) []fakediscord.Message {
+	var replies []fakediscord.Message
+	for _, m := range h.fake.Visible(h.users[userA], h.guild.ChannelID) {
+		if m.EphemeralFor == "" && strings.Contains(m.Content, "Capi Time") {
+			replies = append(replies, m)
+		}
+	}
+
+	return replies
+}
 
 func resetCapiGuildConfigsOnCleanup(t *testing.T, h *harness, guildIDs ...string) {
 	t.Helper()
@@ -189,4 +269,116 @@ func TestCapiTimeConfigAndArrivalDetectorEndToEndOverGateway(t *testing.T) {
 	}
 
 	assertNoUCLogLeaks(t, h, "22:30 llego", "voy altiro")
+}
+
+func TestCapiTimeReadsArrivalFromStickersAndAttachmentsOverGateway(t *testing.T) {
+	h := newHarness(t)
+	resetCapiGuildConfigsOnCleanup(t, h, h.guild.ID)
+	santiago := mustLoadSantiago(t)
+
+	h.clock.Set(time.Date(2026, time.November, 1, 21, 0, 0, 0, santiago))
+
+	target := userC
+	channel := h.guild.ChannelID
+	_, err := h.capi.UpdateGuildConfig(
+		t.Context(),
+		capitime.GuildScope{GuildID: h.guild.ID, CanManageGuild: true},
+		capitime.GuildConfigUpdate{TargetUserID: &target, ChannelID: &channel},
+	)
+	if err != nil {
+		t.Fatalf("UpdateGuildConfig: %v", err)
+	}
+
+	stickerOnly := []fakediscord.StickerItem{{ID: capiStickerID, Name: "VOY", FormatType: stickerFormatPNG}}
+
+	// A sticker from someone who is not the target is never downloaded.
+	if _, sendErr := h.fake.SendUserMessageWithMedia(h.users[userA], h.guild, "", "", nil, stickerOnly); sendErr != nil {
+		t.Fatalf("SendUserMessageWithMedia userA: %v", sendErr)
+	}
+
+	// Lottie stickers and non-image attachments from the target cannot be read.
+	unreadable := []fakediscord.StickerItem{{ID: capiLottieID, Name: "ENTRANDING", FormatType: stickerFormatLottie}}
+	document := []fakediscord.Attachment{{
+		ID: capiDocumentID, Filename: "notes.pdf", ContentType: "application/pdf", URL: capiDocumentURL, Size: 10,
+	}}
+	if _, sendErr := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", document, unreadable); sendErr != nil {
+		t.Fatalf("SendUserMessageWithMedia unreadable: %v", sendErr)
+	}
+
+	// A PNG sticker next to a Lottie one: only the PNG reaches the vision model.
+	mixed := append([]fakediscord.StickerItem{}, unreadable...)
+	mixed = append(mixed, stickerOnly...)
+	stickerMsgID, err := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", nil, mixed)
+	if err != nil {
+		t.Fatalf("SendUserMessageWithMedia sticker: %v", err)
+	}
+
+	waitFor(t, "Capi Time reply to the sticker", func() bool {
+		return len(publicCapiReplies(h)) == 1
+	})
+	first := publicCapiReplies(h)[0]
+	if first.ReplyToID != stickerMsgID {
+		t.Errorf("sticker reply ReplyToID = %q, want %q", first.ReplyToID, stickerMsgID)
+	}
+
+	urls := h.capiImages.snapshot()
+	if len(urls) != 1 || !strings.HasPrefix(urls[0], "https://cdn.discordapp.com/stickers/"+capiStickerID) {
+		t.Fatalf("fetched %v, want only the PNG sticker URL", urls)
+	}
+	texts, mimes := h.capiVision.snapshot()
+	if !slices.Equal(texts, []string{"sticker: VOY"}) || !slices.Equal(mimes[0], []string{"image/png"}) {
+		t.Fatalf("vision requests = %v %v, want one PNG read with the sticker hint", texts, mimes)
+	}
+
+	// An image attachment is read after the debounce window passes.
+	h.clock.Advance(3 * time.Minute)
+	photo := []fakediscord.Attachment{{
+		ID: capiAttachmentID, Filename: "photo.png", ContentType: "image/png", URL: capiAttachmentURL, Size: 2048,
+	}}
+	attachmentMsgID, err := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", photo, nil)
+	if err != nil {
+		t.Fatalf("SendUserMessageWithMedia attachment: %v", err)
+	}
+
+	waitFor(t, "Capi Time reply to the attachment", func() bool {
+		return len(publicCapiReplies(h)) == 2
+	})
+	if second := publicCapiReplies(h)[1]; second.ReplyToID != attachmentMsgID {
+		t.Errorf("attachment reply ReplyToID = %q, want %q", second.ReplyToID, attachmentMsgID)
+	}
+	if urls = h.capiImages.snapshot(); len(urls) != 2 || urls[1] != capiAttachmentURL {
+		t.Fatalf("fetched %v, want the attachment URL second", urls)
+	}
+
+	// A GIF sticker keeps its type.
+	h.clock.Advance(3 * time.Minute)
+	gif := []fakediscord.StickerItem{{ID: capiGIFStickerID, Name: "Ya voy", FormatType: stickerFormatGIF}}
+	if _, sendErr := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", nil, gif); sendErr != nil {
+		t.Fatalf("SendUserMessageWithMedia gif: %v", sendErr)
+	}
+
+	waitFor(t, "Capi Time reply to the GIF sticker", func() bool {
+		return len(publicCapiReplies(h)) == 3
+	})
+	_, mimes = h.capiVision.snapshot()
+	if len(mimes) != 3 || !slices.Equal(mimes[2], []string{"image/gif"}) {
+		t.Errorf("vision MIME types = %v, want the GIF sticker read as image/gif", mimes)
+	}
+
+	// An APNG sticker is read as a PNG image.
+	h.clock.Advance(3 * time.Minute)
+	apng := []fakediscord.StickerItem{{ID: capiAPNGStickerID, Name: "Voy ya", FormatType: stickerFormatAPNG}}
+	if _, sendErr := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", nil, apng); sendErr != nil {
+		t.Fatalf("SendUserMessageWithMedia apng: %v", sendErr)
+	}
+
+	waitFor(t, "Capi Time reply to the APNG sticker", func() bool {
+		return len(publicCapiReplies(h)) == 4
+	})
+	_, mimes = h.capiVision.snapshot()
+	if len(mimes) != 4 || !slices.Equal(mimes[3], []string{"image/png"}) {
+		t.Errorf("vision MIME types = %v, want the APNG sticker read as image/png", mimes)
+	}
+
+	assertNoUCLogLeaks(t, h, "VOY", "Ya voy", "Voy ya", "ENTRANDING", capiAttachmentURL, capiDocumentURL, "photo.png")
 }
