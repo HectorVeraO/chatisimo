@@ -299,6 +299,7 @@ func (a *Adapter) onMessageCreate(ctx context.Context, event *events.MessageCrea
 		AuthorBot: event.Message.Author.Bot,
 		Content:   event.Message.Content,
 		Images:    capiImageRefs(event.Message),
+		Audio:     capiAudioRefs(event.Message),
 	}
 
 	reply, err := svc.HandleMessage(ctx, input)
@@ -376,6 +377,42 @@ func capiImageRefs(message discord.Message) []capitime.ImageRef {
 			URL:      sticker.URL(),
 			MIMEType: mimeType,
 			Name:     item.Name,
+		})
+	}
+
+	return refs
+}
+
+// capiAudioRefs lists the audio attachments of message (voice messages and audio files) as Capi
+// Time audio references, at most capitime.MaxAudioRefs. Video and other attachment types are
+// skipped.
+func capiAudioRefs(message discord.Message) []capitime.AudioRef {
+	var refs []capitime.AudioRef
+
+	isVoiceMessage := message.Flags.Has(discord.MessageFlagIsVoiceMessage)
+
+	for _, attachment := range message.Attachments {
+		if len(refs) >= capitime.MaxAudioRefs {
+			return refs
+		}
+
+		hasAudioType := attachment.ContentType != nil &&
+			strings.HasPrefix(strings.ToLower(strings.TrimSpace(*attachment.ContentType)), "audio/")
+		if !hasAudioType {
+			continue
+		}
+
+		var durationSeconds float64
+		if attachment.DurationSecs != nil {
+			durationSeconds = *attachment.DurationSecs
+		}
+
+		refs = append(refs, capitime.AudioRef{
+			URL:             attachment.URL,
+			MIMEType:        *attachment.ContentType,
+			Size:            attachment.Size,
+			DurationSeconds: durationSeconds,
+			IsVoiceMessage:  isVoiceMessage,
 		})
 	}
 

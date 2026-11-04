@@ -723,6 +723,9 @@ func walkModalInputs(raws []json.RawMessage, parentLabel string, depth int, visi
 	}
 }
 
+// messageFlagIsVoiceMessage is Discord's IS_VOICE_MESSAGE message flag (1 << 13).
+const messageFlagIsVoiceMessage = 1 << 13
+
 // Attachment is a file attached to a user message.
 type Attachment struct {
 	ID          string
@@ -730,6 +733,11 @@ type Attachment struct {
 	ContentType string
 	URL         string
 	Size        int
+	// DurationSecs is the length of an audio attachment in seconds; it is omitted when zero.
+	DurationSecs float64
+	// IsVoiceMessage marks the attachment as a voice message: the message carries the
+	// IS_VOICE_MESSAGE flag (1 << 13), as Discord sends it.
+	IsVoiceMessage bool
 }
 
 // StickerItem is a sticker sent with a user message. FormatType follows Discord: 1 PNG, 2 APNG,
@@ -790,7 +798,7 @@ func (s *Server) SendUserMessageWithMedia(
 		"content":     content,
 		"timestamp":   now.Format(time.RFC3339),
 		"type":        0,
-		"flags":       0,
+		"flags":       messageFlagsFor(attachments),
 		"embeds":      []any{},
 		"components":  []any{},
 		"attachments": attachmentsToJSON(attachments),
@@ -807,17 +815,34 @@ func (s *Server) SendUserMessageWithMedia(
 	return msgID, nil
 }
 
+// messageFlagsFor returns the message flags Discord sets for attachments: IS_VOICE_MESSAGE when any
+// of them is a voice message.
+func messageFlagsFor(attachments []Attachment) int {
+	for _, a := range attachments {
+		if a.IsVoiceMessage {
+			return messageFlagIsVoiceMessage
+		}
+	}
+
+	return 0
+}
+
 func attachmentsToJSON(attachments []Attachment) []map[string]any {
 	out := make([]map[string]any, 0, len(attachments))
 	for _, a := range attachments {
-		out = append(out, map[string]any{
+		item := map[string]any{
 			"id":           a.ID,
 			"filename":     a.Filename,
 			"content_type": a.ContentType,
 			"url":          a.URL,
 			"proxy_url":    a.URL,
 			"size":         a.Size,
-		})
+		}
+		if a.DurationSecs != 0 {
+			item["duration_secs"] = a.DurationSecs
+		}
+
+		out = append(out, item)
 	}
 
 	return out

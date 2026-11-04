@@ -392,6 +392,7 @@ func (s *server) construct(settings runtimeSettings) error {
 		Clock:    systemClock{}.Now,
 		LLM:      banterLLM,
 		Vision:   banterLLM,
+		Audio:    banterLLM,
 	})
 	if err != nil {
 		return fmt.Errorf("create capitime: %w", err)

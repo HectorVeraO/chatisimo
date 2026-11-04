@@ -20,6 +20,18 @@ const (
 	capiGIFStickerID    = "500000000000000004"
 	capiDocumentID      = "500000000000000005"
 	capiAPNGStickerID   = "500000000000000006"
+	capiVoiceID         = "500000000000000007"
+	capiAudioFileID     = "500000000000000008"
+	capiAudioExtraID    = "500000000000000009"
+	capiVideoID         = "500000000000000010"
+	capiLongVoiceID     = "500000000000000011"
+	capiBigAudioID      = "500000000000000012"
+	capiLongVoiceURL    = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000011/long.ogg?ex=mno"
+	capiBigAudioURL     = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000012/big.mp3?ex=pqr"
+	capiVoiceURL        = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000007/voice-message.ogg?ex=abc"
+	capiAudioFileURL    = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000008/clip.mp3?ex=def"
+	capiAudioExtraURL   = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000009/extra.wav?ex=ghi"
+	capiVideoURL        = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000010/movie.mp4?ex=jkl"
 	capiAttachmentURL   = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000002/photo.png?ex=abc"
 	capiDocumentURL     = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000005/notes.pdf?ex=def"
 	capiArrivalJSON     = `{"arrival":true,"immediate":true,"offset_minutes":0,"clock":""}`
@@ -77,6 +89,30 @@ func (f *fakeCapiImages) snapshot() []string {
 	defer f.mu.Unlock()
 
 	return slices.Clone(f.urls)
+}
+
+// fakeCapiAudio answers every audio read with an arrival and records the requests.
+type fakeCapiAudio struct {
+	mu    sync.Mutex
+	texts []string
+	mimes []string
+}
+
+func (a *fakeCapiAudio) GenerateWithAudio(_ context.Context, _, text string, audio llm.Audio) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.texts = append(a.texts, text)
+	a.mimes = append(a.mimes, audio.MIMEType)
+
+	return capiArrivalJSON, nil
+}
+
+func (a *fakeCapiAudio) snapshot() ([]string, []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return slices.Clone(a.texts), slices.Clone(a.mimes)
 }
 
 func publicCapiReplies(h *harness) []fakediscord.Message {
@@ -381,4 +417,119 @@ func TestCapiTimeReadsArrivalFromStickersAndAttachmentsOverGateway(t *testing.T)
 	}
 
 	assertNoUCLogLeaks(t, h, "VOY", "Ya voy", "Voy ya", "ENTRANDING", capiAttachmentURL, capiDocumentURL, "photo.png")
+}
+
+func TestCapiTimeReadsArrivalFromVoiceMessagesAndAudioFilesOverGateway(t *testing.T) {
+	h := newHarness(t)
+	resetCapiGuildConfigsOnCleanup(t, h, h.guild.ID)
+	santiago := mustLoadSantiago(t)
+
+	h.clock.Set(time.Date(2026, time.November, 1, 21, 0, 0, 0, santiago))
+
+	target := userC
+	channel := h.guild.ChannelID
+	_, err := h.capi.UpdateGuildConfig(
+		t.Context(),
+		capitime.GuildScope{GuildID: h.guild.ID, CanManageGuild: true},
+		capitime.GuildConfigUpdate{TargetUserID: &target, ChannelID: &channel},
+	)
+	if err != nil {
+		t.Fatalf("UpdateGuildConfig: %v", err)
+	}
+
+	voice := []fakediscord.Attachment{{
+		ID: capiVoiceID, Filename: "voice-message.ogg", ContentType: "audio/ogg", URL: capiVoiceURL,
+		Size: 4096, DurationSecs: 4.5, IsVoiceMessage: true,
+	}}
+
+	// A voice message from someone who is not the target is never downloaded.
+	if _, sendErr := h.fake.SendUserMessageWithMedia(h.users[userA], h.guild, "", "", voice, nil); sendErr != nil {
+		t.Fatalf("SendUserMessageWithMedia userA: %v", sendErr)
+	}
+
+	// A video from the target cannot be read.
+	video := []fakediscord.Attachment{{
+		ID: capiVideoID, Filename: "movie.mp4", ContentType: "video/mp4", URL: capiVideoURL, Size: 4096,
+	}}
+	if _, sendErr := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", video, nil); sendErr != nil {
+		t.Fatalf("SendUserMessageWithMedia video: %v", sendErr)
+	}
+
+	// A voice message longer than the supported limit, and one larger than the size limit, are ignored.
+	tooLong := []fakediscord.Attachment{{
+		ID: capiLongVoiceID, Filename: "long.ogg", ContentType: "audio/ogg", URL: capiLongVoiceURL,
+		Size: 4096, DurationSecs: llm.MaxAudioSeconds + 1, IsVoiceMessage: true,
+	}}
+	if _, sendErr := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", tooLong, nil); sendErr != nil {
+		t.Fatalf("SendUserMessageWithMedia long voice: %v", sendErr)
+	}
+	tooBig := []fakediscord.Attachment{{
+		ID: capiBigAudioID, Filename: "big.mp3", ContentType: "audio/mpeg", URL: capiBigAudioURL,
+		Size: llm.MaxAudioBytes + 1,
+	}}
+	if _, sendErr := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", tooBig, nil); sendErr != nil {
+		t.Fatalf("SendUserMessageWithMedia big audio: %v", sendErr)
+	}
+
+	// A voice message from the target gets a reply.
+	voiceMsgID, err := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", voice, nil)
+	if err != nil {
+		t.Fatalf("SendUserMessageWithMedia voice: %v", err)
+	}
+
+	waitFor(t, "Capi Time reply to the voice message", func() bool {
+		return len(publicCapiReplies(h)) == 1
+	})
+	if first := publicCapiReplies(h)[0]; first.ReplyToID != voiceMsgID {
+		t.Errorf("voice message reply ReplyToID = %q, want %q", first.ReplyToID, voiceMsgID)
+	}
+	if urls := h.capiImages.snapshot(); !slices.Equal(urls, []string{capiVoiceURL}) {
+		t.Fatalf("fetched %v, want only the target's voice message", urls)
+	}
+	texts, mimes := h.capiAudio.snapshot()
+	if !slices.Equal(texts, []string{""}) || !slices.Equal(mimes, []string{"audio/ogg"}) {
+		t.Fatalf("audio requests = %v %v, want one audio/ogg read without text", texts, mimes)
+	}
+
+	// An audio file without duration is read after the debounce window passes.
+	h.clock.Advance(3 * time.Minute)
+	file := []fakediscord.Attachment{{
+		ID: capiAudioFileID, Filename: "clip.mp3", ContentType: "audio/mpeg", URL: capiAudioFileURL, Size: 8192,
+	}}
+	fileMsgID, err := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", file, nil)
+	if err != nil {
+		t.Fatalf("SendUserMessageWithMedia audio file: %v", err)
+	}
+
+	waitFor(t, "Capi Time reply to the audio file", func() bool {
+		return len(publicCapiReplies(h)) == 2
+	})
+	if second := publicCapiReplies(h)[1]; second.ReplyToID != fileMsgID {
+		t.Errorf("audio file reply ReplyToID = %q, want %q", second.ReplyToID, fileMsgID)
+	}
+	_, mimes = h.capiAudio.snapshot()
+	if !slices.Equal(mimes, []string{"audio/ogg", "audio/mpeg"}) {
+		t.Errorf("audio MIME types = %v, want the file read as audio/mpeg", mimes)
+	}
+
+	// Several audios in one message cost one read: the first one.
+	h.clock.Advance(3 * time.Minute)
+	many := []fakediscord.Attachment{
+		file[0],
+		{ID: capiAudioExtraID, Filename: "extra.wav", ContentType: "audio/wav", URL: capiAudioExtraURL, Size: 100},
+		voice[0],
+	}
+	if _, sendErr := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", many, nil); sendErr != nil {
+		t.Fatalf("SendUserMessageWithMedia many audios: %v", sendErr)
+	}
+
+	waitFor(t, "Capi Time reply to the message with several audios", func() bool {
+		return len(publicCapiReplies(h)) == 3
+	})
+	if urls := h.capiImages.snapshot(); !slices.Equal(urls, []string{capiVoiceURL, capiAudioFileURL, capiAudioFileURL}) {
+		t.Errorf("fetched %v, want one fetch per message and none for the video or the extra audios", urls)
+	}
+
+	assertNoUCLogLeaks(t, h, "voice-message.ogg", "clip.mp3", "extra.wav", "movie.mp4", "long.ogg", "big.mp3",
+		capiVoiceURL, capiAudioFileURL, capiAudioExtraURL, capiVideoURL)
 }
