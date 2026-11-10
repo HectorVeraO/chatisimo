@@ -8,7 +8,7 @@ COPY . .
 ARG VERSION=dev
 RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/chatisimo ./cmd/chatisimo
 
-FROM alpine:3.24.2
+FROM alpine:3.24.4
 LABEL org.opencontainers.image.source="https://github.com/HectorVeraO/chatisimo"
 COPY --from=build /out/chatisimo /usr/local/bin/chatisimo
 USER 65532:65532
