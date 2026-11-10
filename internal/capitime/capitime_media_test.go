@@ -195,11 +195,12 @@ func (b *logBuffer) entries(t *testing.T) []map[string]any {
 }
 
 type readHarness struct {
-	svc     *capitime.Service
-	clock   *fakeClock
-	reader  *fakeReader
-	fetcher *mediaFetcher
-	logs    *logBuffer
+	svc      *capitime.Service
+	clock    *fakeClock
+	settings *fakeSettings
+	reader   *fakeReader
+	fetcher  *mediaFetcher
+	logs     *logBuffer
 }
 
 type readHarnessOptions struct {
@@ -232,10 +233,11 @@ func newReadHarness(t *testing.T, opts readHarnessOptions) *readHarness {
 	})
 
 	harness := &readHarness{
-		clock:   clk,
-		reader:  &fakeReader{response: answer},
-		fetcher: &mediaFetcher{failFor: map[string]bool{}},
-		logs:    &logBuffer{},
+		clock:    clk,
+		settings: settings,
+		reader:   &fakeReader{response: answer},
+		fetcher:  &mediaFetcher{failFor: map[string]bool{}},
+		logs:     &logBuffer{},
 	}
 
 	deps := capitime.Deps{

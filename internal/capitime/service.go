@@ -31,6 +31,7 @@ type Service struct {
 	reader   ArrivalReader
 	images   ImageFetcher
 	reads    *readLimiter
+	recent   *recentMessages
 	log      *slog.Logger
 
 	debounceMu    sync.Mutex
@@ -82,6 +83,7 @@ func New(deps Deps) (*Service, error) {
 		reader:        deps.Reader,
 		images:        imageFetcher,
 		reads:         newReadLimiter(),
+		recent:        newRecentMessages(),
 		log:           logger,
 		lastReplyTime: make(map[string]time.Time),
 	}
@@ -245,6 +247,14 @@ func (s *Service) ClearGuildConfig(
 // and the audio are read together by the model, once (see detectClaim). Every target, channel and
 // debounce check runs before any download or model call. Each message that passes those checks
 // leaves one line in the decision log.
+//
+// The read also carries the text of the last messages the target user sent in the same channel in
+// the last minutes, as many as the capitime.context_messages setting allows, so a promise split
+// across messages is understood. Those texts live in memory only. The text of every message of the
+// target user in a monitored channel is kept, also when the debounce window or the read cap leaves
+// it unread, and a reply forgets the texts of that channel so a promise is answered once. The
+// "context" field of the decision log counts the earlier messages the model received: zero when
+// the message was not sent to the model.
 func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, error) {
 	if err := s.checkReady(ctx); err != nil {
 		return Reply{}, err
@@ -274,14 +284,21 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 		return Reply{}, nil
 	}
 
-	now := s.clock().In(Santiago())
+	channelKey := recentKey(msg.GuildID, msg.ChannelID, msg.AuthorID)
+	text := sanitizeInputText(msg.Content)
+	earlier, handledAt := s.recent.exchange(channelKey, text, s.clock, runtimeCfg.contextMessages)
+	now := handledAt.In(Santiago())
 	if s.isDebounced(msg.GuildID, msg.AuthorID, now, runtimeCfg.debounceWindow) {
 		return Reply{}, nil
 	}
 
-	claim, decided, media := s.detectClaim(ctx, msg, now)
+	claim, decided, media := s.detectClaim(ctx, msg, earlier, now)
+	contextSent := 0
+	if decided.reachedModel() {
+		contextSent = len(earlier)
+	}
 	s.log.InfoContext(ctx, "capi time message evaluated",
-		slog.String("decision", string(decided)), slog.String("media", media))
+		slog.String("decision", string(decided)), slog.String("media", media), slog.Int("context", contextSent))
 	if !claim.Detected {
 		return Reply{}, nil
 	}
@@ -289,6 +306,7 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 	if !s.claimDebounceSlot(msg.GuildID, msg.AuthorID, now, runtimeCfg.debounceWindow) {
 		return Reply{}, nil
 	}
+	s.recent.clear(channelKey)
 
 	pred := s.computePrediction(claim, runtimeCfg)
 	loc := cfg.EffectiveLocale()
@@ -311,8 +329,10 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 
 // detectClaim asks the model, in one read, whether the message announces an arrival, and names the
 // step that decided. The read carries the sanitized text, the usable images and the first usable
-// voice message or audio file together. A download that fails drops that item only; a message left
-// with neither text nor media is not read, and neither is any message when no Reader is set.
+// voice message or audio file together, after earlier, the texts the same member sent just before,
+// which are context only. A download that fails drops that item only; a message left with neither
+// text nor media is not read, whatever came earlier, and neither is any message when no Reader is
+// set.
 //
 // The member's reads are capped per minute (see readLimiter): past the cap nothing is downloaded
 // or read. The cap is checked before the downloads and counted right before the read. The returned
@@ -321,6 +341,7 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 func (s *Service) detectClaim(
 	ctx context.Context,
 	msg MessageInput,
+	earlier []string,
 	now time.Time,
 ) (ArrivalClaim, decision, string) {
 	text := sanitizeInputText(msg.Content)
@@ -348,7 +369,7 @@ func (s *Service) detectClaim(
 		return ArrivalClaim{}, decisionRateLimited, content.mediaKind()
 	}
 
-	claim, decided := readArrival(ctx, s.reader, content, now)
+	claim, decided := readArrival(ctx, s.reader, content, earlier, now)
 
 	return claim, decided, content.mediaKind()
 }

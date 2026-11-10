@@ -217,7 +217,8 @@ type Deps struct {
 	// Images downloads the images and the audio Reader reads. When nil and Reader is set, an
 	// HTTPImageFetcher limited to the Discord CDN is used.
 	Images ImageFetcher
-	// Logger receives one line per evaluated message, naming the step that decided and the kind of
-	// media read; never text, names or IDs. When nil, nothing is logged.
+	// Logger receives one line per evaluated message, naming the step that decided, the kind of
+	// media read and how many earlier messages went with it; never text, names or IDs. When nil,
+	// nothing is logged.
 	Logger *slog.Logger
 }

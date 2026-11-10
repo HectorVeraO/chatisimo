@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -41,12 +42,15 @@ var errEvalCallLimit = errors.New("eval: model call limit reached")
 
 // evalRow is one labeled message of the frozen set. Now and Want are wall-clock instants in
 // America/Santiago; Want is "immediate" for an arrival without a time and empty for a negative.
+// Earlier holds the messages the same person sent just before Text, oldest first; the labels
+// describe Text read after them.
 type evalRow struct {
-	ID      string `json:"id"`
-	Now     string `json:"now"`
-	Text    string `json:"text"`
-	Arrival bool   `json:"arrival"`
-	Want    string `json:"want"`
+	ID      string   `json:"id"`
+	Now     string   `json:"now"`
+	Earlier []string `json:"earlier"`
+	Text    string   `json:"text"`
+	Arrival bool     `json:"arrival"`
+	Want    string   `json:"want"`
 }
 
 // evalScore collects the outcome of the arrival read over the set.
@@ -154,7 +158,10 @@ func loadEvalRows(t *testing.T) []evalRow {
 	seen := map[string]bool{}
 	for _, row := range rows {
 		isLabeled := row.Arrival == (row.Want != "")
-		if row.ID == "" || seen[row.ID] || strings.TrimSpace(row.Text) == "" || !isLabeled {
+		hasBlankEarlier := slices.ContainsFunc(row.Earlier, func(text string) bool {
+			return strings.TrimSpace(text) == ""
+		})
+		if row.ID == "" || seen[row.ID] || strings.TrimSpace(row.Text) == "" || hasBlankEarlier || !isLabeled {
 			t.Fatalf("row %q is incomplete, duplicated or mislabeled", row.ID)
 		}
 		seen[row.ID] = true
@@ -174,6 +181,7 @@ type meteredReader struct {
 	calls        int
 	promptTokens int
 	outputTokens int
+	failures     []string
 }
 
 func (m *meteredReader) GenerateWithMedia(ctx context.Context, req llm.MediaRequest) (string, error) {
@@ -186,6 +194,8 @@ func (m *meteredReader) GenerateWithMedia(ctx context.Context, req llm.MediaRequ
 	m.promptTokens += usage.PromptTokens
 	m.outputTokens += usage.OutputTokens
 	if err != nil {
+		m.failures = append(m.failures, err.Error())
+
 		return "", fmt.Errorf("eval model read: %w", err)
 	}
 
@@ -264,11 +274,12 @@ func TestEvalArrivalRead(t *testing.T) {
 
 	for _, row := range rows {
 		now := evalInstant(t, row.ID, row.Now)
-		claim, decision := capitime.ReadTextForEval(t.Context(), reader, row.Text, now)
+		claim, decision := capitime.ReadTextForEval(t.Context(), reader, row.Earlier, row.Text, now)
 		score.record(t, row, now, claim, decision)
 	}
 
 	score.report(t)
 	t.Logf("model read: %d calls, %d prompt tokens, %d output tokens",
 		reader.calls, reader.promptTokens, reader.outputTokens)
+	t.Logf("model read: request errors %q", reader.failures)
 }

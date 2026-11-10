@@ -39,6 +39,7 @@ const (
 	settingCapiDelayMinMinutes         = capitime.SettingDelayMinMinutes
 	settingCapiDelayMaxMinutes         = capitime.SettingDelayMaxMinutes
 	settingCapiDebounceWindow          = capitime.SettingDebounceWindow
+	settingCapiContextMessages         = capitime.SettingContextMessages
 
 	defaultDiscordAPIBaseURL           = "https://discord.com/api/v10"
 	defaultLLMModel                    = llm.DefaultModel
@@ -61,6 +62,7 @@ const (
 	defaultCapiDelayMinMinutes         = capitime.DefaultDelayMinMinutes
 	defaultCapiDelayMaxMinutes         = capitime.DefaultDelayMaxMinutes
 	defaultCapiDebounceWindow          = capitime.DefaultDebounceWindow
+	defaultCapiContextMessages         = capitime.DefaultContextMessages
 
 	maxDiscordTokenBytes = 256
 	maxLLMModelBytes     = 128
@@ -219,6 +221,12 @@ func settingKeys() []config.Key {
 			Validate: validateCapiDebounceWindow,
 			Doc:      "Capi Time per-user anti-spam debounce window (0s to 24h)",
 		},
+		{
+			Name:     settingCapiContextMessages,
+			Default:  defaultCapiContextMessages,
+			Validate: validateCapiContextMessages,
+			Doc:      "Capi Time earlier messages of the target user read with each new one (0-10)",
+		},
 	}
 
 	return keys
@@ -359,6 +367,12 @@ func validateCapiDelayMinutes(value string, _ config.Environment) error {
 // validateCapiDebounceWindow validates a duration in 0s..24h without echoing raw input.
 func validateCapiDebounceWindow(value string, _ config.Environment) error {
 	_, err := capitime.ParseDebounceWindow(value)
+	return err //nolint:wrapcheck // preserves value-free validation message
+}
+
+// validateCapiContextMessages validates an integer count in 0..10 without echoing raw input.
+func validateCapiContextMessages(value string, _ config.Environment) error {
+	_, err := capitime.ParseContextMessages(value)
 	return err //nolint:wrapcheck // preserves value-free validation message
 }
 

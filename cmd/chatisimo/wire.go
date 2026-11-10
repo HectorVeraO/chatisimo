@@ -323,6 +323,7 @@ func checkCapiSettings(ctx context.Context, store *config.Store) error {
 		settingCapiDelayMinMinutes,
 		settingCapiDelayMaxMinutes,
 		settingCapiDebounceWindow,
+		settingCapiContextMessages,
 	} {
 		_, err := store.Get(ctx, name)
 		if err != nil {

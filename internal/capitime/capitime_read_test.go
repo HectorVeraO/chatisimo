@@ -378,7 +378,8 @@ func TestHandleMessageLogsWhichStepDecidedWithoutMessageData(t *testing.T) {
 				t.Errorf("decision = %q media = %q, want %q and %q", decision, media, tc.wantDecision, tc.wantMedia)
 			}
 			for key := range entries[0] {
-				isExpectedKey := key == "time" || key == "level" || key == "msg" || key == "decision" || key == "media"
+				isExpectedKey := key == "time" || key == "level" || key == "msg" || key == "decision" ||
+					key == "media" || key == "context"
 				if !isExpectedKey {
 					t.Errorf("log line carries the unexpected field %q: %v", key, entries[0])
 				}
