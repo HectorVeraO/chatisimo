@@ -120,6 +120,19 @@ func (q *queueRand) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// oneSpaced returns line as the service keeps an accepted line: one space between words.
+func oneSpaced(line string) string {
+	return strings.Join(strings.Fields(line), " ")
+}
+
+// spellsFeatureName reports whether line holds the feature name written plainly, as one word or
+// two, in any case.
+func spellsFeatureName(line string) bool {
+	lower := strings.ToLower(line)
+
+	return strings.Contains(lower, "capi time") || strings.Contains(lower, "capitime")
+}
+
 // assertPingsNobody fails when content holds text Discord would turn into a mention.
 func assertPingsNobody(t *testing.T, content string) {
 	t.Helper()
@@ -301,6 +314,9 @@ func TestHandleMessageRejectsVoseoOnlyAsWholeWords(t *testing.T) {
 		{"a word that ends like a voseo form", "Armen lobby tranquilos mis reyes, que esos 15 minutos son como dos horas.", true},
 		{"other words that contain one", "Con esos pasos famosos, bendito sea si llega hoy mi rey.", true},
 		{"a voseo verb", "Vos sos el rey del atraso mi king.", false},
+		{"a voseo verb without its accent", "Si tenes tiempo llega igual mi rey.", false},
+		{"a voseo verb with its pronoun", "Siempre llegas vos al final mi king.", false},
+		{"the same verb without the pronoun", "Siempre llegas al final mi king.", true},
 		{"an accented voseo verb", "Si tenés tiempo llega igual mi rey.", false},
 		{"another accented voseo verb", "Vos podés, mi king, pero tarde.", false},
 		{"an accented voseo verb in capitals", "LLEGÁS tarde como siempre mi rey.", false},
@@ -342,6 +358,10 @@ func TestHandleMessageRejectsAGeneratedLineThatNamesTheFeature(t *testing.T) {
 		{"several spaces and a tab", "Eso en Capi  \t Time son dos horas mi rey."},
 		{"a line break between the words", "Eso en Capi\nTime son dos horas mi rey."},
 		{"the name alone", "Capi Time"},
+		{"a zero-width space between the words", "Eso en Capi\u200bTime son dos horas mi rey."},
+		{"a zero-width joiner inside a word", "Eso en Ca\u200dpi Time son dos horas mi rey."},
+		{"a soft hyphen inside a word", "Eso en Capi Ti\u00adme son dos horas mi rey."},
+		{"a no-break space between the words", "Eso en Capi\u00a0Time son dos horas mi rey."},
 	}
 
 	for _, tc := range rejected {
@@ -353,8 +373,8 @@ func TestHandleMessageRejectsAGeneratedLineThatNamesTheFeature(t *testing.T) {
 			if !reply.Handled || model.calls != 1 {
 				t.Fatalf("reply = %+v after %d model calls, want a reply after one call", reply, model.calls)
 			}
-			if capitime.NamesFeature(reply.Banter) {
-				t.Errorf("banter = %q, want a built-in line without the feature name", reply.Banter)
+			if reply.Banter == oneSpaced(tc.line) {
+				t.Errorf("banter = %q, want the model line replaced by a built-in line", reply.Banter)
 			}
 			if count := strings.Count(reply.Content, featureName); count != 1 || !strings.HasPrefix(reply.Content, headerStandard) {
 				t.Errorf("content = %q, want the feature name once, in the header", reply.Content)
@@ -365,8 +385,8 @@ func TestHandleMessageRejectsAGeneratedLineThatNamesTheFeature(t *testing.T) {
 			h := newReadHarness(t, readHarnessOptions{banter: &recordingBanter{line: tc.line}})
 
 			reply := h.handle(t, targetMessage("en 15 min me conecto a jugar"))
-			if !reply.Handled || capitime.NamesFeature(reply.Banter) {
-				t.Errorf("reply = %+v, want a built-in line without the feature name", reply)
+			if !reply.Handled || reply.Banter == oneSpaced(tc.line) {
+				t.Errorf("reply = %+v, want the generated line replaced by a built-in line", reply)
 			}
 		})
 	}
@@ -515,7 +535,7 @@ func TestBuiltInLinesFollowTheRulesOfGeneratedLines(t *testing.T) {
 
 				assertOneCleanLine(t, reply.Banter)
 				assertPingsNobody(t, reply.Content)
-				if capitime.NamesFeature(reply.Banter) {
+				if spellsFeatureName(reply.Banter) {
 					t.Errorf("%s: banter %q names the feature", name, reply.Banter)
 				}
 				hasHeaderAndLine := strings.HasPrefix(reply.Content, mode.header+" <t:") &&
@@ -656,7 +676,7 @@ func FuzzHandleMessageBanterLine(f *testing.F) {
 		}
 
 		assertOneCleanLine(t, reply.Banter)
-		if capitime.NamesFeature(reply.Banter) {
+		if spellsFeatureName(reply.Banter) {
 			t.Fatalf("banter %q for line %q names the feature", reply.Banter, line)
 		}
 

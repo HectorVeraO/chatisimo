@@ -30,20 +30,34 @@ var voseoRe = regexp.MustCompile(
 	`(^|[^\p{L}])(tenés|tenes|podés|podes|sos|llegás|llegas vos|venís|venis|bendi)($|[^\p{L}])`,
 )
 
-// featureNameSeparators removes what can sit between the two words of the feature name: spaces,
-// hyphens, underscores and the asterisks of Markdown emphasis.
-var featureNameSeparators = strings.NewReplacer(" ", "", "-", "", "_", "", "*", "")
-
 // mentionBreaker disarms the text that pings: mass mentions and the opening of a user or role
 // mention.
 var mentionBreaker = strings.NewReplacer("@everyone", "everyone", "@here", "here", "<@", "< @")
 
-// namesFeature reports whether line carries the feature name in any spelling, such as "Capi Time",
-// "capitime", "capi-time" or "**Capi** Time". The nickname alone does not count.
-func namesFeature(line string) bool {
-	squeezed := featureNameSeparators.Replace(strings.ToLower(line))
+// isFeatureNameSeparator reports whether r can sit between or inside the two words of the feature
+// name without changing how it reads: white space, a hyphen, an underscore, the asterisk of
+// Markdown emphasis, or an invisible format character such as a zero-width space.
+func isFeatureNameSeparator(r rune) bool {
+	switch r {
+	case '-', '_', '*':
+		return true
+	default:
+		return unicode.IsSpace(r) || unicode.Is(unicode.Cf, r)
+	}
+}
 
-	return strings.Contains(squeezed, "capitime")
+// namesFeature reports whether line carries the feature name in any spelling, such as "Capi Time",
+// "capitime", "capi-time", "**Capi** Time" or the two words split by an invisible character. The
+// nickname alone does not count.
+func namesFeature(line string) bool {
+	var squeezed strings.Builder
+	for _, r := range strings.ToLower(line) {
+		if !isFeatureNameSeparator(r) {
+			squeezed.WriteRune(r)
+		}
+	}
+
+	return strings.Contains(squeezed.String(), "capitime")
 }
 
 // cutSaid returns the sanitized message text cut to MaxSaidRunes runes, never inside a rune.

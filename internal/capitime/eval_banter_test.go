@@ -169,7 +169,7 @@ func (s *evalBanterScore) record(t *testing.T, row evalBanterRow, raw string, ha
 		s.rejected = append(s.rejected, row.ID)
 	}
 
-	hasName := capitime.NamesFeature(raw)
+	hasName := capitime.NamesFeatureForEval(raw)
 	if hasName {
 		s.namesFeature = append(s.namesFeature, row.ID)
 	}

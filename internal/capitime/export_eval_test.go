@@ -36,3 +36,9 @@ func ReadTextForEval(
 func SaidForEval(text string) string {
 	return cutSaid(sanitizeInputText(text))
 }
+
+// NamesFeatureForEval reports whether line carries the feature name in any spelling, the check
+// that makes the service reject a generated line.
+func NamesFeatureForEval(line string) bool {
+	return namesFeature(line)
+}
