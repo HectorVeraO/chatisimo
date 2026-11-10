@@ -67,6 +67,15 @@ The fake Discord creates a synthetic token when it starts. `chatisimo-setup` pip
 `discord.api_base_url` to the fake. Nothing is written to a file. The fake's token is accepted
 only with `CHATISIMO_ENV=local`.
 
+## Fake model
+
+The fake Discord also serves the model endpoint (`llm.base_url`). A request no answer is scripted
+for gets its own text back, so an unscripted Capi Time arrival read is not valid JSON and the bot
+stays silent. Script an answer with `POST /_control/generated`
+(`{"system_contains":"...","user_contains":"...","response":"..."}`; the first matching rule
+wins) and list the requests served with `GET /_control/generate-calls`. `POST /_control/reset`
+clears both.
+
 ## Data
 
 The compose project is named `chatisimo`, so the data lives in the `chatisimo_postgres-data`

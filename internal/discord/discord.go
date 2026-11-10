@@ -335,7 +335,7 @@ func (a *Adapter) onMessageCreate(ctx context.Context, event *events.MessageCrea
 
 // capiImageRefs lists the image attachments and the PNG, APNG and GIF stickers of message as Capi
 // Time image references, at most capitime.MaxImageRefs. Lottie stickers and other attachment
-// types are skipped because the vision model cannot read them.
+// types are skipped because the model cannot read them.
 func capiImageRefs(message discord.Message) []capitime.ImageRef {
 	var refs []capitime.ImageRef
 

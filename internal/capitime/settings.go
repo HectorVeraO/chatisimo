@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,7 +21,6 @@ const (
 	SettingDelayMinMinutes  = "capitime.delay_min_minutes"
 	SettingDelayMaxMinutes  = "capitime.delay_max_minutes"
 	SettingDebounceWindow   = "capitime.debounce_window"
-	SettingRegexPattern     = "capitime.regex_pattern"
 )
 
 // Default runtime setting values used when the corresponding key in platform.setting is unset.
@@ -31,7 +29,6 @@ const (
 	DefaultDelayMinMinutes  = "45"
 	DefaultDelayMaxMinutes  = "180"
 	DefaultDebounceWindow   = "2m"
-	DefaultRegexPattern     = `(?i)(\b([01]?\d|2[0-3]):[0-5]\d\b|\b(voy\s+al\s*tiro|voy\s+altiro|voy\s+voy|toy\s+ready|estoy\s+ready|ready|llegando|lleganding|saliendo|en\s+camino|voy\s+saliendo|ya\s+voy|ah[ií]\s+voy|me\s+conecto\s+altiro|entro\s+altiro|llego|llega)\b)`
 
 	DefaultBanterPrompt = "" +
 		"Genera UNA sola frase corta (maximo 140 caracteres, una sola linea) de talla chilena afectuosa de grupo de amigos " +
@@ -61,7 +58,6 @@ const (
 	maxDelayMinutes       = 1440
 	maxDebounceWindow     = 24 * time.Hour
 	maxPromptBytes        = 16 << 10
-	maxRegexPatternBytes  = 4096
 	maxSettingStringBytes = 64
 )
 
@@ -78,11 +74,7 @@ type runtimeSettings struct {
 	delayMinMinutes  int
 	delayMaxMinutes  int
 	debounceWindow   time.Duration
-	regexPattern     string
-	compiledRegex    *regexp.Regexp
 }
-
-var defaultCompiledRegex = regexp.MustCompile(DefaultRegexPattern)
 
 func defaultRuntimeSettings() runtimeSettings {
 	return runtimeSettings{
@@ -92,8 +84,6 @@ func defaultRuntimeSettings() runtimeSettings {
 		delayMinMinutes:  defaultDelayMinMins,
 		delayMaxMinutes:  defaultDelayMaxMins,
 		debounceWindow:   defaultDebounceDur,
-		regexPattern:     DefaultRegexPattern,
-		compiledRegex:    defaultCompiledRegex,
 	}
 }
 
@@ -167,44 +157,6 @@ func ParseDebounceWindow(raw string) (time.Duration, error) {
 	return dur, nil
 }
 
-// ValidateRegexPattern validates that raw is non-empty valid UTF-8 without control characters and
-// compiles as a Go regular expression.
-func ValidateRegexPattern(raw string) error {
-	_, err := compileRegexSetting(raw)
-	return err
-}
-
-func compileRegexSetting(raw string) (*regexp.Regexp, error) {
-	var problems []error
-
-	if len(raw) < 1 || len(raw) > maxRegexPatternBytes {
-		problems = append(problems, fmt.Errorf("regex pattern must be 1-%d bytes", maxRegexPatternBytes))
-	}
-	if strings.TrimSpace(raw) == "" {
-		problems = append(problems, errors.New("regex pattern must not be blank"))
-	}
-	if !utf8.ValidString(raw) {
-		problems = append(problems, errors.New("regex pattern must be valid UTF-8"))
-	} else {
-		for _, r := range raw {
-			if unicode.IsControl(r) {
-				problems = append(problems, errors.New("regex pattern must not contain control characters"))
-				break
-			}
-		}
-	}
-	if len(problems) > 0 {
-		return nil, errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
-	}
-
-	compiled, err := regexp.Compile(raw)
-	if err != nil {
-		return nil, errors.New("regex pattern is not a valid regular expression")
-	}
-
-	return compiled, nil
-}
-
 // ValidateSettings checks every capitime.* setting currently stored in reader and returns a joined
 // error naming each invalid key without echoing raw setting values.
 func ValidateSettings(ctx context.Context, reader SettingReader) error {
@@ -269,7 +221,6 @@ func ValidateSettings(ctx context.Context, reader SettingReader) error {
 		_, err := ParseDebounceWindow(v)
 		return err
 	})
-	check(SettingRegexPattern, ValidateRegexPattern)
 
 	return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 }
@@ -311,12 +262,6 @@ func resolveRuntimeSettings(ctx context.Context, reader SettingReader) runtimeSe
 	if raw, ok := readOptionalSetting(ctx, reader, SettingDebounceWindow); ok {
 		if dur, err := ParseDebounceWindow(raw); err == nil {
 			resolved.debounceWindow = dur
-		}
-	}
-	if raw, ok := readOptionalSetting(ctx, reader, SettingRegexPattern); ok {
-		if compiled, err := compileRegexSetting(raw); err == nil {
-			resolved.regexPattern = raw
-			resolved.compiledRegex = compiled
 		}
 	}
 

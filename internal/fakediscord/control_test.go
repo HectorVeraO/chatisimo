@@ -861,11 +861,13 @@ func FuzzControlWorldBodies(f *testing.F) {
 		{http.MethodPatch, "/guilds/" + winterGuildID + "/members/" + aliceID},
 		{http.MethodPost, "/faults"},
 		{http.MethodPost, "/uc-fixtures"},
+		{http.MethodPost, "/generated"},
 	}
 	seeds := []string{
 		``, `{`, `[]`, `null`, `{}`, `{"name":"Dana"}`, `{"name":"` + abuseText + `"}`,
 		`{"id":"` + strings.Repeat("9", 40) + `","name":"x"}`, `{"user":"` + aliceID + `"}`,
 		`{"route":"POST /channels/{id}/messages","status":500}`, `{"route":5,"status":"x"}`,
+		`{"system_contains":"a","user_contains":"b","response":"c"}`, `{"response":7}`,
 	}
 	for _, seed := range seeds {
 		for index := range targets {

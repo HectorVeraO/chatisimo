@@ -99,6 +99,8 @@ func (s *Server) addControlRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+controlPrefix+"/faults", s.handleControlFaults)
 	mux.HandleFunc("POST "+controlPrefix+"/faults", s.handleControlFault)
 	mux.HandleFunc("POST "+controlPrefix+"/uc-fixtures", s.handleControlUCFixtures)
+	mux.HandleFunc("POST "+controlPrefix+"/generated", s.handleControlGenerated)
+	mux.HandleFunc("GET "+controlPrefix+"/generate-calls", s.handleControlGenerateCalls)
 	mux.HandleFunc("POST "+controlPrefix+"/gateway/drop", s.handleControlGatewayDrop)
 	mux.HandleFunc("POST "+controlPrefix+"/reset", s.handleControlReset)
 }
@@ -734,6 +736,8 @@ func (s *Server) handleControlReset(w http.ResponseWriter, _ *http.Request) {
 	s.faults = map[string][]fault{}
 	s.injectedFaults = nil
 	s.rephrases = map[string]string{}
+	s.generateRules = nil
+	s.generateCalls = nil
 	s.ucFixtures = nil
 	s.publishWorldChangedLocked()
 	s.notifyLocked()

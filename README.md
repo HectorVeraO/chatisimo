@@ -77,6 +77,7 @@ in the database.
 | Test | `go test ./...` |
 | Test with the race detector (needs cgo) | `go test -race ./...` |
 | Go E2E (needs Postgres) | `go test -tags e2e -count=1 ./e2e/...` |
+| Capi Time arrival evaluation (local only; calls the real model with the stored `llm.api_key` and costs money; never in CI) | `go test -tags eval -run TestEvalArrivalRead -count=1 -v ./internal/capitime/` |
 | Lint | `golangci-lint run ./...` |
 | Vulnerability scan | `govulncheck ./...` |
 | Format | `golangci-lint fmt` |

@@ -39,7 +39,6 @@ const (
 	settingCapiDelayMinMinutes         = capitime.SettingDelayMinMinutes
 	settingCapiDelayMaxMinutes         = capitime.SettingDelayMaxMinutes
 	settingCapiDebounceWindow          = capitime.SettingDebounceWindow
-	settingCapiRegexPattern            = capitime.SettingRegexPattern
 
 	defaultDiscordAPIBaseURL           = "https://discord.com/api/v10"
 	defaultLLMModel                    = llm.DefaultModel
@@ -62,7 +61,6 @@ const (
 	defaultCapiDelayMinMinutes         = capitime.DefaultDelayMinMinutes
 	defaultCapiDelayMaxMinutes         = capitime.DefaultDelayMaxMinutes
 	defaultCapiDebounceWindow          = capitime.DefaultDebounceWindow
-	defaultCapiRegexPattern            = capitime.DefaultRegexPattern
 
 	maxDiscordTokenBytes = 256
 	maxLLMModelBytes     = 128
@@ -221,12 +219,6 @@ func settingKeys() []config.Key {
 			Validate: validateCapiDebounceWindow,
 			Doc:      "Capi Time per-user anti-spam debounce window (0s to 24h)",
 		},
-		{
-			Name:     settingCapiRegexPattern,
-			Default:  defaultCapiRegexPattern,
-			Validate: validateCapiRegexPattern,
-			Doc:      "Capi Time Stage-1 arrival detection regex pattern",
-		},
 	}
 
 	return keys
@@ -368,11 +360,6 @@ func validateCapiDelayMinutes(value string, _ config.Environment) error {
 func validateCapiDebounceWindow(value string, _ config.Environment) error {
 	_, err := capitime.ParseDebounceWindow(value)
 	return err //nolint:wrapcheck // preserves value-free validation message
-}
-
-// validateCapiRegexPattern validates a Stage-1 arrival regex pattern without echoing raw input.
-func validateCapiRegexPattern(value string, _ config.Environment) error {
-	return capitime.ValidateRegexPattern(value) //nolint:wrapcheck // preserves value-free validation message
 }
 
 // validateLLMModel accepts a 1-128 byte printable ASCII model identifier without URL path or

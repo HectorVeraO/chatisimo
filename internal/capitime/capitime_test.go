@@ -310,11 +310,17 @@ func TestHandleMessageStandardDelayEasterEggDebounceAndSilence(t *testing.T) {
 	// Roll 2: roll=2 (< 5, easter egg!), variant=1
 	rnd := uint64Stream(50, 15, 0, 2, 1)
 
+	reader := &fakeReader{response: noArrivalJSON}
+	reader.AnswerFor("22:30 llego", `{"arrival":true,"day":"","clock":"22:30","minutes":0}`)
+	reader.AnswerFor("23:15 llego", `{"arrival":true,"day":"","clock":"23:15","minutes":0}`)
+	reader.AnswerFor("voy altiro", arrivalJSON)
+
 	svc, err := capitime.New(capitime.Deps{
 		Pool:     shared.Pool(),
 		Clock:    clk.Now,
 		Rand:     rnd,
 		Settings: settings,
+		Reader:   reader,
 	})
 	if err != nil {
 		t.Fatalf("capitime.New: %v", err)
@@ -365,6 +371,10 @@ func TestHandleMessageStandardDelayEasterEggDebounceAndSilence(t *testing.T) {
 	})
 	if err != nil || repBot.Handled {
 		t.Fatalf("bot message: rep=%+v err=%v, want silent", repBot, err)
+	}
+
+	if calls := len(reader.Calls()); calls != 0 {
+		t.Fatalf("reader calls = %d, want 0: another user, another channel and a bot are never read", calls)
 	}
 
 	// 4. Non-arrival message from target user does NOT trigger reply and does NOT consume debounce.
@@ -419,6 +429,10 @@ func TestHandleMessageStandardDelayEasterEggDebounceAndSilence(t *testing.T) {
 		t.Fatalf("debounced message: rep=%+v err=%v, want silent", repDebounced, err)
 	}
 
+	if calls := len(reader.Calls()); calls != 2 {
+		t.Fatalf("reader calls = %d, want 2: the debounced message is not read", calls)
+	}
+
 	// 7. Advance past 2m debounce window -> next message triggers the 5% Easter Egg (roll=2 < 5).
 	clk.Advance(2 * time.Minute)
 	nowAfterAdvance := clk.Now().In(loc)
@@ -447,7 +461,6 @@ func TestHandleMessageStandardDelayEasterEggDebounceAndSilence(t *testing.T) {
 	settings.Set(capitime.SettingDebounceWindow, "0s")
 	settings.Set(capitime.SettingBanterPrompt, "Custom banter prompt")
 	settings.Set(capitime.SettingEasterEggPrompt, "Custom easter egg prompt")
-	settings.Set(capitime.SettingRegexPattern, capitime.DefaultRegexPattern)
 
 	repEN, err := svc.HandleMessage(t.Context(), capitime.MessageInput{
 		GuildID:   guildOneID,
@@ -473,7 +486,7 @@ func TestHandleMessageStandardDelayEasterEggDebounceAndSilence(t *testing.T) {
 	}
 }
 
-func TestStage2LLMDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
+func TestModelReadDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 	resetGuildConfigs(t)
 
 	loc := capitime.Santiago()
@@ -486,9 +499,9 @@ func TestStage2LLMDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 		capitime.SettingDelayMaxMinutes:  "90",
 	})
 
+	reader := &fakeReader{response: `{"arrival":true,"day":"","clock":"","minutes":20}`}
 	llmFake := &fakeLLM{
 		responses: []string{
-			`{"arrival":true,"immediate":false,"offset_minutes":20,"clock":""}`,
 			"Dice que en 20 min mi king, pero con Capi Time sumenle 90 min mis chanchitos mientras prende el PC.",
 		},
 	}
@@ -498,6 +511,7 @@ func TestStage2LLMDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 		Clock:    clk.Now,
 		Settings: settings,
 		LLM:      llmFake,
+		Reader:   reader,
 	})
 	if err != nil {
 		t.Fatalf("capitime.New: %v", err)
@@ -511,7 +525,7 @@ func TestStage2LLMDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 		t.Fatalf("UpdateGuildConfig: %v", err)
 	}
 
-	// Phrasing that bypasses Stage 1 regex tokens and is classified by Stage 2 LLM.
+	// The model reads the message and resolves its twenty minutes.
 	rep, err := svc.HandleMessage(t.Context(), capitime.MessageInput{
 		GuildID:   guildTwoID,
 		ChannelID: chanGeneralID,
@@ -520,13 +534,19 @@ func TestStage2LLMDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 		Content:   "terminando de comer y me sumo al discord",
 	})
 	if err != nil {
-		t.Fatalf("HandleMessage Stage 2: %v", err)
+		t.Fatalf("HandleMessage model read: %v", err)
 	}
 	if !rep.Handled || rep.Prediction.DelayMinutes != 90 {
 		t.Fatalf("rep = %+v, want Handled=true with 90m delay", rep)
 	}
+	if want := t0.Add(20 * time.Minute); !rep.Prediction.ClaimedAt.Equal(want) {
+		t.Errorf("ClaimedAt = %v, want %v from the model's 20 minutes", rep.Prediction.ClaimedAt, want)
+	}
 	if !strings.Contains(rep.Content, "mis chanchitos") {
 		t.Errorf("rep.Content %q did not use dynamic LLM banter", rep.Content)
+	}
+	if len(reader.Calls()) != 1 {
+		t.Errorf("reader calls = %d, want 1", len(reader.Calls()))
 	}
 
 	// If LLM returns Argentine voseo or fails, service falls back to static Chilean template.
@@ -544,6 +564,9 @@ func TestStage2LLMDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 	if strings.Contains(strings.ToLower(repFallback.Content), "tenes") {
 		t.Errorf("repFallback.Content %q leaked voseo output", repFallback.Content)
 	}
+	if len(reader.Calls()) != 2 {
+		t.Errorf("reader calls = %d, want one read per message", len(reader.Calls()))
+	}
 }
 
 func TestValidateSettingsReportsInvalidKeysWithoutEchoingValues(t *testing.T) {
@@ -556,7 +579,6 @@ func TestValidateSettingsReportsInvalidKeysWithoutEchoingValues(t *testing.T) {
 		capitime.SettingDelayMinMinutes:  "200",
 		capitime.SettingDelayMaxMinutes:  "100",
 		capitime.SettingDebounceWindow:   probeMarker,
-		capitime.SettingRegexPattern:     "[" + probeMarker,
 	})
 
 	err := capitime.ValidateSettings(t.Context(), bad)
@@ -571,7 +593,6 @@ func TestValidateSettingsReportsInvalidKeysWithoutEchoingValues(t *testing.T) {
 		capitime.SettingEasterEggPercent,
 		capitime.SettingDelayMinMinutes,
 		capitime.SettingDebounceWindow,
-		capitime.SettingRegexPattern,
 	} {
 		if !strings.Contains(msg, key) {
 			t.Errorf("error %q missing key %q", msg, key)

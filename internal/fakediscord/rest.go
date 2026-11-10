@@ -197,58 +197,6 @@ func (s *Server) apiKeyOnly(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-type generateContentBody struct {
-	Contents []struct {
-		Parts []struct {
-			Text string `json:"text"`
-		} `json:"parts"`
-	} `json:"contents"`
-}
-
-func (s *Server) handleGenerateContent(w http.ResponseWriter, r *http.Request) {
-	if !strings.HasSuffix(r.PathValue("model"), ":generateContent") {
-		handleNotFound(w, r)
-		return
-	}
-
-	var body generateContentBody
-	if !decodeBody(w, r, &body) {
-		return
-	}
-
-	var promptBuilder strings.Builder
-	for _, content := range body.Contents {
-		for _, part := range content.Parts {
-			promptBuilder.WriteString(part.Text)
-		}
-	}
-
-	prompt := strings.TrimSpace(promptBuilder.String())
-	if prompt == "" {
-		writeError(w, http.StatusBadRequest, codeInvalidFormBody, "Invalid Form Body")
-		return
-	}
-
-	s.mu.Lock()
-	rephrased, found := s.rephrases[prompt]
-	s.mu.Unlock()
-	if !found {
-		rephrased = prompt
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"candidates": []map[string]any{
-			{
-				"content": map[string]any{
-					"parts": []map[string]string{
-						{"text": rephrased},
-					},
-				},
-			},
-		},
-	})
-}
-
 // decodeBody reads a JSON request body of bounded size into target. It answers the client
 // itself and returns false when the body is too large or not valid JSON.
 func decodeBody(w http.ResponseWriter, r *http.Request, target any) bool {

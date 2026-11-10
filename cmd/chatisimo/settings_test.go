@@ -731,9 +731,6 @@ func TestValidateCapiSettings(t *testing.T) {
 	if err := validateCapiDebounceWindow(defaultCapiDebounceWindow, config.EnvLocal); err != nil {
 		t.Fatalf("defaultCapiDebounceWindow rejected: %v", err)
 	}
-	if err := validateCapiRegexPattern(defaultCapiRegexPattern, config.EnvLocal); err != nil {
-		t.Fatalf("defaultCapiRegexPattern rejected: %v", err)
-	}
 
 	checks := []struct {
 		name     string
@@ -744,7 +741,6 @@ func TestValidateCapiSettings(t *testing.T) {
 		{name: "easter_egg_percent", validate: validateCapiEasterEggPercent, bad: leakMarker + "150"},
 		{name: "delay_minutes", validate: validateCapiDelayMinutes, bad: leakMarker + "9999"},
 		{name: "debounce_window", validate: validateCapiDebounceWindow, bad: leakMarker + "50h"},
-		{name: "regex_pattern", validate: validateCapiRegexPattern, bad: "[" + leakMarker},
 	}
 
 	for _, check := range checks {
@@ -777,8 +773,6 @@ func FuzzValidateCapiSettings(f *testing.F) {
 		"24h",
 		"25h",
 		"1500ms",
-		defaultCapiRegexPattern,
-		"[unclosed",
 	}, settingAbuseSeeds()...)
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -792,11 +786,6 @@ func FuzzValidateCapiSettings(f *testing.F) {
 		"easter egg percent must be an integer between 0 and 100",
 		"delay minutes must be an integer between 1 and 1440",
 		"debounce window must be a duration between 0s and 24h in whole seconds",
-		"regex pattern must be 1-4096 bytes",
-		"regex pattern must not be blank",
-		"regex pattern must be valid UTF-8",
-		"regex pattern must not contain control characters",
-		"regex pattern is not a valid regular expression",
 	}, " ")
 
 	f.Fuzz(func(t *testing.T, value string) {
@@ -805,7 +794,6 @@ func FuzzValidateCapiSettings(f *testing.F) {
 			validateCapiEasterEggPercent,
 			validateCapiDelayMinutes,
 			validateCapiDebounceWindow,
-			validateCapiRegexPattern,
 		} {
 			err := fn(value, config.EnvLocal)
 			if err != nil {
