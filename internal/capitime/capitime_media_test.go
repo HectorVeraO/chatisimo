@@ -207,6 +207,8 @@ type readHarnessOptions struct {
 	debounce string
 	noReader bool
 	answer   string
+	// now replaces the harness clock as the Service clock when it is set.
+	now func() time.Time
 }
 
 // newReadHarness builds a Service on Sunday 2026-11-01 21:00 in Santiago whose target member is
@@ -249,6 +251,9 @@ func newReadHarness(t *testing.T, opts readHarnessOptions) *readHarness {
 	}
 	if !opts.noReader {
 		deps.Reader = harness.reader
+	}
+	if opts.now != nil {
+		deps.Clock = opts.now
 	}
 
 	svc, err := capitime.New(deps)
