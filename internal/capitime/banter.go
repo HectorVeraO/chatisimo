@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -23,8 +24,52 @@ var (
 	errBanterInvalid     = errors.New("capitime: invalid banter output")
 )
 
-var voseoTokens = []string{
-	"tenés", "tenes", "podés", "podes", "sos", "llegás", "llegas vos", "venís", "venis", "bendi",
+// voseoRe matches the Argentine voseo forms and the family nickname a line must not carry. Each one
+// counts only as a whole word, so "esos", "pasos" or "bendito" do not match.
+var voseoRe = regexp.MustCompile(
+	`(^|[^\p{L}])(tenés|tenes|podés|podes|sos|llegás|llegas vos|venís|venis|bendi)($|[^\p{L}])`,
+)
+
+// featureNameSeparators removes what can sit between the two words of the feature name: spaces,
+// hyphens, underscores and the asterisks of Markdown emphasis.
+var featureNameSeparators = strings.NewReplacer(" ", "", "-", "", "_", "", "*", "")
+
+// mentionBreaker disarms the text that pings: mass mentions and the opening of a user or role
+// mention.
+var mentionBreaker = strings.NewReplacer("@everyone", "everyone", "@here", "here", "<@", "< @")
+
+// namesFeature reports whether line carries the feature name in any spelling, such as "Capi Time",
+// "capitime", "capi-time" or "**Capi** Time". The nickname alone does not count.
+func namesFeature(line string) bool {
+	squeezed := featureNameSeparators.Replace(strings.ToLower(line))
+
+	return strings.Contains(squeezed, "capitime")
+}
+
+// cutSaid returns the sanitized message text cut to MaxSaidRunes runes, never inside a rune.
+func cutSaid(text string) string {
+	runes := 0
+	for index := range text {
+		if runes == MaxSaidRunes {
+			return strings.TrimSpace(text[:index])
+		}
+		runes++
+	}
+
+	return text
+}
+
+// stripMentions rewrites line so that nothing in it pings: no "@everyone", no "@here" and no
+// "<@" opening a user or role mention. It repeats until the text is stable, because removing one
+// "@" can join the pieces of another mention.
+func stripMentions(line string) string {
+	for {
+		stripped := mentionBreaker.Replace(line)
+		if stripped == line {
+			return stripped
+		}
+		line = stripped
+	}
 }
 
 // LLMBanterConfig configures an LLMBanterGenerator.
@@ -79,6 +124,8 @@ func (g *LLMBanterGenerator) GenerateBanter(ctx context.Context, input BanterInp
 	return cleaned, nil
 }
 
+// buildLLMUserContext builds the one-line user message of the banter request. The member's text
+// goes last and quoted, so it cannot break the line or pass for another field.
 func buildLLMUserContext(input BanterInput) string {
 	mode := "standard_delay"
 	if input.EasterEgg {
@@ -86,16 +133,20 @@ func buildLLMUserContext(input BanterInput) string {
 	}
 
 	return fmt.Sprintf(
-		"locale=%s mode=%s claim=%s claimed_clock=%s capi_clock=%s delay_minutes=%d",
+		"locale=%s mode=%s claim=%s claimed_clock=%s capi_clock=%s delay_minutes=%d said=%q",
 		input.Locale,
 		mode,
 		input.ClaimSummary,
 		input.ClaimedClock,
 		input.CapiClock,
 		input.DelayMinutes,
+		input.Said,
 	)
 }
 
+// sanitizeBanterOutput turns a generated line into one clean line that pings nobody. It reports
+// false for a line that is empty, too long, written with voseo or that carries the feature name,
+// which belongs to the reply header only.
 func sanitizeBanterOutput(raw string) (string, bool) {
 	if !utf8.ValidString(raw) {
 		return "", false
@@ -116,19 +167,17 @@ func sanitizeBanterOutput(raw string) (string, bool) {
 
 	collapsed := strings.Join(strings.Fields(b.String()), " ")
 	collapsed = strings.Trim(collapsed, `"'`)
-	collapsed = strings.ReplaceAll(collapsed, "@everyone", "everyone")
-	collapsed = strings.ReplaceAll(collapsed, "@here", "here")
-	collapsed = strings.ReplaceAll(collapsed, "<@", "< @")
+	collapsed = stripMentions(collapsed)
 
 	if collapsed == "" || utf8.RuneCountInString(collapsed) > maxBanterRunes {
 		return "", false
 	}
+	if namesFeature(collapsed) {
+		return "", false
+	}
 
-	lower := strings.ToLower(collapsed)
-	for _, forbidden := range voseoTokens {
-		if strings.Contains(lower, forbidden) {
-			return "", false
-		}
+	if voseoRe.MatchString(strings.ToLower(collapsed)) {
+		return "", false
 	}
 
 	return collapsed, true

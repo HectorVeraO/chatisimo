@@ -30,3 +30,9 @@ func ReadTextForEval(
 
 	return claim, string(decided)
 }
+
+// SaidForEval returns what BanterInput.Said holds for a message with the given text, so the local
+// evaluation sends the model what the service would send.
+func SaidForEval(text string) string {
+	return cutSaid(sanitizeInputText(text))
+}

@@ -135,18 +135,24 @@ func (s *fakeSettings) Set(name, val string) {
 	s.values[name] = val
 }
 
+// fakeLLM stands in for the model that writes the banter: it records the system instruction and
+// the user text of every request and answers with the queued lines, repeating the last one.
 type fakeLLM struct {
 	mu        sync.Mutex
 	responses []string
 	err       error
 	calls     int
+	systems   []string
+	users     []string
 }
 
-func (l *fakeLLM) GenerateWithPrompt(_ context.Context, _, _ string) (string, error) {
+func (l *fakeLLM) GenerateWithPrompt(_ context.Context, system, user string) (string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	l.calls++
+	l.systems = append(l.systems, system)
+	l.users = append(l.users, user)
 	if l.err != nil {
 		return "", l.err
 	}
@@ -502,7 +508,7 @@ func TestModelReadDisambiguationAndDynamicBanterWithFallback(t *testing.T) {
 	reader := &fakeReader{response: `{"arrival":true,"day":"","clock":"","minutes":20}`}
 	llmFake := &fakeLLM{
 		responses: []string{
-			"Dice que en 20 min mi king, pero con Capi Time sumenle 90 min mis chanchitos mientras prende el PC.",
+			"Dice que en 20 min mi king, pero sumenle 90 min mis chanchitos mientras prende el PC.",
 		},
 	}
 

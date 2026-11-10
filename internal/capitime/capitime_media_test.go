@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/url"
 	"slices"
@@ -209,6 +210,11 @@ type readHarnessOptions struct {
 	answer   string
 	// now replaces the harness clock as the Service clock when it is set.
 	now func() time.Time
+	// llm writes the banter when it is set; banter replaces the generator built on it.
+	llm    capitime.LLMGenerator
+	banter capitime.BanterGenerator
+	// rand replaces the source of randomness when it is set.
+	rand io.Reader
 }
 
 // newReadHarness builds a Service on Sunday 2026-11-01 21:00 in Santiago whose target member is
@@ -254,6 +260,15 @@ func newReadHarness(t *testing.T, opts readHarnessOptions) *readHarness {
 	}
 	if opts.now != nil {
 		deps.Clock = opts.now
+	}
+	if opts.llm != nil {
+		deps.LLM = opts.llm
+	}
+	if opts.banter != nil {
+		deps.Banter = opts.banter
+	}
+	if opts.rand != nil {
+		deps.Rand = opts.rand
 	}
 
 	svc, err := capitime.New(deps)

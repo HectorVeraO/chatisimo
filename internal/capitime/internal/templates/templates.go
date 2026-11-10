@@ -1,5 +1,5 @@
 // Package templates provides deterministic Chilean Spanish and English fallback banter lines for
-// Capi Time arrival predictions.
+// Capi Time arrival predictions. No line carries the feature name: it belongs to the reply header.
 package templates
 
 import "fmt"
@@ -18,25 +18,25 @@ type Params struct {
 var standardESCL = []func(Params) string{
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Dijo %q (%s), pero en Capi Time son +%d min mi king, as\u00ed que reci\u00e9n cae tipo %s; armen lobby sin apuro.",
+			"Dijo %q (%s), pero s\u00famenle +%d min mi king, as\u00ed que reci\u00e9n cae tipo %s; armen lobby sin apuro.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Traducci\u00f3n oficial de %q (%s): s\u00famenle %d min de Capi Time mis kings, reci\u00e9n se conecta a las %s.",
+			"Traducci\u00f3n oficial de %q (%s): s\u00famenle %d min de atraso mis kings, reci\u00e9n se conecta a las %s.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Alerta de humo con ese %q (%s), kingcito: con +%d min de Capi Time asoma reci\u00e9n a las %s cuando por fin prenda el PC.",
+			"Alerta de humo con ese %q (%s), kingcito: con +%d min de atraso asoma reci\u00e9n a las %s cuando por fin prenda el PC.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"El cl\u00e1sico %q (%s) del Capi: apl\u00edquenle +%d min de desfase mis chanchitos, cae recién a las %s.",
+			"El cl\u00e1sico %q (%s) del Capi: apl\u00edquenle +%d min de desfase mis chanchitos, cae reci\u00e9n a las %s.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
@@ -60,13 +60,13 @@ var easterEggESCL = []func(Params) string{
 var standardENUS = []func(Params) string{
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Claimed %q (%s), which translates to +%d min in Capi Time mi king: expect arrival around %s.",
+			"Claimed %q (%s), which really means +%d min mi king: expect arrival around %s.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
 	func(p Params) string {
 		return fmt.Sprintf(
-			"Official Capi Time conversion for %q (%s): add %d min mi rey, landing around %s.",
+			"Official conversion for %q (%s): add %d min mi rey, landing around %s.",
 			p.ClaimSummary, p.ClaimedClock, p.DelayMinutes, p.CapiClock,
 		)
 	},
