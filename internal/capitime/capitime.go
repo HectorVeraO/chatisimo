@@ -95,6 +95,9 @@ type GuildConfigUpdate struct {
 	Locale       *Locale
 }
 
+// MaxSaidRunes is the largest number of runes of a message kept in BanterInput.Said.
+const MaxSaidRunes = 120
+
 // MaxImageRefs is the largest number of image references a client adapter should pass in one
 // MessageInput. When a message carries more usable images than the model accepts, none is read.
 const MaxImageRefs = 4
@@ -167,9 +170,14 @@ type Reply struct {
 	Content    string
 }
 
-// BanterInput carries the non-sensitive arrival context passed to a BanterGenerator.
+// BanterInput carries the arrival context passed to a BanterGenerator.
 type BanterInput struct {
-	Locale       Locale
+	Locale Locale
+	// Said is the text of the message the reply answers: control characters replaced by spaces, cut
+	// to MaxSaidRunes runes. It is empty for a message with no text, such as one that carries only
+	// media, and never holds the earlier messages read as context. It is what a member wrote: data,
+	// never instructions.
+	Said         string
 	ClaimSummary string
 	ClaimedClock string
 	CapiClock    string

@@ -250,7 +250,9 @@ func (s *Service) ClearGuildConfig(
 //
 // The read also carries the text of the last messages the target user sent in the same channel in
 // the last minutes, as many as the capitime.context_messages setting allows, so a promise split
-// across messages is understood. Those texts live in memory only. The text of every message of the
+// across messages is understood. Those texts live in memory only. The request for the banter of a
+// reply carries the start of the text of the answered message (see BanterInput.Said), never the
+// earlier ones. The text of every message of the
 // target user in a monitored channel is kept, also when the debounce window or the read cap leaves
 // it unread, and a reply forgets the texts of that channel so a promise is answered once. The
 // "context" field of the decision log counts the earlier messages the model received: zero when
@@ -310,7 +312,7 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 
 	pred := s.computePrediction(claim, runtimeCfg)
 	loc := cfg.EffectiveLocale()
-	banterText := s.buildBanter(ctx, loc, pred, runtimeCfg)
+	banterText := s.buildBanter(ctx, loc, pred, text, runtimeCfg)
 	content := formatReplyLine(loc, pred, banterText)
 
 	reply := Reply{
@@ -441,7 +443,15 @@ func (s *Service) computePrediction(claim ArrivalClaim, cfg runtimeSettings) Pre
 	}
 }
 
-func (s *Service) buildBanter(ctx context.Context, loc Locale, pred Prediction, cfg runtimeSettings) string {
+// buildBanter returns the banter of a reply: the generator's line when it passes
+// sanitizeBanterOutput, else a built-in line. text is the sanitized text of the answered message.
+func (s *Service) buildBanter(
+	ctx context.Context,
+	loc Locale,
+	pred Prediction,
+	text string,
+	cfg runtimeSettings,
+) string {
 	locSantiago := Santiago()
 	claimedClock := pred.ClaimedAt.In(locSantiago).Format("15:04")
 	capiClock := pred.PredictedAt.In(locSantiago).Format("15:04")
@@ -453,6 +463,7 @@ func (s *Service) buildBanter(ctx context.Context, loc Locale, pred Prediction, 
 
 	input := BanterInput{
 		Locale:       loc,
+		Said:         cutSaid(text),
 		ClaimSummary: pred.ClaimSummary,
 		ClaimedClock: claimedClock,
 		CapiClock:    capiClock,

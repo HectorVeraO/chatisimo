@@ -30,3 +30,15 @@ func ReadTextForEval(
 
 	return claim, string(decided)
 }
+
+// SaidForEval returns what BanterInput.Said holds for a message with the given text, so the local
+// evaluation sends the model what the service would send.
+func SaidForEval(text string) string {
+	return cutSaid(sanitizeInputText(text))
+}
+
+// NamesFeatureForEval reports whether line carries the feature name in any spelling, the check
+// that makes the service reject a generated line.
+func NamesFeatureForEval(line string) bool {
+	return namesFeature(line)
+}
