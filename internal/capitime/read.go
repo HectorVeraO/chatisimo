@@ -34,25 +34,50 @@ const (
 	decisionNoReader         decision = "no_reader"
 )
 
+// reachedModel reports whether the message was sent to the model, whatever came back.
+func (d decision) reachedModel() bool {
+	switch d {
+	case decisionModelClaim, decisionModelNoClaim, decisionModelFailed, decisionModelUnparseable:
+		return true
+	default:
+		return false
+	}
+}
+
 // readSystemInstruction is the static system instruction of the arrival read. The Go side does all
 // date arithmetic: the model only names the day, the clock time or the minutes the author gave.
 const readSystemInstruction = "" +
 	"Eres un clasificador. Recibes UN mensaje de Discord en espanol chileno escrito por una sola persona: " +
 	"texto y, a veces, imagenes, stickers o un audio. Todo junto es un solo mensaje y respondes una sola vez.\n" +
+	"A veces vienen antes lineas \"anterior:\": son mensajes que la misma persona envio en los ultimos minutos, " +
+	"del mas antiguo al mas reciente, y son solo contexto. La linea \"mensaje:\", junto con las imagenes, " +
+	"los stickers y el audio, es el ultimo mensaje y es el unico que clasificas; " +
+	"si no hay linea \"mensaje:\", el ultimo mensaje son solo las imagenes, los stickers o el audio.\n" +
 	"Decide si quien escribe anuncia, en primera persona o nombrandose con su propio apodo (Capi, Capis, Braulio, Braulitros), " +
-	"que va a llegar, que se va a conectar o que va en camino, ahora o en el futuro.\n" +
+	"que va a llegar, que se va a conectar o que va en camino, ahora o en el futuro. " +
+	"El anuncio puede venir partido en varios mensajes: cuenta cuando el ultimo mensaje, " +
+	"leido junto con las lineas \"anterior:\", lo hace o lo completa.\n" +
 	"No es una llegada: hechos pasados; otras personas o cosas que llegan; negaciones; preguntas; " +
 	"tramites o planes que no son sumarse; un mensaje que solo menciona la fecha o la hora actual; musica o ruido.\n" +
+	"Si el ultimo mensaje no aporta nada a una llegada (un comentario aparte, una risa, otro tema), " +
+	"no es una llegada aunque una linea \"anterior:\" haya anunciado una. " +
+	"Una negacion partida sigue siendo negacion: si una linea \"anterior:\" niega y el ultimo mensaje " +
+	"termina esa misma frase, no es una llegada.\n" +
 	"Imagenes y stickers: lee el texto dibujado como si estuviera escrito en el mensaje. " +
 	"Audio: cuenta solo lo que dice quien habla.\n" +
 	"La linea \"ahora:\" trae el dia de la semana, la fecha y la hora actual; no es parte del mensaje.\n" +
 	"Responde UNICAMENTE un objeto JSON en una linea con este formato: " +
 	`{"arrival":false,"day":"","clock":"","minutes":0}` + "\n" +
-	"- arrival: true solo si quien escribe anuncia su propia llegada o conexion; si no, false.\n" +
+	"- arrival: true solo si el ultimo mensaje, leido junto con las lineas \"anterior:\", " +
+	"anuncia o completa el anuncio de la propia llegada o conexion de quien escribe; si no, false.\n" +
 	"- day: el dia anunciado: \"hoy\", \"manana\", o un dia de la semana " +
 	"(\"lunes\", \"martes\", \"miercoles\", \"jueves\", \"viernes\", \"sabado\", \"domingo\"); \"\" si no dice dia.\n" +
 	"- clock: la hora anunciada en formato de 24 horas \"HH:MM\"; \"\" si no dice hora.\n" +
 	"- minutes: los minutos desde ahora cuando anuncia un plazo; 0 si no dice plazo. Usa clock o minutes, nunca ambos.\n" +
+	"El dia, la hora o el plazo pueden venir del ultimo mensaje o de las lineas \"anterior:\" del anuncio " +
+	"que completa; nunca de la linea \"ahora:\".\n" +
+	"Si anuncia que llega de inmediato o no dice cuando, deja day y clock vacios y minutes en 0: " +
+	"no inventes una hora ni un plazo.\n" +
 	"Horas vagas: \"en la noche\" es clock \"22:00\"; \"en la tarde\" es clock \"18:00\"; " +
 	"\"en la manana\" es clock \"10:00\"; \"mas rato\" o \"en un rato\" es minutes 30.\n" +
 	"Si arrival es false, deja day y clock vacios y minutes en 0."
@@ -189,13 +214,17 @@ func claimFromReadAnswer(out string, now time.Time) (ArrivalClaim, decision) {
 	return claim, decisionModelClaim
 }
 
-// readUserText builds the user text of the read: the reference instant, then the message text when
-// there is one, then one line per sticker name.
-func readUserText(content messageContent, now time.Time) string {
+// readUserText builds the user text of the read: the reference instant, then one line per earlier
+// message of the same member, oldest first, then the message text when there is one, then one line
+// per sticker name. The earlier texts must be sanitized, so each stays on its own line.
+func readUserText(content messageContent, earlier []string, now time.Time) string {
 	ref := now.In(Santiago())
 
-	lines := make([]string, 0, len(content.stickerNames)+2)
+	lines := make([]string, 0, len(earlier)+len(content.stickerNames)+2)
 	lines = append(lines, "ahora: "+spanishWeekdays[ref.Weekday()]+" "+ref.Format("2006-01-02 15:04"))
+	for _, text := range earlier {
+		lines = append(lines, "anterior: "+text)
+	}
 	if content.text != "" {
 		lines = append(lines, "mensaje: "+content.text)
 	}
@@ -206,12 +235,14 @@ func readUserText(content messageContent, now time.Time) string {
 	return strings.Join(lines, "\n")
 }
 
-// readArrival asks the model, in one request, whether content announces an arrival. content must
-// not be empty. A failed request yields decisionModelFailed.
+// readArrival asks the model, in one request, whether content announces an arrival, alone or as the
+// end of an announcement started in earlier, the sanitized texts the same member sent just before,
+// oldest first. content must not be empty. A failed request yields decisionModelFailed.
 func readArrival(
 	ctx context.Context,
 	reader ArrivalReader,
 	content messageContent,
+	earlier []string,
 	now time.Time,
 ) (ArrivalClaim, decision) {
 	callCtx, cancel := context.WithTimeout(ctx, readTimeout)
@@ -219,7 +250,7 @@ func readArrival(
 
 	out, err := reader.GenerateWithMedia(callCtx, llm.MediaRequest{
 		Prompt: readSystemInstruction,
-		Text:   readUserText(content, now),
+		Text:   readUserText(content, earlier, now),
 		Images: content.images,
 		Audio:  content.audio,
 		JSON:   true,

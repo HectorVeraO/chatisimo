@@ -226,6 +226,7 @@ func TestConfigListFormat(t *testing.T) {
 	}
 
 	capiHead := "capitime.banter_prompt\tplain\t" + esc(defaultCapiBanterPrompt) + " (default)\tVertex AI Capi Time Chilean banter system prompt\n" +
+		"capitime.context_messages\tplain\t" + defaultCapiContextMessages + " (default)\tCapi Time earlier messages of the target user read with each new one (0-10)\n" +
 		"capitime.debounce_window\tplain\t" + defaultCapiDebounceWindow + " (default)\tCapi Time per-user anti-spam debounce window (0s to 24h)\n" +
 		"capitime.delay_max_minutes\tplain\t" + defaultCapiDelayMaxMinutes + " (default)\tCapi Time maximum delay in minutes (1-1440)\n" +
 		"capitime.delay_min_minutes\tplain\t" + defaultCapiDelayMinMinutes + " (default)\tCapi Time minimum delay in minutes (1-1440)\n" +

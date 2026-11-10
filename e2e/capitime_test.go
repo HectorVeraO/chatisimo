@@ -273,3 +273,86 @@ func TestCapiTimeModelReadDecidesEachMessageOnceE2E(t *testing.T) {
 		}
 	}
 }
+
+func TestCapiTimeReadsAPromiseSplitAcrossMessagesE2E(t *testing.T) {
+	t.Parallel()
+
+	s := newGuild(t, 2)
+	manager := s.fake.AddUser(fakediscord.User{Name: "Manager", Locale: "es-419"})
+	created.add("user snowflake", manager.ID)
+	s.fake.AddMember(s.guild, manager)
+
+	capiUser := s.fake.AddUser(fakediscord.User{Name: "Target", Locale: "es-419"})
+	created.add("user snowflake", capiUser.ID)
+	s.fake.AddMember(s.guild, capiUser)
+
+	if err := s.fake.SetMemberPermissions(s.guild, manager, "32"); err != nil {
+		t.Fatalf("SetMemberPermissions manager: %v", err)
+	}
+	s.slash(t, manager, "/capitime-config/set", map[string]any{
+		"target":  capiUser,
+		"channel": s.guild.ChannelID,
+		"locale":  "es-CL",
+	})
+
+	// The guild serial makes each text unique on the fake model the parallel tests share.
+	firstPart := fmt.Sprintf("cabros del lobby %d en 15 min", s.serial)
+	secondPart := fmt.Sprintf("me conecto al lobby %d", s.serial)
+	for _, text := range []string{firstPart, secondPart} {
+		created.add("user message text", text)
+	}
+
+	scripted := []struct{ text, answer string }{
+		{firstPart, `{"arrival":false,"day":"","clock":"","minutes":0}`},
+		{secondPart, `{"arrival":true,"day":"","clock":"","minutes":15}`},
+	}
+	for _, rule := range scripted {
+		if err := s.fake.SetGenerated(classifierMarker, "mensaje: "+rule.text, rule.answer); err != nil {
+			t.Fatalf("SetGenerated: %v", err)
+		}
+	}
+
+	// 1. The first part alone is read by the model, which sees no arrival yet -> silent.
+	if _, err := s.fake.SendUserMessage(capiUser, s.guild, s.guild.ChannelID, firstPart); err != nil {
+		t.Fatalf("SendUserMessage first part: %v", err)
+	}
+	waitFor(t, "the model read of the first part", func() bool {
+		return len(arrivalReads(s.fake, firstPart)) == 1
+	})
+	if read := arrivalReads(s.fake, firstPart)[0]; strings.Contains(read.User, "anterior: ") {
+		t.Errorf("first read = %q, want no earlier message", read.User)
+	}
+
+	// 2. The second part is read after the first, completes the promise -> one reply, to it.
+	secondID, err := s.fake.SendUserMessage(capiUser, s.guild, s.guild.ChannelID, secondPart)
+	if err != nil {
+		t.Fatalf("SendUserMessage second part: %v", err)
+	}
+
+	var replies []fakediscord.Message
+	waitFor(t, "public Capi Time reply to the completed promise", func() bool {
+		replies = replies[:0]
+		for _, m := range s.fake.Visible(manager, s.guild.ChannelID) {
+			if m.EphemeralFor == "" && strings.Contains(m.Content, "Capi Time") {
+				replies = append(replies, m)
+			}
+		}
+
+		return len(replies) > 0
+	})
+
+	if len(replies) != 1 || replies[0].ReplyToID != secondID {
+		t.Fatalf("replies = %+v, want one reply to the second part %q and none to the first", replies, secondID)
+	}
+	if !strings.Contains(replies[0].Content, "<t:") || strings.Contains(replies[0].Content, "\n") {
+		t.Errorf("reply content = %q, want single-line message with Discord timestamp tags", replies[0].Content)
+	}
+
+	reads := arrivalReads(s.fake, secondPart)
+	if len(reads) != 1 {
+		t.Fatalf("model reads of %q = %d, want exactly 1", secondPart, len(reads))
+	}
+	if want := "anterior: " + firstPart + "\nmensaje: " + secondPart; !strings.Contains(reads[0].User, want) {
+		t.Errorf("second read = %q, want it to carry %q", reads[0].User, want)
+	}
+}

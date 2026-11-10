@@ -731,6 +731,9 @@ func TestValidateCapiSettings(t *testing.T) {
 	if err := validateCapiDebounceWindow(defaultCapiDebounceWindow, config.EnvLocal); err != nil {
 		t.Fatalf("defaultCapiDebounceWindow rejected: %v", err)
 	}
+	if err := validateCapiContextMessages(defaultCapiContextMessages, config.EnvLocal); err != nil {
+		t.Fatalf("defaultCapiContextMessages rejected: %v", err)
+	}
 
 	checks := []struct {
 		name     string
@@ -741,6 +744,9 @@ func TestValidateCapiSettings(t *testing.T) {
 		{name: "easter_egg_percent", validate: validateCapiEasterEggPercent, bad: leakMarker + "150"},
 		{name: "delay_minutes", validate: validateCapiDelayMinutes, bad: leakMarker + "9999"},
 		{name: "debounce_window", validate: validateCapiDebounceWindow, bad: leakMarker + "50h"},
+		{name: "context_messages", validate: validateCapiContextMessages, bad: leakMarker + "11"},
+		{name: "context_messages past the maximum", validate: validateCapiContextMessages, bad: "11"},
+		{name: "context_messages below zero", validate: validateCapiContextMessages, bad: "-1"},
 	}
 
 	for _, check := range checks {
@@ -773,6 +779,9 @@ func FuzzValidateCapiSettings(f *testing.F) {
 		"24h",
 		"25h",
 		"1500ms",
+		"4",
+		"10",
+		"11",
 	}, settingAbuseSeeds()...)
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -786,6 +795,7 @@ func FuzzValidateCapiSettings(f *testing.F) {
 		"easter egg percent must be an integer between 0 and 100",
 		"delay minutes must be an integer between 1 and 1440",
 		"debounce window must be a duration between 0s and 24h in whole seconds",
+		"context messages must be an integer between 0 and 10",
 	}, " ")
 
 	f.Fuzz(func(t *testing.T, value string) {
@@ -794,6 +804,7 @@ func FuzzValidateCapiSettings(f *testing.F) {
 			validateCapiEasterEggPercent,
 			validateCapiDelayMinutes,
 			validateCapiDebounceWindow,
+			validateCapiContextMessages,
 		} {
 			err := fn(value, config.EnvLocal)
 			if err != nil {

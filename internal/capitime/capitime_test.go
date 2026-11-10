@@ -579,6 +579,7 @@ func TestValidateSettingsReportsInvalidKeysWithoutEchoingValues(t *testing.T) {
 		capitime.SettingDelayMinMinutes:  "200",
 		capitime.SettingDelayMaxMinutes:  "100",
 		capitime.SettingDebounceWindow:   probeMarker,
+		capitime.SettingContextMessages:  probeMarker,
 	})
 
 	err := capitime.ValidateSettings(t.Context(), bad)
@@ -593,6 +594,7 @@ func TestValidateSettingsReportsInvalidKeysWithoutEchoingValues(t *testing.T) {
 		capitime.SettingEasterEggPercent,
 		capitime.SettingDelayMinMinutes,
 		capitime.SettingDebounceWindow,
+		capitime.SettingContextMessages,
 	} {
 		if !strings.Contains(msg, key) {
 			t.Errorf("error %q missing key %q", msg, key)

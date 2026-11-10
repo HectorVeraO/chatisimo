@@ -666,3 +666,61 @@ func TestCapiTimeStaysSilentWhenTheModelSeesNoArrivalOverGateway(t *testing.T) {
 
 	assertNoUCLogLeaks(t, h, comment, "se cayo el servidor", "22:30 llego")
 }
+
+func TestCapiTimeReadsAPromiseSplitAcrossMessagesOverGateway(t *testing.T) {
+	h := newHarness(t)
+	resetCapiGuildConfigsOnCleanup(t, h, h.guild.ID)
+	santiago := mustLoadSantiago(t)
+
+	h.clock.Set(time.Date(2026, time.November, 1, 21, 0, 0, 0, santiago))
+	h.capiReader.setAnswer(capiNoArrivalJSON)
+	h.capiReader.answerFor("mensaje: me conecto", `{"arrival":true,"day":"","clock":"22:00","minutes":0}`)
+
+	target := userC
+	channel := h.guild.ChannelID
+	_, err := h.capi.UpdateGuildConfig(
+		t.Context(),
+		capitime.GuildScope{GuildID: h.guild.ID, CanManageGuild: true},
+		capitime.GuildConfigUpdate{TargetUserID: &target, ChannelID: &channel},
+	)
+	if err != nil {
+		t.Fatalf("UpdateGuildConfig: %v", err)
+	}
+
+	const (
+		firstPart  = "a las 10"
+		secondPart = "me conecto"
+	)
+	if _, sendErr := h.fake.SendUserMessage(h.users[userC], h.guild, h.guild.ChannelID, firstPart); sendErr != nil {
+		t.Fatalf("SendUserMessage first part: %v", sendErr)
+	}
+
+	waitFor(t, "the first part to be read by the model", func() bool {
+		return len(h.capiReader.snapshot()) == 1
+	})
+	if read := h.capiReader.snapshot()[0]; read.text != capiNowLine+"\nmensaje: "+firstPart {
+		t.Errorf("first read text = %q, want the first part alone", read.text)
+	}
+
+	secondID, err := h.fake.SendUserMessage(h.users[userC], h.guild, h.guild.ChannelID, secondPart)
+	if err != nil {
+		t.Fatalf("SendUserMessage second part: %v", err)
+	}
+
+	waitFor(t, "Capi Time reply to the message that completes the promise", func() bool {
+		return len(publicCapiReplies(h)) == 1
+	})
+	if reply := publicCapiReplies(h)[0]; reply.ReplyToID != secondID {
+		t.Errorf("reply ReplyToID = %q, want the second part %q and none for the first", reply.ReplyToID, secondID)
+	}
+
+	reads := h.capiReader.snapshot()
+	if len(reads) != 2 {
+		t.Fatalf("reads = %+v, want one read per message", reads)
+	}
+	if want := capiNowLine + "\nanterior: " + firstPart + "\nmensaje: " + secondPart; reads[1].text != want {
+		t.Errorf("second read text = %q, want %q", reads[1].text, want)
+	}
+
+	assertNoUCLogLeaks(t, h, firstPart, secondPart)
+}

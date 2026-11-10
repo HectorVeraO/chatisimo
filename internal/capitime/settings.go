@@ -21,6 +21,7 @@ const (
 	SettingDelayMinMinutes  = "capitime.delay_min_minutes"
 	SettingDelayMaxMinutes  = "capitime.delay_max_minutes"
 	SettingDebounceWindow   = "capitime.debounce_window"
+	SettingContextMessages  = "capitime.context_messages"
 )
 
 // Default runtime setting values used when the corresponding key in platform.setting is unset.
@@ -29,6 +30,7 @@ const (
 	DefaultDelayMinMinutes  = "45"
 	DefaultDelayMaxMinutes  = "180"
 	DefaultDebounceWindow   = "2m"
+	DefaultContextMessages  = "4"
 
 	DefaultBanterPrompt = "" +
 		"Genera UNA sola frase corta (maximo 140 caracteres, una sola linea) de talla chilena afectuosa de grupo de amigos " +
@@ -54,6 +56,7 @@ const (
 	defaultDelayMinMins   = 45
 	defaultDelayMaxMins   = 180
 	defaultDebounceDur    = 2 * time.Minute
+	defaultContextMsgs    = 4
 	minDelayMinutes       = 1
 	maxDelayMinutes       = 1440
 	maxDebounceWindow     = 24 * time.Hour
@@ -74,6 +77,7 @@ type runtimeSettings struct {
 	delayMinMinutes  int
 	delayMaxMinutes  int
 	debounceWindow   time.Duration
+	contextMessages  int
 }
 
 func defaultRuntimeSettings() runtimeSettings {
@@ -84,6 +88,7 @@ func defaultRuntimeSettings() runtimeSettings {
 		delayMinMinutes:  defaultDelayMinMins,
 		delayMaxMinutes:  defaultDelayMaxMins,
 		debounceWindow:   defaultDebounceDur,
+		contextMessages:  defaultContextMsgs,
 	}
 }
 
@@ -157,6 +162,22 @@ func ParseDebounceWindow(raw string) (time.Duration, error) {
 	return dur, nil
 }
 
+// ParseContextMessages parses the number of earlier messages read with each new one, an integer in
+// the inclusive range 0..10.
+func ParseContextMessages(raw string) (int, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || len(trimmed) > maxSettingStringBytes {
+		return 0, fmt.Errorf("context messages must be an integer between 0 and %d", maxContextMessages)
+	}
+
+	count, err := strconv.Atoi(trimmed)
+	if err != nil || count < 0 || count > maxContextMessages {
+		return 0, fmt.Errorf("context messages must be an integer between 0 and %d", maxContextMessages)
+	}
+
+	return count, nil
+}
+
 // ValidateSettings checks every capitime.* setting currently stored in reader and returns a joined
 // error naming each invalid key without echoing raw setting values.
 func ValidateSettings(ctx context.Context, reader SettingReader) error {
@@ -221,6 +242,10 @@ func ValidateSettings(ctx context.Context, reader SettingReader) error {
 		_, err := ParseDebounceWindow(v)
 		return err
 	})
+	check(SettingContextMessages, func(v string) error {
+		_, err := ParseContextMessages(v)
+		return err
+	})
 
 	return errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
 }
@@ -262,6 +287,11 @@ func resolveRuntimeSettings(ctx context.Context, reader SettingReader) runtimeSe
 	if raw, ok := readOptionalSetting(ctx, reader, SettingDebounceWindow); ok {
 		if dur, err := ParseDebounceWindow(raw); err == nil {
 			resolved.debounceWindow = dur
+		}
+	}
+	if raw, ok := readOptionalSetting(ctx, reader, SettingContextMessages); ok {
+		if count, err := ParseContextMessages(raw); err == nil {
+			resolved.contextMessages = count
 		}
 	}
 

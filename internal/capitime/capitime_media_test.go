@@ -195,17 +195,20 @@ func (b *logBuffer) entries(t *testing.T) []map[string]any {
 }
 
 type readHarness struct {
-	svc     *capitime.Service
-	clock   *fakeClock
-	reader  *fakeReader
-	fetcher *mediaFetcher
-	logs    *logBuffer
+	svc      *capitime.Service
+	clock    *fakeClock
+	settings *fakeSettings
+	reader   *fakeReader
+	fetcher  *mediaFetcher
+	logs     *logBuffer
 }
 
 type readHarnessOptions struct {
 	debounce string
 	noReader bool
 	answer   string
+	// now replaces the harness clock as the Service clock when it is set.
+	now func() time.Time
 }
 
 // newReadHarness builds a Service on Sunday 2026-11-01 21:00 in Santiago whose target member is
@@ -232,10 +235,11 @@ func newReadHarness(t *testing.T, opts readHarnessOptions) *readHarness {
 	})
 
 	harness := &readHarness{
-		clock:   clk,
-		reader:  &fakeReader{response: answer},
-		fetcher: &mediaFetcher{failFor: map[string]bool{}},
-		logs:    &logBuffer{},
+		clock:    clk,
+		settings: settings,
+		reader:   &fakeReader{response: answer},
+		fetcher:  &mediaFetcher{failFor: map[string]bool{}},
+		logs:     &logBuffer{},
 	}
 
 	deps := capitime.Deps{
@@ -247,6 +251,9 @@ func newReadHarness(t *testing.T, opts readHarnessOptions) *readHarness {
 	}
 	if !opts.noReader {
 		deps.Reader = harness.reader
+	}
+	if opts.now != nil {
+		deps.Clock = opts.now
 	}
 
 	svc, err := capitime.New(deps)
