@@ -34,25 +34,14 @@ var voseoRe = regexp.MustCompile(
 // mention.
 var mentionBreaker = strings.NewReplacer("@everyone", "everyone", "@here", "here", "<@", "< @")
 
-// isFeatureNameSeparator reports whether r can sit between or inside the two words of the feature
-// name without changing how it reads: white space, a hyphen, an underscore, the asterisk of
-// Markdown emphasis, or an invisible format character such as a zero-width space.
-func isFeatureNameSeparator(r rune) bool {
-	switch r {
-	case '-', '_', '*':
-		return true
-	default:
-		return unicode.IsSpace(r) || unicode.Is(unicode.Cf, r)
-	}
-}
-
 // namesFeature reports whether line carries the feature name in any spelling, such as "Capi Time",
-// "capitime", "capi-time", "**Capi** Time" or the two words split by an invisible character. The
-// nickname alone does not count.
+// "capitime", "capi-time", "**Capi** Time", "Capi.Time" or the two words split by an invisible
+// character. Only letters and digits count, so nothing written between the two words hides the
+// name. The nickname alone does not count.
 func namesFeature(line string) bool {
 	var squeezed strings.Builder
 	for _, r := range strings.ToLower(line) {
-		if !isFeatureNameSeparator(r) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			squeezed.WriteRune(r)
 		}
 	}

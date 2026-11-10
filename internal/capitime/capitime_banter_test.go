@@ -335,8 +335,8 @@ func TestHandleMessageRejectsVoseoOnlyAsWholeWords(t *testing.T) {
 			if !reply.Handled {
 				t.Fatalf("reply = %+v, want a reply", reply)
 			}
-			if isKept := reply.Banter == tc.line; isKept != tc.wantKept {
-				t.Errorf("banter = %q for the model line %q, want kept = %v", reply.Banter, tc.line, tc.wantKept)
+			if isKept := reply.Banter == tc.line; isKept != tc.wantKept || reply.Banter == "" {
+				t.Errorf("banter = %q for the model line %q, want a line and kept = %v", reply.Banter, tc.line, tc.wantKept)
 			}
 		})
 	}
@@ -358,6 +358,9 @@ func TestHandleMessageRejectsAGeneratedLineThatNamesTheFeature(t *testing.T) {
 		{"several spaces and a tab", "Eso en Capi  \t Time son dos horas mi rey."},
 		{"a line break between the words", "Eso en Capi\nTime son dos horas mi rey."},
 		{"the name alone", "Capi Time"},
+		{"a period between the words", "Listo para el Capi.Time mi king."},
+		{"a slash between the words", "Eso en Capi/Time son dos horas mi rey."},
+		{"an emoji between the words", "Eso en Capi \U0001f525 Time son dos horas mi rey."},
 		{"a zero-width space between the words", "Eso en Capi\u200bTime son dos horas mi rey."},
 		{"a zero-width joiner inside a word", "Eso en Ca\u200dpi Time son dos horas mi rey."},
 		{"a soft hyphen inside a word", "Eso en Capi Ti\u00adme son dos horas mi rey."},
@@ -373,7 +376,7 @@ func TestHandleMessageRejectsAGeneratedLineThatNamesTheFeature(t *testing.T) {
 			if !reply.Handled || model.calls != 1 {
 				t.Fatalf("reply = %+v after %d model calls, want a reply after one call", reply, model.calls)
 			}
-			if reply.Banter == oneSpaced(tc.line) {
+			if reply.Banter == "" || reply.Banter == oneSpaced(tc.line) {
 				t.Errorf("banter = %q, want the model line replaced by a built-in line", reply.Banter)
 			}
 			if count := strings.Count(reply.Content, featureName); count != 1 || !strings.HasPrefix(reply.Content, headerStandard) {
@@ -385,7 +388,7 @@ func TestHandleMessageRejectsAGeneratedLineThatNamesTheFeature(t *testing.T) {
 			h := newReadHarness(t, readHarnessOptions{banter: &recordingBanter{line: tc.line}})
 
 			reply := h.handle(t, targetMessage("en 15 min me conecto a jugar"))
-			if !reply.Handled || reply.Banter == oneSpaced(tc.line) {
+			if !reply.Handled || reply.Banter == "" || reply.Banter == oneSpaced(tc.line) {
 				t.Errorf("reply = %+v, want the generated line replaced by a built-in line", reply)
 			}
 		})
