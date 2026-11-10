@@ -323,7 +323,6 @@ func checkCapiSettings(ctx context.Context, store *config.Store) error {
 		settingCapiDelayMinMinutes,
 		settingCapiDelayMaxMinutes,
 		settingCapiDebounceWindow,
-		settingCapiRegexPattern,
 	} {
 		_, err := store.Get(ctx, name)
 		if err != nil {
@@ -386,13 +385,19 @@ func (s *server) construct(settings runtimeSettings) error {
 
 	s.uc = uc
 
+	// The arrival read keeps the default temperature; the banter client is too creative for it.
+	arrivalReader, err := llm.New(settings.llm)
+	if err != nil {
+		return fmt.Errorf("create capitime arrival llm client: %w", err)
+	}
+
 	capi, err := capitime.New(capitime.Deps{
 		Pool:     s.pool,
 		Settings: settings.store,
 		Clock:    systemClock{}.Now,
 		LLM:      banterLLM,
-		Vision:   banterLLM,
-		Audio:    banterLLM,
+		Reader:   arrivalReader,
+		Logger:   s.logger,
 	})
 	if err != nil {
 		return fmt.Errorf("create capitime: %w", err)

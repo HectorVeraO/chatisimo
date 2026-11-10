@@ -230,8 +230,7 @@ func TestConfigListFormat(t *testing.T) {
 		"capitime.delay_max_minutes\tplain\t" + defaultCapiDelayMaxMinutes + " (default)\tCapi Time maximum delay in minutes (1-1440)\n" +
 		"capitime.delay_min_minutes\tplain\t" + defaultCapiDelayMinMinutes + " (default)\tCapi Time minimum delay in minutes (1-1440)\n" +
 		"capitime.easter_egg_percent\tplain\t" + defaultCapiEasterEggPercent + " (default)\tCapi Time on-time easter-egg probability percent (0-100)\n" +
-		"capitime.easter_egg_prompt\tplain\t" + esc(defaultCapiEasterEggPrompt) + " (default)\tVertex AI Capi Time on-time miracle easter-egg prompt\n" +
-		"capitime.regex_pattern\tplain\t" + esc(defaultCapiRegexPattern) + " (default)\tCapi Time Stage-1 arrival detection regex pattern\n"
+		"capitime.easter_egg_prompt\tplain\t" + esc(defaultCapiEasterEggPrompt) + " (default)\tVertex AI Capi Time on-time miracle easter-egg prompt\n"
 
 	ucTail := "uc.api_base_url\tplain\t" + defaultUCAPIBaseURL + " (default)\tESPN soccer API base URL\n" +
 		"uc.banter_prompt\tplain\t" + esc(defaultUCBanterPrompt) + " (default)\tVertex AI UC Chilean banter system prompt\n" +

@@ -77,6 +77,8 @@ type Server struct {
 	faults         map[string][]fault
 	injectedFaults []InjectedFault
 	rephrases      map[string]string
+	generateRules  []generateRule
+	generateCalls  []GenerateCall
 	ucFixtures     []UCFixture
 	botStatus      string
 	appDescription string
@@ -294,7 +296,7 @@ func (s *Server) UCBase() string {
 }
 
 // SetRephrased maps raw question text to rephrased for future generateContent calls. Unmapped
-// questions return their trimmed input text.
+// questions return their trimmed input text. An answer scripted with SetGenerated wins over it.
 func (s *Server) SetRephrased(raw, rephrased string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

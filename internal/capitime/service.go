@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
@@ -19,18 +20,18 @@ const (
 	maxSnowflakeDigits = 20
 )
 
-// Service coordinates per-guild Capi Time configuration, two-stage arrival detection, randomized
-// delay / easter-egg calculation, anti-spam debounce, and banter generation.
+// Service coordinates per-guild Capi Time configuration, arrival detection (one model read per
+// message), randomized delay / easter-egg calculation, anti-spam debounce, and banter generation.
 type Service struct {
 	store    *store.Store
 	clock    func() time.Time
 	rand     io.Reader
 	settings SettingReader
-	llm      LLMGenerator
 	banter   BanterGenerator
-	vision   VisionGenerator
-	audio    AudioGenerator
+	reader   ArrivalReader
 	images   ImageFetcher
+	reads    *readLimiter
+	log      *slog.Logger
 
 	debounceMu    sync.Mutex
 	lastReplyTime map[string]time.Time
@@ -63,8 +64,13 @@ func New(deps Deps) (*Service, error) {
 	}
 
 	imageFetcher := deps.Images
-	if imageFetcher == nil && (deps.Vision != nil || deps.Audio != nil) {
+	if imageFetcher == nil && deps.Reader != nil {
 		imageFetcher = NewHTTPImageFetcher(HTTPImageFetcherConfig{})
+	}
+
+	logger := deps.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
 	}
 
 	svc := &Service{
@@ -72,11 +78,11 @@ func New(deps Deps) (*Service, error) {
 		clock:         clk,
 		rand:          rnd,
 		settings:      deps.Settings,
-		llm:           deps.LLM,
 		banter:        banterGen,
-		vision:        deps.Vision,
-		audio:         deps.Audio,
+		reader:        deps.Reader,
 		images:        imageFetcher,
+		reads:         newReadLimiter(),
+		log:           logger,
 		lastReplyTime: make(map[string]time.Time),
 	}
 	return svc, nil
@@ -235,11 +241,10 @@ func (s *Service) ClearGuildConfig(
 // is authored by the guild's configured target user in a monitored channel, expresses arrival
 // intent, and falls outside the anti-spam debounce window.
 //
-// A message may carry only images, stickers, a voice message or an audio file. When the text is
-// decided by the stage 1 heuristics (a claim or a rejection), the text is trusted and no media is
-// read. Otherwise the media is read in order (see detectClaim) and the text goes to the stage 2 text
-// classifier when the media yields no claim. Every target, channel and debounce check runs before
-// any download or model call.
+// A message may carry only images, stickers, a voice message or an audio file. The text, the images
+// and the audio are read together by the model, once (see detectClaim). Every target, channel and
+// debounce check runs before any download or model call. Each message that passes those checks
+// leaves one line in the decision log.
 func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, error) {
 	if err := s.checkReady(ctx); err != nil {
 		return Reply{}, err
@@ -274,7 +279,9 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 		return Reply{}, nil
 	}
 
-	claim := s.detectClaim(ctx, msg, now, runtimeCfg)
+	claim, decided, media := s.detectClaim(ctx, msg, now)
+	s.log.InfoContext(ctx, "capi time message evaluated",
+		slog.String("decision", string(decided)), slog.String("media", media))
 	if !claim.Detected {
 		return Reply{}, nil
 	}
@@ -302,57 +309,48 @@ func (s *Service) HandleMessage(ctx context.Context, msg MessageInput) (Reply, e
 	return reply, nil
 }
 
-// detectClaim looks for an arrival claim in this order, stopping at the first that applies:
+// detectClaim asks the model, in one read, whether the message announces an arrival, and names the
+// step that decided. The read carries the sanitized text, the usable images and the first usable
+// voice message or audio file together. A download that fails drops that item only; a message left
+// with neither text nor media is not read, and neither is any message when no Reader is set.
 //
-//  1. The stage 1 heuristics on the text. A claim or a rejection they decide is trusted and skips
-//     all media.
-//  2. The vision model on the usable images, when Vision and Images are set.
-//  3. The audio model on the first usable voice message or audio file (at most one audio per
-//     message is read), when Audio and Images are set.
-//  4. The stage 2 text classifier on the text, when the text is not empty and an LLM is set.
-//
-// A step that fails or finds no arrival (fetch or model failure, or no arrival read) falls through
-// to the next one, so a message costs at most one image call and one audio call.
+// The member's reads are capped per minute (see readLimiter): past the cap nothing is downloaded
+// or read. The cap is checked before the downloads and counted right before the read. The returned
+// media kind names what the model received when it was called, and otherwise the usable media
+// attached to the message.
 func (s *Service) detectClaim(
 	ctx context.Context,
 	msg MessageInput,
 	now time.Time,
-	runtimeCfg runtimeSettings,
-) ArrivalClaim {
-	hasText := sanitizeInputText(msg.Content) != ""
+) (ArrivalClaim, decision, string) {
+	text := sanitizeInputText(msg.Content)
+	imageRefs := usableImageRefs(msg.Images)
+	audioRefs := usableAudioRefs(msg.Audio)
+	attached := mediaKindOf(len(imageRefs) > 0, len(audioRefs) > 0)
 
-	if hasText {
-		claim, decided := parseStage1(msg.Content, now, runtimeCfg.compiledRegex)
-		if decided {
-			return claim
-		}
+	if s.reader == nil {
+		return ArrivalClaim{}, decisionNoReader, attached
+	}
+	if text == "" && attached == mediaNone {
+		return ArrivalClaim{}, decisionNoContent, mediaNone
 	}
 
-	if s.vision != nil && s.images != nil {
-		refs := usableImageRefs(msg.Images)
-		if len(refs) > 0 {
-			visionClaim := classifyImagesWithVision(ctx, s.vision, s.images, refs, msg.Content, now)
-			if visionClaim.Detected {
-				return visionClaim
-			}
-		}
+	readerKey := msg.GuildID + ":" + msg.AuthorID
+	if !s.reads.hasRoom(readerKey, now) {
+		return ArrivalClaim{}, decisionRateLimited, attached
 	}
 
-	if s.audio != nil && s.images != nil {
-		refs := usableAudioRefs(msg.Audio)
-		if len(refs) > 0 {
-			audioClaim := classifyAudioWithModel(ctx, s.audio, s.images, refs, msg.Content, now)
-			if audioClaim.Detected {
-				return audioClaim
-			}
-		}
+	content := downloadContent(ctx, s.images, text, imageRefs, audioRefs)
+	if content.isEmpty() {
+		return ArrivalClaim{}, decisionNoContent, mediaNone
+	}
+	if !s.reads.take(readerKey, now) {
+		return ArrivalClaim{}, decisionRateLimited, content.mediaKind()
 	}
 
-	if hasText && s.llm != nil {
-		return classifyStage2WithLLM(ctx, s.llm, msg.Content, now)
-	}
+	claim, decided := readArrival(ctx, s.reader, content, now)
 
-	return ArrivalClaim{}
+	return claim, decided, content.mediaKind()
 }
 
 func (s *Service) isDebounced(guildID, authorID string, now time.Time, window time.Duration) bool {

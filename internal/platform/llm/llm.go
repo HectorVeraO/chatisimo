@@ -44,17 +44,18 @@ const (
 		"Preserve the language of the input question and its exact gift-relevant meaning and constraints. " +
 		"Output ONLY the rewritten question as a single line of plain text under 450 characters, with no quotes, preamble, or explanation."
 
-	// MaxImages is the largest number of images GenerateWithImages accepts in one request.
+	// MaxImages is the largest number of images GenerateWithMedia accepts in one request.
 	MaxImages = 2
-	// MaxImageBytes is the largest size in bytes of one image accepted by GenerateWithImages.
+	// MaxImageBytes is the largest size in bytes of one image accepted by GenerateWithMedia.
 	MaxImageBytes = 4 << 20
 
-	// MaxAudioBytes is the largest size in bytes of the audio accepted by GenerateWithAudio.
+	// MaxAudioBytes is the largest size in bytes of the audio accepted by GenerateWithMedia.
 	MaxAudioBytes = 2 << 20
-	// MaxAudioSeconds is the longest audio, in seconds, that callers should send to GenerateWithAudio.
+	// MaxAudioSeconds is the longest audio, in seconds, that callers should send to GenerateWithMedia.
 	// The client cannot measure duration, so callers enforce it from the announced length.
 	MaxAudioSeconds = 30
 
+	jsonMIMEType     = "application/json"
 	maxPromptBytes   = 16 << 10
 	maxResponseBytes = 64 * 1024
 	redacted         = "[redacted]"
@@ -287,8 +288,9 @@ type inlineData struct {
 }
 
 type generationConfig struct {
-	Temperature     float64 `json:"temperature"`
-	MaxOutputTokens int     `json:"maxOutputTokens"`
+	Temperature      float64 `json:"temperature"`
+	MaxOutputTokens  int     `json:"maxOutputTokens"`
+	ResponseMIMEType string  `json:"responseMimeType,omitempty"`
 }
 
 type generateContentResponse struct {
@@ -299,6 +301,20 @@ type generateContentResponse struct {
 			} `json:"parts"`
 		} `json:"content"`
 	} `json:"candidates"`
+	UsageMetadata struct {
+		PromptTokenCount     int `json:"promptTokenCount"`
+		CandidatesTokenCount int `json:"candidatesTokenCount"`
+		ThoughtsTokenCount   int `json:"thoughtsTokenCount"`
+	} `json:"usageMetadata"`
+}
+
+// Usage is the token count the model reported for one request. It is zero when the response
+// carries no usage metadata.
+type Usage struct {
+	// PromptTokens counts the tokens of the request: system instruction, text and media.
+	PromptTokens int
+	// OutputTokens counts the generated tokens, including the model's thinking tokens.
+	OutputTokens int
 }
 
 // Rephrase rewrites text into neutral phrasing. Neither the input question, the rephrased text, nor
@@ -356,13 +372,32 @@ type Image struct {
 	Data     []byte
 }
 
-// GenerateWithImages sends images, followed by text when it is not blank, as user content to the
-// client's configured model, using prompt as the system instruction (or the client's configured
-// prompt when prompt is blank). It accepts between 1 and MaxImages images of at most MaxImageBytes
-// each. Validation errors never include prompt, text, image data or the API key.
-func (c *Client) GenerateWithImages(ctx context.Context, prompt, text string, images []Image) (string, error) {
+// MediaRequest is one request that carries text, images and audio together.
+type MediaRequest struct {
+	// Prompt is the system instruction; when blank the client's configured prompt is used.
+	Prompt string
+	// Text is the user text; it is sent after the media and left out when blank.
+	Text string
+	// Images holds at most MaxImages images of at most MaxImageBytes each.
+	Images []Image
+	// Audio is an optional clip of at most MaxAudioBytes.
+	Audio *Audio
+	// JSON asks the model to answer with a JSON document instead of plain text.
+	JSON bool
+}
+
+// GenerateWithMedia sends the images, then the audio, then the text of req as one user message to
+// the client's configured model. At least one of text, images or audio must be present. Validation
+// errors never include the prompt, the text, media data or the API key.
+func (c *Client) GenerateWithMedia(ctx context.Context, req MediaRequest) (string, error) {
+	text, _, err := c.GenerateWithMediaUsage(ctx, req)
+	return text, err
+}
+
+// GenerateWithMediaUsage is GenerateWithMedia that also returns the token usage the model reported.
+func (c *Client) GenerateWithMediaUsage(ctx context.Context, req MediaRequest) (string, Usage, error) {
 	if c == nil {
-		return "", errors.New("llm: nil client")
+		return "", Usage{}, errors.New("llm: nil client")
 	}
 
 	var problems []error
@@ -370,38 +405,51 @@ func (c *Client) GenerateWithImages(ctx context.Context, prompt, text string, im
 		problems = append(problems, errors.New("llm: nil context"))
 	}
 
-	resolvedPrompt, promptErr := resolvePrompt(prompt, c.prompt)
+	resolvedPrompt, promptErr := resolvePrompt(req.Prompt, c.prompt)
 	if promptErr != nil {
 		problems = append(problems, promptErr)
 	}
 
-	problems = append(problems, validateImages(images)...)
+	problems = append(problems, validateImages(req.Images)...)
 
-	if len(problems) > 0 {
-		return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
-	}
-
-	userParts := make([]contentPart, 0, len(images)+1)
-	for _, image := range images {
+	userParts := make([]contentPart, 0, len(req.Images)+2)
+	for _, image := range req.Images {
 		userParts = append(userParts, contentPart{InlineData: &inlineData{
 			MIMEType: image.MIMEType,
 			Data:     base64.StdEncoding.EncodeToString(image.Data),
 		}})
 	}
 
-	trimmedText := strings.TrimSpace(text)
+	if req.Audio != nil {
+		mime, audioProblems := validateAudio(*req.Audio)
+		problems = append(problems, audioProblems...)
+		userParts = append(userParts, contentPart{InlineData: &inlineData{
+			MIMEType: mime,
+			Data:     base64.StdEncoding.EncodeToString(req.Audio.Data),
+		}})
+	}
+
+	trimmedText := strings.TrimSpace(req.Text)
 	if trimmedText != "" {
 		userParts = append(userParts, contentPart{Text: trimmedText})
 	}
 
-	return c.send(ctx, resolvedPrompt, userParts)
+	if len(userParts) == 0 {
+		problems = append(problems, errors.New("llm: request has no text, image or audio"))
+	}
+
+	if len(problems) > 0 {
+		return "", Usage{}, errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
+	}
+
+	return c.send(ctx, resolvedPrompt, userParts, req.JSON)
 }
 
 func validateImages(images []Image) []error {
 	var problems []error
 
-	if len(images) == 0 || len(images) > MaxImages {
-		problems = append(problems, fmt.Errorf("llm: image count must be between 1 and %d", MaxImages))
+	if len(images) > MaxImages {
+		problems = append(problems, fmt.Errorf("llm: image count must be at most %d", MaxImages))
 	}
 
 	for i, image := range images {
@@ -462,46 +510,6 @@ func validateAudio(audio Audio) (string, []error) {
 	return mime, problems
 }
 
-// GenerateWithAudio sends audio, followed by text when it is not blank, as user content to the
-// client's configured model, using prompt as the system instruction (or the client's configured
-// prompt when prompt is blank). The audio must be between 1 and MaxAudioBytes bytes. Validation
-// errors never include prompt, text, audio data or the API key.
-func (c *Client) GenerateWithAudio(ctx context.Context, prompt, text string, audio Audio) (string, error) {
-	if c == nil {
-		return "", errors.New("llm: nil client")
-	}
-
-	var problems []error
-	if ctx == nil {
-		problems = append(problems, errors.New("llm: nil context"))
-	}
-
-	resolvedPrompt, promptErr := resolvePrompt(prompt, c.prompt)
-	if promptErr != nil {
-		problems = append(problems, promptErr)
-	}
-
-	mime, audioProblems := validateAudio(audio)
-	problems = append(problems, audioProblems...)
-
-	if len(problems) > 0 {
-		return "", errors.Join(problems...) //nolint:wrapcheck // joins this function's own errors
-	}
-
-	userParts := make([]contentPart, 0, 2)
-	userParts = append(userParts, contentPart{InlineData: &inlineData{
-		MIMEType: mime,
-		Data:     base64.StdEncoding.EncodeToString(audio.Data),
-	}})
-
-	trimmedText := strings.TrimSpace(text)
-	if trimmedText != "" {
-		userParts = append(userParts, contentPart{Text: trimmedText})
-	}
-
-	return c.send(ctx, resolvedPrompt, userParts)
-}
-
 func (c *Client) generate(ctx context.Context, systemPrompt, text string) (string, error) {
 	if ctx == nil {
 		return "", errors.New("llm: nil context")
@@ -512,12 +520,16 @@ func (c *Client) generate(ctx context.Context, systemPrompt, text string) (strin
 		return "", errors.New("llm: question text is empty")
 	}
 
-	return c.send(ctx, systemPrompt, []contentPart{{Text: trimmed}})
+	generated, _, err := c.send(ctx, systemPrompt, []contentPart{{Text: trimmed}}, false)
+
+	return generated, err
 }
 
 // send posts the user parts to the configured model's generateContent endpoint and returns the
-// generated text. It is the single HTTP path for text, image and audio requests.
-func (c *Client) send(ctx context.Context, systemPrompt string, userParts []contentPart) (string, error) {
+// generated text with the reported token usage. It is the single HTTP path for every request.
+func (c *Client) send(
+	ctx context.Context, systemPrompt string, userParts []contentPart, wantsJSON bool,
+) (string, Usage, error) {
 	callCtx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 
@@ -536,17 +548,20 @@ func (c *Client) send(ctx context.Context, systemPrompt string, userParts []cont
 			MaxOutputTokens: 256,
 		},
 	}
+	if wantsJSON {
+		payload.GenerationConfig.ResponseMIMEType = jsonMIMEType
+	}
 
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
-		return "", errors.New("llm: encode request failed")
+		return "", Usage{}, errors.New("llm: encode request failed")
 	}
 
 	endpoint := c.baseURL + "/" + url.PathEscape(c.model) + ":generateContent"
 
 	req, err := http.NewRequestWithContext(callCtx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", errors.New("llm: build request failed")
+		return "", Usage{}, errors.New("llm: build request failed")
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -554,13 +569,13 @@ func (c *Client) send(ctx context.Context, systemPrompt string, userParts []cont
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.log.WarnContext(ctx, "llm rephrase request failed", slog.String("model", c.model))
+		c.log.WarnContext(ctx, "llm request failed", slog.String("model", c.model))
 
 		if ctxErr := callCtx.Err(); ctxErr != nil {
-			return "", fmt.Errorf("llm: request canceled or timed out: %w", ctxErr)
+			return "", Usage{}, fmt.Errorf("llm: request canceled or timed out: %w", ctxErr)
 		}
 
-		return "", errors.New("llm: request failed")
+		return "", Usage{}, errors.New("llm: request failed")
 	}
 
 	defer func() {
@@ -569,40 +584,40 @@ func (c *Client) send(ctx context.Context, systemPrompt string, userParts []cont
 
 	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		c.log.WarnContext(ctx, "llm rephrase response read failed", slog.String("model", c.model))
-		return "", errors.New("llm: read response failed")
+		c.log.WarnContext(ctx, "llm request response read failed", slog.String("model", c.model))
+		return "", Usage{}, errors.New("llm: read response failed")
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		c.log.WarnContext(
 			ctx,
-			"llm rephrase returned non-200 status",
+			"llm request returned non-200 status",
 			slog.String("model", c.model),
 			slog.Int("status", resp.StatusCode),
 		)
 
-		return "", fmt.Errorf("llm: unexpected status %d", resp.StatusCode)
+		return "", Usage{}, fmt.Errorf("llm: unexpected status %d", resp.StatusCode)
 	}
 
-	rephrased, err := parseGenerateContentResponse(respBytes)
+	generated, usage, err := parseGenerateContentResponse(respBytes)
 	if err != nil {
-		c.log.WarnContext(ctx, "llm rephrase returned invalid response", slog.String("model", c.model))
-		return "", err
+		c.log.WarnContext(ctx, "llm request returned invalid response", slog.String("model", c.model))
+		return "", Usage{}, err
 	}
 
-	return rephrased, nil
+	return generated, usage, nil
 }
 
-func parseGenerateContentResponse(raw []byte) (string, error) {
+func parseGenerateContentResponse(raw []byte) (string, Usage, error) {
 	var parsed generateContentResponse
 
 	err := json.Unmarshal(raw, &parsed)
 	if err != nil {
-		return "", errors.New("llm: invalid response JSON")
+		return "", Usage{}, errors.New("llm: invalid response JSON")
 	}
 
 	if len(parsed.Candidates) == 0 {
-		return "", errors.New("llm: response has no candidates")
+		return "", Usage{}, errors.New("llm: response has no candidates")
 	}
 
 	var builder strings.Builder
@@ -611,10 +626,15 @@ func parseGenerateContentResponse(raw []byte) (string, error) {
 		builder.WriteString(part.Text)
 	}
 
-	rephrased := strings.TrimSpace(builder.String())
-	if rephrased == "" {
-		return "", errors.New("llm: response candidate text is empty")
+	generated := strings.TrimSpace(builder.String())
+	if generated == "" {
+		return "", Usage{}, errors.New("llm: response candidate text is empty")
 	}
 
-	return rephrased, nil
+	usage := Usage{
+		PromptTokens: parsed.UsageMetadata.PromptTokenCount,
+		OutputTokens: parsed.UsageMetadata.CandidatesTokenCount + parsed.UsageMetadata.ThoughtsTokenCount,
+	}
+
+	return generated, usage, nil
 }

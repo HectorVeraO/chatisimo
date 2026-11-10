@@ -630,3 +630,60 @@ func TestRunBootsWhenInitialUCScheduleSyncFails(t *testing.T) {
 
 	assertNoneOf(t, got, fake.Token(), masterKey, database.URL().Reveal(), callerID)
 }
+
+func TestRunAndConfigIgnoreAStoredRowOfARemovedSetting(t *testing.T) {
+	noLeaks(t)
+
+	// A key an older version declared and this one no longer does, with a value that old version
+	// would have refused.
+	const (
+		removedKey   = "capitime.regex_pattern"
+		removedValue = "[removed-setting-marker"
+	)
+
+	fake := startFake(t)
+	database := newClone(t)
+	env := envFor(database, "local")
+	configureDiscord(t, env, fake)
+
+	before := invoke(t, env, strings.NewReader(""), "config", "list")
+	if before.code != 0 {
+		t.Fatalf("config list = %+v, want exit 0", before)
+	}
+
+	_, err := database.Pool().Exec(t.Context(),
+		"INSERT INTO platform.setting (key, value, updated_at) VALUES ($1, $2, now())", removedKey, removedValue)
+	if err != nil {
+		t.Fatalf("store the leftover row: %v", err)
+	}
+
+	after := invoke(t, env, strings.NewReader(""), "config", "list")
+	if after.code != 0 || after.stdout != before.stdout {
+		t.Errorf("config list with the leftover row = %+v, want the same listing as before", after)
+	}
+
+	get := invoke(t, env, strings.NewReader(""), "config", "get", removedKey)
+	if get.code == 0 || get.stdout != "" {
+		t.Errorf("config get %s = %+v, want it refused as an unknown key", removedKey, get)
+	}
+
+	r := startRun(t, env)
+
+	readyCtx, cancelReady := context.WithTimeout(t.Context(), readyDeadline)
+	defer cancelReady()
+
+	err = fake.WaitReady(readyCtx)
+	if err != nil {
+		t.Fatalf("the bot never became ready with the leftover row stored: %v", err)
+	}
+
+	r.cancel()
+	got := r.result(t)
+	if got.code != 0 {
+		t.Errorf("run = %+v, want exit 0", got)
+	}
+
+	assertNoneOf(t, after, removedValue)
+	assertNoneOf(t, get, removedValue)
+	assertNoneOf(t, got, removedValue, fake.Token(), masterKey, database.URL().Reveal())
+}

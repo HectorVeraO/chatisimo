@@ -34,39 +34,76 @@ const (
 	capiVideoURL        = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000010/movie.mp4?ex=jkl"
 	capiAttachmentURL   = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000002/photo.png?ex=abc"
 	capiDocumentURL     = "https://cdn.discordapp.com/attachments/300000000000000001/500000000000000005/notes.pdf?ex=def"
-	capiArrivalJSON     = `{"arrival":true,"immediate":true,"offset_minutes":0,"clock":""}`
+	capiArrivalJSON     = `{"arrival":true,"day":"","clock":"","minutes":0}`
+	capiNoArrivalJSON   = `{"arrival":false,"day":"","clock":"","minutes":0}`
+	capiNowLine         = "ahora: domingo 2026-11-01 21:00"
 	stickerFormatPNG    = 1
 	stickerFormatAPNG   = 2
 	stickerFormatLottie = 3
 	stickerFormatGIF    = 4
 )
 
-// fakeCapiVision answers every image read with an arrival and records the requests.
-type fakeCapiVision struct {
-	mu    sync.Mutex
-	texts []string
-	mimes [][]string
+// capiRead is one request the fake model received: its text and the types of its media.
+type capiRead struct {
+	text       string
+	imageMIMEs []string
+	audioMIME  string
 }
 
-func (v *fakeCapiVision) GenerateWithImages(_ context.Context, _, text string, images []llm.Image) (string, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
+// fakeCapiReader records the requests and answers each with the text scripted for the message, or
+// with one configurable text.
+type fakeCapiReader struct {
+	mu     sync.Mutex
+	answer string
+	byText map[string]string
+	reads  []capiRead
+}
 
-	mimes := make([]string, 0, len(images))
-	for _, image := range images {
-		mimes = append(mimes, image.MIMEType)
+func (r *fakeCapiReader) GenerateWithMedia(_ context.Context, req llm.MediaRequest) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	read := capiRead{text: req.Text}
+	for _, image := range req.Images {
+		read.imageMIMEs = append(read.imageMIMEs, image.MIMEType)
 	}
-	v.texts = append(v.texts, text)
-	v.mimes = append(v.mimes, mimes)
+	if req.Audio != nil {
+		read.audioMIME = req.Audio.MIMEType
+	}
+	r.reads = append(r.reads, read)
 
-	return capiArrivalJSON, nil
+	for fragment, answer := range r.byText {
+		if strings.Contains(req.Text, fragment) {
+			return answer, nil
+		}
+	}
+
+	return r.answer, nil
 }
 
-func (v *fakeCapiVision) snapshot() ([]string, [][]string) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
+// answerFor scripts the answer to every read whose text contains fragment.
+func (r *fakeCapiReader) answerFor(fragment, answer string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	return slices.Clone(v.texts), slices.Clone(v.mimes)
+	if r.byText == nil {
+		r.byText = map[string]string{}
+	}
+	r.byText[fragment] = answer
+}
+
+func (r *fakeCapiReader) setAnswer(answer string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.answer = answer
+}
+
+func (r *fakeCapiReader) snapshot() []capiRead {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return slices.Clone(r.reads)
 }
 
 // fakeCapiImages serves synthetic bytes for every URL and records which were requested.
@@ -89,30 +126,6 @@ func (f *fakeCapiImages) snapshot() []string {
 	defer f.mu.Unlock()
 
 	return slices.Clone(f.urls)
-}
-
-// fakeCapiAudio answers every audio read with an arrival and records the requests.
-type fakeCapiAudio struct {
-	mu    sync.Mutex
-	texts []string
-	mimes []string
-}
-
-func (a *fakeCapiAudio) GenerateWithAudio(_ context.Context, _, text string, audio llm.Audio) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	a.texts = append(a.texts, text)
-	a.mimes = append(a.mimes, audio.MIMEType)
-
-	return capiArrivalJSON, nil
-}
-
-func (a *fakeCapiAudio) snapshot() ([]string, []string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	return slices.Clone(a.texts), slices.Clone(a.mimes)
 }
 
 func publicCapiReplies(h *harness) []fakediscord.Message {
@@ -150,6 +163,9 @@ func TestCapiTimeConfigAndArrivalDetectorEndToEndOverGateway(t *testing.T) {
 
 	// Sunday 2026-11-01 21:00 in America/Santiago.
 	h.clock.Set(time.Date(2026, time.November, 1, 21, 0, 0, 0, santiago))
+	h.capiReader.setAnswer(capiNoArrivalJSON)
+	h.capiReader.answerFor("mensaje: 22:30 llego", `{"arrival":true,"day":"","clock":"22:30","minutes":0}`)
+	h.capiReader.answerFor("mensaje: voy altiro", capiArrivalJSON)
 
 	mustSetUserLocale(t, h, userA, "es-419")
 	mustSetUserLocale(t, h, userB, "en-US")
@@ -253,10 +269,13 @@ func TestCapiTimeConfigAndArrivalDetectorEndToEndOverGateway(t *testing.T) {
 		t.Fatalf("SendUserMessage userC otherChannel: %v", sendErr)
 	}
 
-	// 3. Past-tense message from target userC in monitored channel -> silent.
+	// 3. Past-tense message from target userC in monitored channel -> read by the model, silent.
 	if _, sendErr := h.fake.SendUserMessage(h.users[userC], h.guild, h.guild.ChannelID, "ayer llegué a las 22:30"); sendErr != nil {
 		t.Fatalf("SendUserMessage userC past tense: %v", sendErr)
 	}
+	waitFor(t, "the past-tense message to be read by the model", func() bool {
+		return len(h.capiReader.snapshot()) == 1
+	})
 
 	// 4. Real arrival message from target userC in monitored channel -> triggers Capi Time reply referencing triggerMsgID!
 	triggerMsgID, err := h.fake.SendUserMessage(h.users[userC], h.guild, h.guild.ChannelID, "22:30 llego")
@@ -304,6 +323,13 @@ func TestCapiTimeConfigAndArrivalDetectorEndToEndOverGateway(t *testing.T) {
 		t.Errorf("publicCapiCount = %d, want 1 (debounced second message must stay silent)", publicCapiCount)
 	}
 
+	// Only the two messages that passed every gate were read: the other member, the unmonitored
+	// channel and the debounced follow-up never reached the model.
+	reads := h.capiReader.snapshot()
+	if len(reads) != 2 || !strings.Contains(reads[0].text, "ayer llegué") || !strings.Contains(reads[1].text, "22:30 llego") {
+		t.Errorf("reads = %+v, want only the past-tense message and the arrival", reads)
+	}
+
 	assertNoUCLogLeaks(t, h, "22:30 llego", "voy altiro")
 }
 
@@ -341,7 +367,7 @@ func TestCapiTimeReadsArrivalFromStickersAndAttachmentsOverGateway(t *testing.T)
 		t.Fatalf("SendUserMessageWithMedia unreadable: %v", sendErr)
 	}
 
-	// A PNG sticker next to a Lottie one: only the PNG reaches the vision model.
+	// A PNG sticker next to a Lottie one: only the PNG reaches the model.
 	mixed := append([]fakediscord.StickerItem{}, unreadable...)
 	mixed = append(mixed, stickerOnly...)
 	stickerMsgID, err := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", "", nil, mixed)
@@ -361,9 +387,10 @@ func TestCapiTimeReadsArrivalFromStickersAndAttachmentsOverGateway(t *testing.T)
 	if len(urls) != 1 || !strings.HasPrefix(urls[0], "https://cdn.discordapp.com/stickers/"+capiStickerID) {
 		t.Fatalf("fetched %v, want only the PNG sticker URL", urls)
 	}
-	texts, mimes := h.capiVision.snapshot()
-	if !slices.Equal(texts, []string{"sticker: VOY"}) || !slices.Equal(mimes[0], []string{"image/png"}) {
-		t.Fatalf("vision requests = %v %v, want one PNG read with the sticker hint", texts, mimes)
+	reads := h.capiReader.snapshot()
+	if len(reads) != 1 || reads[0].text != capiNowLine+"\nsticker: VOY" ||
+		!slices.Equal(reads[0].imageMIMEs, []string{"image/png"}) || reads[0].audioMIME != "" {
+		t.Fatalf("reads = %+v, want one PNG read with the sticker hint", reads)
 	}
 
 	// An image attachment is read after the debounce window passes.
@@ -396,9 +423,9 @@ func TestCapiTimeReadsArrivalFromStickersAndAttachmentsOverGateway(t *testing.T)
 	waitFor(t, "Capi Time reply to the GIF sticker", func() bool {
 		return len(publicCapiReplies(h)) == 3
 	})
-	_, mimes = h.capiVision.snapshot()
-	if len(mimes) != 3 || !slices.Equal(mimes[2], []string{"image/gif"}) {
-		t.Errorf("vision MIME types = %v, want the GIF sticker read as image/gif", mimes)
+	reads = h.capiReader.snapshot()
+	if len(reads) != 3 || !slices.Equal(reads[2].imageMIMEs, []string{"image/gif"}) {
+		t.Errorf("reads = %+v, want the GIF sticker read as image/gif", reads)
 	}
 
 	// An APNG sticker is read as a PNG image.
@@ -411,9 +438,9 @@ func TestCapiTimeReadsArrivalFromStickersAndAttachmentsOverGateway(t *testing.T)
 	waitFor(t, "Capi Time reply to the APNG sticker", func() bool {
 		return len(publicCapiReplies(h)) == 4
 	})
-	_, mimes = h.capiVision.snapshot()
-	if len(mimes) != 4 || !slices.Equal(mimes[3], []string{"image/png"}) {
-		t.Errorf("vision MIME types = %v, want the APNG sticker read as image/png", mimes)
+	reads = h.capiReader.snapshot()
+	if len(reads) != 4 || !slices.Equal(reads[3].imageMIMEs, []string{"image/png"}) {
+		t.Errorf("reads = %+v, want the APNG sticker read as image/png", reads)
 	}
 
 	assertNoUCLogLeaks(t, h, "VOY", "Ya voy", "Voy ya", "ENTRANDING", capiAttachmentURL, capiDocumentURL, "photo.png")
@@ -486,9 +513,9 @@ func TestCapiTimeReadsArrivalFromVoiceMessagesAndAudioFilesOverGateway(t *testin
 	if urls := h.capiImages.snapshot(); !slices.Equal(urls, []string{capiVoiceURL}) {
 		t.Fatalf("fetched %v, want only the target's voice message", urls)
 	}
-	texts, mimes := h.capiAudio.snapshot()
-	if !slices.Equal(texts, []string{""}) || !slices.Equal(mimes, []string{"audio/ogg"}) {
-		t.Fatalf("audio requests = %v %v, want one audio/ogg read without text", texts, mimes)
+	reads := h.capiReader.snapshot()
+	if len(reads) != 1 || reads[0].text != capiNowLine || reads[0].audioMIME != "audio/ogg" || len(reads[0].imageMIMEs) != 0 {
+		t.Fatalf("reads = %+v, want one audio/ogg read without message text", reads)
 	}
 
 	// An audio file without duration is read after the debounce window passes.
@@ -507,9 +534,9 @@ func TestCapiTimeReadsArrivalFromVoiceMessagesAndAudioFilesOverGateway(t *testin
 	if second := publicCapiReplies(h)[1]; second.ReplyToID != fileMsgID {
 		t.Errorf("audio file reply ReplyToID = %q, want %q", second.ReplyToID, fileMsgID)
 	}
-	_, mimes = h.capiAudio.snapshot()
-	if !slices.Equal(mimes, []string{"audio/ogg", "audio/mpeg"}) {
-		t.Errorf("audio MIME types = %v, want the file read as audio/mpeg", mimes)
+	reads = h.capiReader.snapshot()
+	if len(reads) != 2 || reads[1].audioMIME != "audio/mpeg" {
+		t.Errorf("reads = %+v, want the file read as audio/mpeg", reads)
 	}
 
 	// Several audios in one message cost one read: the first one.
@@ -532,4 +559,110 @@ func TestCapiTimeReadsArrivalFromVoiceMessagesAndAudioFilesOverGateway(t *testin
 
 	assertNoUCLogLeaks(t, h, "voice-message.ogg", "clip.mp3", "extra.wav", "movie.mp4", "long.ogg", "big.mp3",
 		capiVoiceURL, capiAudioFileURL, capiAudioExtraURL, capiVideoURL)
+}
+
+func TestCapiTimeReadsCaptionImageAndVoiceAsOneMessageOverGateway(t *testing.T) {
+	h := newHarness(t)
+	resetCapiGuildConfigsOnCleanup(t, h, h.guild.ID)
+	santiago := mustLoadSantiago(t)
+
+	h.clock.Set(time.Date(2026, time.November, 1, 21, 0, 0, 0, santiago))
+
+	target := userC
+	channel := h.guild.ChannelID
+	_, err := h.capi.UpdateGuildConfig(
+		t.Context(),
+		capitime.GuildScope{GuildID: h.guild.ID, CanManageGuild: true},
+		capitime.GuildConfigUpdate{TargetUserID: &target, ChannelID: &channel},
+	)
+	if err != nil {
+		t.Fatalf("UpdateGuildConfig: %v", err)
+	}
+
+	const caption = "miren lo que les traje"
+	media := []fakediscord.Attachment{
+		{ID: capiAttachmentID, Filename: "photo.png", ContentType: "image/png", URL: capiAttachmentURL, Size: 2048},
+		{
+			ID: capiVoiceID, Filename: "voice-message.ogg", ContentType: "audio/ogg", URL: capiVoiceURL,
+			Size: 4096, DurationSecs: 4.5,
+		},
+	}
+	stickers := []fakediscord.StickerItem{{ID: capiStickerID, Name: "VOY", FormatType: stickerFormatPNG}}
+
+	msgID, err := h.fake.SendUserMessageWithMedia(h.users[userC], h.guild, "", caption, media, stickers)
+	if err != nil {
+		t.Fatalf("SendUserMessageWithMedia: %v", err)
+	}
+
+	waitFor(t, "Capi Time reply to the caption with media", func() bool {
+		return len(publicCapiReplies(h)) == 1
+	})
+	if reply := publicCapiReplies(h)[0]; reply.ReplyToID != msgID {
+		t.Errorf("reply ReplyToID = %q, want %q", reply.ReplyToID, msgID)
+	}
+
+	reads := h.capiReader.snapshot()
+	if len(reads) != 1 {
+		t.Fatalf("reads = %+v, want the whole message judged in exactly one read", reads)
+	}
+	if reads[0].text != capiNowLine+"\nmensaje: "+caption+"\nsticker: VOY" {
+		t.Errorf("read text = %q, want the caption and the sticker hint", reads[0].text)
+	}
+	if !slices.Equal(reads[0].imageMIMEs, []string{"image/png", "image/png"}) || reads[0].audioMIME != "audio/ogg" {
+		t.Errorf("read = %+v, want the attachment, the sticker and the voice message", reads[0])
+	}
+	if urls := h.capiImages.snapshot(); len(urls) != 3 {
+		t.Errorf("fetched %v, want the attachment, the sticker and the voice message once each", urls)
+	}
+
+	assertNoUCLogLeaks(t, h, caption, "VOY", "photo.png", "voice-message.ogg", capiAttachmentURL, capiVoiceURL)
+}
+
+func TestCapiTimeStaysSilentWhenTheModelSeesNoArrivalOverGateway(t *testing.T) {
+	h := newHarness(t)
+	resetCapiGuildConfigsOnCleanup(t, h, h.guild.ID)
+	santiago := mustLoadSantiago(t)
+
+	// Monday 2026-11-02 17:24 in America/Santiago.
+	h.clock.Set(time.Date(2026, time.November, 2, 17, 24, 0, 0, santiago))
+	h.capiReader.setAnswer(capiNoArrivalJSON)
+	h.capiReader.answerFor("mensaje: 22:30 llego", `{"arrival":true,"day":"","clock":"22:30","minutes":0}`)
+
+	target := userC
+	channel := h.guild.ChannelID
+	_, err := h.capi.UpdateGuildConfig(
+		t.Context(),
+		capitime.GuildScope{GuildID: h.guild.ID, CanManageGuild: true},
+		capitime.GuildConfigUpdate{TargetUserID: &target, ChannelID: &channel},
+	)
+	if err != nil {
+		t.Fatalf("UpdateGuildConfig: %v", err)
+	}
+
+	const comment = "Dia lunes 17:24 y se cayo el servidor"
+	if _, sendErr := h.fake.SendUserMessage(h.users[userC], h.guild, h.guild.ChannelID, comment); sendErr != nil {
+		t.Fatalf("SendUserMessage comment: %v", sendErr)
+	}
+
+	waitFor(t, "the comment to be read by the model", func() bool {
+		return len(h.capiReader.snapshot()) == 1
+	})
+	if read := h.capiReader.snapshot()[0]; read.text != "ahora: lunes 2026-11-02 17:24\nmensaje: "+comment {
+		t.Errorf("read text = %q, want the comment next to the current instant", read.text)
+	}
+
+	// A promise is handled after the comment, so its reply proves the comment got none.
+	arrivalID, err := h.fake.SendUserMessage(h.users[userC], h.guild, h.guild.ChannelID, "22:30 llego")
+	if err != nil {
+		t.Fatalf("SendUserMessage arrival: %v", err)
+	}
+
+	waitFor(t, "Capi Time reply to the later arrival", func() bool {
+		return len(publicCapiReplies(h)) == 1
+	})
+	if reply := publicCapiReplies(h)[0]; reply.ReplyToID != arrivalID {
+		t.Errorf("reply ReplyToID = %q, want the arrival message %q and none for the comment", reply.ReplyToID, arrivalID)
+	}
+
+	assertNoUCLogLeaks(t, h, comment, "se cayo el servidor", "22:30 llego")
 }

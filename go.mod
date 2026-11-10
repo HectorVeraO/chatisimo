@@ -25,7 +25,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/riverqueue/river/riverdriver v0.50.0 // indirect
 	github.com/riverqueue/river/rivershared v0.50.0 // indirect

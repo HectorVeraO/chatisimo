@@ -6,6 +6,7 @@ package capitime
 import (
 	"context"
 	"io"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -95,7 +96,7 @@ type GuildConfigUpdate struct {
 }
 
 // MaxImageRefs is the largest number of image references a client adapter should pass in one
-// MessageInput. A message that carries more usable images than the vision model accepts is not read.
+// MessageInput. When a message carries more usable images than the model accepts, none is read.
 const MaxImageRefs = 4
 
 // ImageRef points at one image of a message: an attachment or a sticker.
@@ -184,14 +185,10 @@ type LLMGenerator interface {
 	GenerateWithPrompt(ctx context.Context, systemInstruction, userPrompt string) (string, error)
 }
 
-// VisionGenerator reads images with a multimodal model. *llm.Client satisfies this interface.
-type VisionGenerator interface {
-	GenerateWithImages(ctx context.Context, systemInstruction, text string, images []llm.Image) (string, error)
-}
-
-// AudioGenerator listens to audio with a multimodal model. *llm.Client satisfies this interface.
-type AudioGenerator interface {
-	GenerateWithAudio(ctx context.Context, systemInstruction, text string, audio llm.Audio) (string, error)
+// ArrivalReader reads the text, images and audio of one message with a multimodal model, in one
+// request. *llm.Client satisfies this interface.
+type ArrivalReader interface {
+	GenerateWithMedia(ctx context.Context, req llm.MediaRequest) (string, error)
 }
 
 // ImageFetcher downloads the media behind url, failing when it is larger than maxBytes. Despite the
@@ -211,13 +208,16 @@ type Deps struct {
 	Clock    func() time.Time
 	Rand     io.Reader
 	Settings SettingReader
-	LLM      LLMGenerator
-	Banter   BanterGenerator
-	// Vision reads arrival text from images and stickers. When nil, messages without text are ignored.
-	Vision VisionGenerator
-	// Audio reads arrival announcements from voice messages and audio files. When nil, audio is ignored.
-	Audio AudioGenerator
-	// Images downloads the images Vision reads and the audio Audio listens to. When nil and Vision or
-	// Audio is set, an HTTPImageFetcher limited to the Discord CDN is used.
+	// LLM writes the banter of a reply. When nil and Banter is nil, the static banter is used.
+	LLM    LLMGenerator
+	Banter BanterGenerator
+	// Reader decides whether a message announces an arrival. When nil, no arrival is ever detected
+	// and the service stays silent.
+	Reader ArrivalReader
+	// Images downloads the images and the audio Reader reads. When nil and Reader is set, an
+	// HTTPImageFetcher limited to the Discord CDN is used.
 	Images ImageFetcher
+	// Logger receives one line per evaluated message, naming the step that decided and the kind of
+	// media read; never text, names or IDs. When nil, nothing is logged.
+	Logger *slog.Logger
 }
